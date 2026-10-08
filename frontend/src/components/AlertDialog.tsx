@@ -1,3 +1,4 @@
+import { useEffect, useId, useRef } from "react";
 import Button from "@/components/Button";
 
 type Props = {
@@ -13,26 +14,42 @@ export default function AlertDialog({
     message,
     onClose,
 }: Props) {
+    const dialogRef = useRef<HTMLDialogElement>(null);
+    const titleId = useId();
+    const messageId = useId();
+
+    useEffect(() => {
+        const dialog = dialogRef.current;
+        if (!open || !dialog) return;
+        const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        dialog.showModal();
+        dialog.querySelector<HTMLElement>("button")?.focus();
+        return () => {
+            if (dialog.open) dialog.close();
+            if (opener?.isConnected) opener.focus();
+        };
+    }, [open]);
+
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-            {/* Fondo blur */}
-            <div
-                className="absolute inset-0 bg-black/30 backdrop-blur-sm"
-                onClick={onClose}
-            />
-
-            {/* Modal centrado */}
-            <div
-                className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white/90 p-6 shadow-lg"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <h3 className="text-lg font-semibold mb-2">
+        <dialog
+            ref={dialogRef}
+            aria-labelledby={titleId}
+            aria-describedby={messageId}
+            onCancel={(event) => { event.preventDefault(); onClose(); }}
+            onClick={(event) => {
+                if (event.target !== event.currentTarget) return;
+                const rect = event.currentTarget.getBoundingClientRect();
+                if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onClose();
+            }}
+            className="fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-slate-200 bg-white/90 p-6 shadow-lg backdrop:bg-black/30 backdrop:backdrop-blur-sm"
+        >
+                <h3 id={titleId} className="text-lg font-semibold mb-2">
                     {title}
                 </h3>
 
-                <p className="text-sm text-slate-600 mb-5">
+                <p id={messageId} className="text-sm text-slate-600 mb-5">
                     {message}
                 </p>
 
@@ -45,7 +62,6 @@ export default function AlertDialog({
                         Entendido
                     </Button>
                 </div>
-            </div>
-        </div>
+        </dialog>
     );
 }

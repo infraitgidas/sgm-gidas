@@ -1,25 +1,45 @@
+import Field from "@/components/Field";
+import { applyFieldErrors, getErrorMessage } from "@/lib/httpError";
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowLeft, Eye, EyeOff, LoaderCircle, LogIn } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, LoaderCircle, LogIn } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useSystemSetup } from "@/modules/auth/hooks/useSystemSetup";
+import RouteBreadcrumbs from "@/modules/shared/components/RouteBreadcrumbs";
+import {
+  consumeSessionEnded,
+  consumeSessionPath,
+  isSafeInternalPath,
+} from "@/modules/auth/utils/sessionNavigation";
 
 export default function LoginPage() {
   const { login, user, loading: sessionLoading } = useAuth();
   const { data: needsInitialAdmin, isFetching: setupFetching } = useSystemSetup();
   const nav = useNavigate();
-  const location = useLocation() as { state?: { from?: { pathname?: string } } };
-  const from = location.state?.from?.pathname || "/inicio";
+  const location = useLocation() as {
+    state?: { from?: { pathname?: string; search?: string; hash?: string } };
+  };
+  const [from] = useState(() => {
+    const statePath = location.state?.from
+      ? `${location.state.from.pathname ?? ""}${location.state.from.search ?? ""}${location.state.from.hash ?? ""}`
+      : "";
+    if (statePath && isSafeInternalPath(statePath)) return statePath;
+    return consumeSessionPath() ?? "/inicio";
+  });
 
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [sessionEnded, setSessionEnded] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!sessionLoading && user) {
       nav(user.primer_login ? "/cambiar-password" : from, { replace: true });
+    } else if (!sessionLoading) {
+      setSessionEnded(consumeSessionEnded());
     }
   }, [from, nav, sessionLoading, user]);
 
@@ -37,10 +57,9 @@ export default function LoginPage() {
       const auth = await login(usuario, password);
       nav(auth.user.primer_login ? "/cambiar-password" : from, { replace: true });
     } catch (err: unknown) {
+      if (applyFieldErrors(err, setFieldErrors, ["usuario","password"])) return;
       setError(
-        err instanceof Error
-          ? err.message
-          : "Lo sentimos, no pudimos iniciar sesión. Verifique los datos e intente nuevamente."
+        getErrorMessage(err, "Lo sentimos, no pudimos iniciar sesión. Verifique los datos e intente nuevamente.")
       );
     } finally {
       setLoading(false);
@@ -50,13 +69,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-[#F6F6FB] px-4 py-8 sm:py-12">
       <div className="mx-auto w-full max-w-md">
-        <Link
-          to="/"
-          className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-950"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Volver a la página principal
-        </Link>
+        <RouteBreadcrumbs />
 
         <div className="card w-full border border-slate-200 bg-white p-8 shadow-sm">
           <div className="mb-8 text-center">
@@ -70,10 +83,13 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleSubmit} noValidate className="space-y-5">
-            <div>
-              <label htmlFor="usuario" className="mb-1.5 block text-sm font-semibold text-slate-700">
-                Nombre de usuario
-              </label>
+            {sessionEnded && (
+              <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Su sesión terminó. Inicie sesión nuevamente para continuar.
+              </p>
+            )}
+            <Field label="Nombre de usuario" required name="usuario" error={fieldErrors.usuario}>
+
               <input
                 id="usuario"
                 className="w-full rounded-lg border border-slate-300 px-4 py-2.5 outline-none transition focus:border-transparent focus:ring-2 focus:ring-slate-900"
@@ -84,12 +100,10 @@ export default function LoginPage() {
                 placeholder="Ej: juanperez"
                 autoComplete="username"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label htmlFor="password" className="mb-1.5 block text-sm font-semibold text-slate-700">
-                Contraseña
-              </label>
+            <Field label="Contraseña" required name="password" error={fieldErrors.password}>
+
               <div className="relative">
                 <input
                   id="password"
@@ -116,7 +130,7 @@ export default function LoginPage() {
                   )}
                 </button>
               </div>
-            </div>
+            </Field>
 
             {error && (
               <div role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">

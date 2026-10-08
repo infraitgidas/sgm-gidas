@@ -40,6 +40,8 @@ export interface RelacionesPersonal {
 export interface PersonalCompleto {
   id: number;
   nombre_apellido: string;
+  dni: string | null;
+  cuil: string | null;
   created_by: number | null;
   created_at: string | null | undefined;
   updated_at?: string | null;
@@ -53,8 +55,8 @@ export interface PersonalCompleto {
   tipo_personal_id?: number;
   tipo_formacion_id?: number;
   tipo_dedicacion_id?: number;
-  categoria_utn_id?: number;
-  programa_incentivos_id?: number;
+  categoria_utn_id?: number | null;
+  programa_incentivos_id?: number | null;
   grupo_utn_id?: number;
   rol: "personal" | "becario" | "investigador" | "profesional";
   grupo?: {

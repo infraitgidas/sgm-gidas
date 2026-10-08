@@ -92,11 +92,18 @@ class ProyectoInvestigacion(db.Model, AuditMixin):
     __tablename__ = 'proyecto_investigacion'
 
     id = db.Column(db.Integer, primary_key=True)
-    codigo_proyecto = db.Column(db.Integer, nullable=False)
+    codigo_proyecto = db.Column(db.String(50), nullable=False)
     nombre_proyecto = db.Column(db.Text, nullable=False)
     descripcion_proyecto = db.Column(db.Text, nullable=False)
     fecha_inicio = db.Column(db.Date, nullable=False) 
     fecha_fin = db.Column(db.Date, nullable=True)
+    fecha_fin_original = db.Column(db.Date, nullable=True)
+    fecha_fin_prorrogada = db.Column(db.Date, nullable=True)
+    prorroga_motivo = db.Column(db.Text, nullable=True)
+    prorroga_by = db.Column(db.Integer, db.ForeignKey('usuario.id'), nullable=True)
+    prorroga_at = db.Column(db.DateTime, nullable=True)
+    prorroga_usuario = db.relationship('Usuario', foreign_keys=[prorroga_by], lazy='joined')
+    logros_obtenidos = db.Column(db.Text, nullable=True)
     dificultades_proyecto = db.Column(db.Text, nullable=True)
     monto_destinado = db.Column(db.Float, nullable=True)
 
@@ -125,9 +132,13 @@ class ProyectoInvestigacion(db.Model, AuditMixin):
     )
 
 
-    def serialize(self):
+    def serialize(self, cerrado_override=None):
         data = self.to_dict()
-        data["cerrado"] = bool(self.fecha_fin and self.fecha_fin <= date.today())
+        data["fecha_fin_original"] = (self.fecha_fin_original or self.fecha_fin).isoformat() if (self.fecha_fin_original or self.fecha_fin) else None
+        data["prorroga_by_nombre"] = self._get_audit_user_name(self.prorroga_usuario)
+        from modules.informes.services.cierre_proyecto import tiene_informe_de_cierre
+        data["cerrado"] = (bool(self.deleted_at and self.fecha_fin and self.fecha_fin <= date.today() and tiene_informe_de_cierre(self.id, self.fecha_fin, grupo_utn_id=self.grupo_utn_id))
+                           if cerrado_override is None else cerrado_override)
 
         # Grupo
         if self.grupo_utn:
@@ -164,6 +175,7 @@ class ProyectoInvestigacion(db.Model, AuditMixin):
                     "id": p.investigador.id,
                     "nombre_apellido": p.investigador.nombre_apellido,
                     "es_coordinador": p.es_coordinador,
+                    "activo": bool(p.investigador.activo and p.investigador.deleted_at is None),
                     "fecha_inicio": p.fecha_inicio.isoformat(),
                     "fecha_fin": p.fecha_fin.isoformat() if p.fecha_fin else None
                 })
@@ -206,11 +218,12 @@ class ProyectoInvestigacionMemoriaVersion(db.Model, AuditMixin):
         nullable=False
     )
 
-    codigo_proyecto = db.Column(db.Integer, nullable=False)
+    codigo_proyecto = db.Column(db.String(50), nullable=False)
     nombre_proyecto = db.Column(db.Text, nullable=False)
     descripcion_proyecto = db.Column(db.Text, nullable=False)
     fecha_inicio = db.Column(db.Date, nullable=False)
     fecha_fin = db.Column(db.Date, nullable=True)
+    logros_obtenidos = db.Column(db.Text, nullable=True)
     dificultades_proyecto = db.Column(db.Text, nullable=True)
     monto_destinado = db.Column(db.Float, nullable=True)
 

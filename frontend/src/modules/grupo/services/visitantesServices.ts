@@ -46,11 +46,6 @@ export type GrupoUtnOption = {
   nombre: string;
 };
 
-export type TipoVisitaOption = {
-  id: number;
-  nombre: string;
-};
-
 type VisitanteApiResponse = Omit<Visitante, "tipo_visita"> & {
   tipo_visita?: Visitante["tipo_visita"];
 };
@@ -167,14 +162,5 @@ export async function getGruposUtn() {
   return grupos.map((g) => ({
     id: g.id,
     nombre: g.nombre_sigla_grupo || g.nombre || "Grupo sin nombre",
-  }));
-}
-
-export async function getTiposVisita() {
-  const data = await http<TipoVisitaOption[]>("/tipos-reunion-cientifica/");
-
-  return (data ?? []).map((t) => ({
-    id: t.id,
-    nombre: t.nombre,
   }));
 }

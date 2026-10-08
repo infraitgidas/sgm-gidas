@@ -11,7 +11,7 @@ export function useArticulosDivulgacion(
 ) {
   const { uct } = useUct();
 
-  const { data = [], isLoading, isError } = useQuery<ArticuloDivulgacion[]>({
+  const query = useQuery<ArticuloDivulgacion[]>({
     queryKey: ["articulos-divulgacion", activos],
     queryFn: () =>
       getArticulosDivulgacion({
@@ -22,14 +22,12 @@ export function useArticulosDivulgacion(
     staleTime: 60_000,
   });
 
-  const remove = async (id: number) => {
-    return deleteArticulo(id);
-  };
-
   return {
-    list: data,
-    isLoading,
-    isError,
-    remove,
+    list: query.data ?? [],
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    isError: query.isError,
+    refetch: query.refetch,
+    remove: deleteArticulo,
   };
 }

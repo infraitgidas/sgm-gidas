@@ -186,6 +186,12 @@ class Config:
         min_value=60,
         max_value=43200,
     )
+    SESSION_WARNING_SECONDS = _parse_int_env_range(
+        "SESSION_WARNING_SECONDS",
+        default=300,
+        min_value=30,
+        max_value=3600,
+    )
     REFRESH_SESSION_RETENTION_DAYS = _parse_int_env_range(
         "REFRESH_SESSION_RETENTION_DAYS",
         default=30,

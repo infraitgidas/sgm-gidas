@@ -13,6 +13,8 @@ class Memoria(db.Model, AuditMixin):
     __tablename__ = "memoria"
 
     id = db.Column(db.Integer, primary_key=True)
+    grupo_utn_id = db.Column(db.Integer, db.ForeignKey("grupo_utn.id"), nullable=True, index=True)
+    grupo_utn = db.relationship("GrupoInvestigacionUtn", lazy="joined")
     periodo_inicio = db.Column(db.Date, nullable=False)
     periodo_fin = db.Column(db.Date, nullable=False)
     version_actual_id = db.Column(
@@ -42,6 +44,7 @@ class Memoria(db.Model, AuditMixin):
             if self.version_actual else None
         )
         data["cantidad_versiones"] = len(self.versiones)
+        data["grupo_utn_nombre"] = self.grupo_utn.nombre_sigla_grupo if self.grupo_utn else None
         return data
 
 
@@ -50,6 +53,7 @@ class MemoriaVersion(db.Model, AuditMixin):
 
     id = db.Column(db.Integer, primary_key=True)
     numero_version = db.Column(db.Integer, nullable=False)
+    contexto_institucional = db.Column(db.JSON, nullable=True)
     # La apertura pertenece a la vida de esta version concreta. Puede ser
     # informada por el usuario al crearla o resolverse desde la capa de servicio.
     fecha_apertura = db.Column(db.DateTime, nullable=False)
@@ -88,5 +92,13 @@ class MemoriaVersion(db.Model, AuditMixin):
 
     def serialize(self):
         data = self.to_dict()
+        data["contexto_institucional"] = self.contexto_institucional_seguro()
         data["estado"] = self.estado.value if self.estado else None
         return data
+
+    def contexto_institucional_seguro(self):
+        contexto = self.contexto_institucional
+        grupo = contexto.get("grupo") if isinstance(contexto, dict) else None
+        if not isinstance(grupo, dict) or self.memoria is None:
+            return None
+        return contexto if grupo.get("id") == self.memoria.grupo_utn_id else None

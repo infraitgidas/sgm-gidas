@@ -50,9 +50,9 @@ class _FakeQuery:
 
 class SearchServiceTestCase(unittest.TestCase):
 
-    def test_matriz_cubre_24_modulos_sin_duplicados(self):
+    def test_matriz_cubre_23_modulos_sin_duplicados(self):
         modulos = [probe.modulo for probe in PROBES]
-        self.assertEqual(len(modulos), 24)
+        self.assertEqual(len(modulos), 23)
         self.assertEqual(len(modulos), len(set(modulos)))
         self.assertTrue(all(probe.url.startswith("/") for probe in PROBES))
 
@@ -122,8 +122,8 @@ class SearchControllerTestCase(unittest.TestCase):
 
         with self.app.test_request_context("/search/?q=al&page=2&per_page=2"):
             with patch(
-                "modules.search.controllers.search_controller.SearchService.search",
-                return_value=resultados,
+                "modules.search.controllers.search_controller.SearchService.search_page",
+                return_value=(resultados[2:4], 4),
             ) as mock_search:
                 response, status_code = SearchController.buscar()
 
@@ -139,6 +139,8 @@ class SearchControllerTestCase(unittest.TestCase):
             query_text="al",
             orden="alf_asc",
             eliminados="false",
+            page=2,
+            per_page=2,
             max_scan_per_model=30,
         )
 
@@ -147,8 +149,8 @@ class SearchControllerTestCase(unittest.TestCase):
 
         with self.app.test_request_context("/search/?q=al&per_page=99"):
             with patch(
-                "modules.search.controllers.search_controller.SearchService.search",
-                return_value=resultados,
+                "modules.search.controllers.search_controller.SearchService.search_page",
+                return_value=(resultados[:3], 5),
             ):
                 response, status_code = SearchController.buscar()
 
@@ -169,13 +171,13 @@ class SearchControllerTestCase(unittest.TestCase):
             response, status_code = SearchController.buscar()
 
         self.assertEqual(status_code, 400)
-        self.assertEqual(response.get_json()["error"]["message"], 'El parametro "page" debe ser numerico')
+        self.assertEqual(response.get_json()["error"]["message"], 'El parametro "page" debe ser numérico')
 
     def test_buscar_oculta_error_inesperado(self):
         marker = "ruta interna password=secreto"
         with self.app.test_request_context("/search/?q=al"):
             with patch(
-                "modules.search.controllers.search_controller.SearchService.search",
+                "modules.search.controllers.search_controller.SearchService.search_page",
                 side_effect=RuntimeError(marker),
             ):
                 response, status_code = SearchController.buscar()

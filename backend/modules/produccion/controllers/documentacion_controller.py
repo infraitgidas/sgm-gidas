@@ -3,6 +3,7 @@ from modules.produccion.services.documentacion_service import (
     DocumentacionBibliograficaService
 )
 from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, filtered_page_response, table_page_response
 
 class DocumentacionBibliograficaController:
 
@@ -13,6 +14,10 @@ class DocumentacionBibliograficaController:
                 "activos": request.args.get("activos", "true"),
                 "orden": request.args.get("orden")
             }
+            if request.args.get("view") == "table":
+                return table_page_response(DocumentacionBibliograficaService, filters, request.args)
+            if pagination_requested(request.args):
+                return filtered_page_response(DocumentacionBibliograficaService, filters, request.args)
             return jsonify(
                 DocumentacionBibliograficaService.get_all(filters)
             ), 200
@@ -90,7 +95,8 @@ class DocumentacionBibliograficaController:
             return jsonify(
                 DocumentacionBibliograficaService.add_autor(
                     doc_id,
-                    data["autor_id"]
+                    data["autor_id"],
+                    g.current_user_id
                 )
             ), 200
 
@@ -104,7 +110,8 @@ class DocumentacionBibliograficaController:
             return jsonify(
                 DocumentacionBibliograficaService.remove_autor(
                     doc_id,
-                    autor_id
+                    autor_id,
+                    g.current_user_id
                 )
             ), 200
 

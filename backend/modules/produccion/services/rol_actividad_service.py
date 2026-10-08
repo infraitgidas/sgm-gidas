@@ -1,11 +1,17 @@
+from modules.shared.services.catalog_name_validation import validar_nombre_descriptivo
 from modules.produccion.models.actividad_docencia import RolActividad
 from modules.shared.services.catalogo_auditoria_service import CatalogoAuditoriaService
 from modules.shared.exceptions import ConflictError, NotFoundError, ValidationError
 from extension import db
 from sqlalchemy import func
+from modules.shared.services.catalog_pagination import catalog_page
 
 
 class RolActividadService:
+
+    @staticmethod
+    def get_page(page, per_page, activos="true", orden="asc"):
+        return catalog_page(RolActividad, RolActividad.nombre, activos=activos, orden=orden, page=page, per_page=per_page)
 
     @staticmethod
     def _validar_id(rol_id: int):
@@ -28,6 +34,7 @@ class RolActividadService:
             raise ValidationError("El nombre debe ser texto")
 
         nombre = nombre.strip()
+        validar_nombre_descriptivo(nombre)
         if not nombre:
             raise ValidationError("El nombre no puede estar vacio")
 

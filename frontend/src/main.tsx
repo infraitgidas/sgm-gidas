@@ -2,13 +2,14 @@ import { Component, lazy, Suspense, type ReactElement, type ReactNode } from "re
 import { createRoot } from "react-dom/client";
 
 
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, RouterProvider, useLocation, useParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Navigate } from "react-router-dom";
 
 import "./styles/index.css";
 
 import AppLayout from "@/layouts/AppLayout";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 const Home = lazy(() => import("@/modules/dashboard/pages/Home"));
 const UctForm = lazy(() => import("@/modules/grupo/pages/UctForm"));
 const NotFound = lazy(() => import("@/modules/shared/pages/NotFound"));
@@ -23,6 +24,9 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 // nuevas páginas
 const PersonalLanding = lazy(() => import("@/modules/personal/pages/PersonalHome"));
 const PersonalDetalle = lazy(() => import("@/modules/personal/pages/PersonalDetalle"));
+const BecasHome = lazy(() => import("@/modules/recursos/pages/BecasHome"));
+const BecasForm = lazy(() => import("@/modules/recursos/pages/BecasForm"));
+const BecasDetalle = lazy(() => import("@/modules/recursos/pages/BecasDetalle"));
 const ProyectosLanding = lazy(() => import("@/modules/proyectos/pages/ProyectosHome"));
 const ProyectosForm = lazy(() => import("@/modules/proyectos/pages/ProyectosForm"));
 const DocenciaLanding = lazy(() => import("@/modules/produccion/pages/DocenciaHome"));
@@ -69,6 +73,9 @@ const MemoriasHome = lazy(() => import("@/modules/memorias/pages/MemoriasHome"))
 const MemoriaForm = lazy(() => import("@/modules/memorias/pages/MemoriaForm"));
 const MemoriaDetalle = lazy(() => import("@/modules/memorias/pages/MemoriaDetalle"));
 const MemoriaVersionDetalle = lazy(() => import("@/modules/memorias/pages/MemoriaVersionDetalle"));
+const InformesHome = lazy(() => import("@/modules/informes/pages/InformesHome"));
+const InformeForm = lazy(() => import("@/modules/informes/pages/InformeForm"));
+const InformeDetalle = lazy(() => import("@/modules/informes/pages/InformeDetalle"));
 
 // Gestión de usuarios
 const CambiarPassword = lazy(() => import("@/modules/auth/pages/CambiarPassword"));
@@ -84,10 +91,16 @@ function editorOnly(element: ReactElement) {
 
 function RouteLoading() {
   return (
-    <div className="flex min-h-screen items-center justify-center px-4" role="status" aria-live="polite">
-      <p className="text-sm text-slate-600">Cargando contenido...</p>
+    <div className="mx-auto w-full max-w-7xl px-6 py-8">
+      <LoadingSkeleton label="Cargando contenido…" />
     </div>
   );
+}
+
+function LegacyProjectEditRedirect() {
+  const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  return <Navigate to={`/proyectos/${id}/editar${location.search}`} replace state={location.state} />;
 }
 
 class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -148,12 +161,21 @@ const routes = [
       },
 
       { path: "busqueda", element: <SearchPage /> },
+      { path: "informes/:tipo", element: <ProtectedRoute requiredRole="GESTOR"><InformesHome /></ProtectedRoute> },
+      { path: "informes/:tipo/nuevo", element: <ProtectedRoute requiredRole="GESTOR"><InformeForm /></ProtectedRoute> },
+      { path: "informes/:tipo/:id", element: <ProtectedRoute requiredRole="GESTOR"><InformeDetalle /></ProtectedRoute> },
+      { path: "informes/:tipo/:id/editar", element: <ProtectedRoute requiredRole="GESTOR"><InformeForm /></ProtectedRoute> },
 
       // UCT
       { path: "uct/nueva", element: editorOnly(<UctForm />) },
+      { path: "uct/editar", element: editorOnly(<UctForm />) },
 
       // Personal
       { path: "personal", element: <PersonalLanding /> },   // landing  
+      { path: "becas", element: <BecasHome /> },
+      { path: "becas/nueva", element: editorOnly(<BecasForm />) },
+      { path: "becas/:id", element: <BecasDetalle /> },
+      { path: "becas/:id/editar", element: editorOnly(<BecasForm />) },
       { path: "personal/nuevo", element: editorOnly(<PersonalForm />) },    // formulario
       { path: "personal/:rol/:id", element: <PersonalDetalle /> }, // detalle de personal
       { path: "personal/:rol/:id/editar", element: editorOnly(<PersonalForm />) }, // editar personal
@@ -186,7 +208,8 @@ const routes = [
       { path: "proyectos", element: <ProyectosLanding /> },
       { path: "proyectos/nuevo", element: editorOnly(<ProyectosForm />) },
       { path: "proyectos/:id", element: <ProyectosDetalle /> },
-      { path: "proyectos/editar/:id", element: editorOnly(<ProyectosForm />) },
+      { path: "proyectos/:id/editar", element: editorOnly(<ProyectosForm />) },
+      { path: "proyectos/editar/:id", element: editorOnly(<LegacyProjectEditRedirect />) },
       // Docencia
       { path: "docenciaInvestigador", element: <DocenciaLanding /> },
       { path: "docenciaInvestigador/nuevo", element: editorOnly(<DocenciaForm />) },
@@ -227,10 +250,10 @@ const routes = [
 
 
       // Erogaciones / Compras
-      { path: "erogaciones", element: <ErogacionesLanding /> },
-      { path: "erogaciones/nuevo", element: editorOnly(<ErogacionesForm />) },
-      { path: "erogaciones/:id", element: <ErogacionesDetalle /> },
-      { path: "erogaciones/:id/editar", element: editorOnly(<ErogacionesForm />) },
+      { path: "movimientos", element: <ErogacionesLanding /> },
+      { path: "movimientos/nuevo", element: editorOnly(<ErogacionesForm />) },
+      { path: "movimientos/:id", element: <ErogacionesDetalle /> },
+      { path: "movimientos/:id/editar", element: editorOnly(<ErogacionesForm />) },
 
       // Equipamiento
       { path: "equipamiento", element: <EquipamientoLanding /> },
@@ -273,11 +296,7 @@ const routes = [
       { path: "memorias", element: <MemoriasHome /> },
       {
         path: "memorias/nueva",
-        element: (
-          <ProtectedRoute requiredRole="ADMIN">
-            <MemoriaForm />
-          </ProtectedRoute>
-        ),
+        element: editorOnly(<MemoriaForm />),
       },
       { path: "memorias/:id", element: <MemoriaDetalle /> },
       {
@@ -336,6 +355,19 @@ const routes = [
 // Cliente de React Query
 const queryClient = new QueryClient();
 
+// Retira datos guardados por versiones anteriores antes de mostrar cualquier ruta.
+try {
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith("gidas:form-draft:v1:") || key === "gidas_adoptantes_mock") {
+      localStorage.removeItem(key);
+    }
+  }
+} catch {
+  // El navegador puede deshabilitar Storage; los borradores nuevos usan el servidor.
+}
+
+// basename: la SGM se sirve bajo /sgm-gidas/ en el Portal GIDAS.
 const router = createBrowserRouter(routes, {
   basename: import.meta.env.VITE_BASE_PATH?.replace(/\/+$/, "") || "/",
 });

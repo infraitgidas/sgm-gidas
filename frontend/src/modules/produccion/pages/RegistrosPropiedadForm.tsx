@@ -1,3 +1,6 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { applyFieldErrors } from "@/lib/httpError";
+import { hasLetter } from "../../../lib/textValidation";
 import { useNavigate, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,11 +20,17 @@ import {
   type RegistroPropiedadPayload,
 } from "@/modules/produccion/services/registrosPropiedadServices";
 import { toTitleCase } from "@/utils/format";
+import { parseCivilDate, toCivilDateString } from "@/utils/dateTime";
+import { useAuth } from "@/context/AuthContext";
+import { useFormDraft } from "@/modules/shared/hooks/useFormDraft";
+import DraftRecoveryNotice from "@/modules/shared/components/DraftRecoveryNotice";
+import DraftLeaveControls from "@/modules/shared/components/DraftLeaveControls";
 
 export default function RegistrosPropiedadForm() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { uct, uctGuard } = useUctGuard();
+  const { user } = useAuth();
   const { tipos = [] } = useTiposRegistroPropiedad();
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
@@ -62,6 +71,17 @@ export default function RegistrosPropiedadForm() {
     });
   }, [initial]);
 
+  const { availableDraft, sourceChanged, restoreDraft, discardDraft, clearDraft, saveStatus, blocker, requestLeave, keepAndLeave, discardAndLeave } = useFormDraft({
+    userId: user?.id,
+    module: "produccion-registros",
+    recordId: id,
+    value: data,
+    ready: !isEdit || (!isLoading && Boolean(initial)),
+    autosave: false,
+    hasContent: (draft) => Object.values(draft).some(Boolean),
+    onRestore: setData,
+  });
+
   const clearError = (field: string) => {
     setErrors((prev) => {
       const copy = { ...prev };
@@ -74,7 +94,9 @@ export default function RegistrosPropiedadForm() {
     const newErrors: Record<string, string> = {};
 
     if (!data.nombre_articulo.trim()) {
-      newErrors.nombre_articulo = "Debe ingresar el nombre del articulo";
+      newErrors.nombre_articulo = "Debe ingresar el nombre del artículo";
+    } else if (!hasLetter(data.nombre_articulo)) {
+      newErrors.nombre_articulo = "El nombre del artículo debe contener letras";
     }
 
     if (!data.organismo_registrante.trim()) {
@@ -100,6 +122,7 @@ export default function RegistrosPropiedadForm() {
         ? updateRegistroPropiedad(registroId as number, payload)
         : createRegistroPropiedad(payload as RegistroPropiedadPayload),
     onSuccess: async (saved: RegistroPropiedad) => {
+      clearDraft();
       await qc.invalidateQueries({ queryKey: ["registros-propiedad"] });
       await qc.invalidateQueries({ queryKey: ["registro-propiedad", registroId] });
       await qc.invalidateQueries({
@@ -112,7 +135,7 @@ export default function RegistrosPropiedadForm() {
         navigate(`/registros-propiedad/${savedId}`, {
           replace: true,
           state: {
-            successMessage: "Registro actualizado con exito.",
+            successMessage: "Registro actualizado con éxito.",
           },
         });
         return;
@@ -121,15 +144,18 @@ export default function RegistrosPropiedadForm() {
       navigate("/registros-propiedad", {
         replace: true,
         state: {
-          successMessage: "Registro creado con exito.",
+          successMessage: "Registro creado con éxito.",
         },
       });
     },
     onError: (error) => {
+      if (applyFieldErrors(error, setErrors, ["nombre_articulo","organismo_registrante","fecha_registro","tipo_registro_id"])) return;
       setErrorMessage(
         getErrorMessage(
           error,
-          "Lo sentimos, no pudimos guardar los cambios. Verifique los datos e intente nuevamente."
+          isEdit
+            ? "Lo sentimos, no pudimos actualizar el registro de propiedad. Revise los datos e intente nuevamente."
+            : "Lo sentimos, no pudimos crear el registro de propiedad. Revise los datos e intente nuevamente."
         )
       );
 
@@ -139,6 +165,7 @@ export default function RegistrosPropiedadForm() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mutation.isPending) return;
 
     if (!uct) return;
     if (!validate()) return;
@@ -171,6 +198,7 @@ export default function RegistrosPropiedadForm() {
     );
 
     if (Object.keys(changedPayload).length === 0) {
+      clearDraft();
       navigate(`/registros-propiedad/${registroId}`, {
         replace: true,
         state: {
@@ -187,7 +215,7 @@ export default function RegistrosPropiedadForm() {
     `input ${errors[field] ? "!border-red-500 !ring-2 !ring-red-500" : ""}`;
 
   if (isEdit && isLoading) {
-    return <p className="text-slate-500">Cargando...</p>;
+    return <LoadingSkeleton variant="form" label="Cargando..." />;
   }
 
   return (
@@ -196,12 +224,15 @@ export default function RegistrosPropiedadForm() {
         {isEdit ? "Editar registro" : "Nuevo registro"}
       </h2>
 
+      {availableDraft && <DraftRecoveryNotice savedAt={availableDraft.saved_at} sourceChanged={sourceChanged} onRestore={restoreDraft} onDiscard={discardDraft} />}
+      <DraftLeaveControls blocker={blocker} saveStatus={saveStatus} keepAndLeave={keepAndLeave} discardAndLeave={discardAndLeave} />
+
       <form
         noValidate
         onSubmit={submit}
         className="mt-6 space-y-6 rounded-2xl border border-slate-200 bg-white p-6"
       >
-        <Field label="Nombre del articulo">
+        <Field required label="Nombre del artículo" name="nombre_articulo" error={errors.nombre_articulo}>
           <>
             <input
               className={inputClass("nombre_articulo")}
@@ -229,7 +260,7 @@ export default function RegistrosPropiedadForm() {
           </>
         </Field>
 
-        <Field label="Organismo registrante">
+        <Field required label="Organismo registrante" name="organismo_registrante" error={errors.organismo_registrante}>
           <>
             <input
               className={inputClass("organismo_registrante")}
@@ -261,22 +292,22 @@ export default function RegistrosPropiedadForm() {
           </>
         </Field>
 
-        <Field label="Fecha de registro">
+        <Field required label="Fecha de registro" name="fecha_registro" error={errors.fecha_registro}>
           <DatePicker
-            value={data.fecha_registro ? new Date(data.fecha_registro) : null}
+            value={parseCivilDate(data.fecha_registro)}
             onChange={(dt) => {
               setData({
                 ...data,
-                fecha_registro: dt ? dt.toISOString().split("T")[0] : "",
+                fecha_registro: toCivilDateString(dt) ?? "",
               });
               if (dt) clearError("fecha_registro");
             }}
-            helperText={errors.fecha_registro ?? "DD/MM/AAAA"}
+            helperText="DD/MM/AAAA"
             className={inputClass("fecha_registro")}
           />
         </Field>
 
-        <Field label="Tipo de registro">
+        <Field required label="Tipo de registro" name="tipo_registro_id" error={errors.tipo_registro_id}>
           <>
             <select
               className={`${inputClass("tipo_registro_id")} ${
@@ -315,12 +346,12 @@ export default function RegistrosPropiedadForm() {
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => navigate(-1)}
+            onClick={() => requestLeave(() => navigate(-1))}
           >
             Volver
           </Button>
 
-          <Button type="submit" size="sm" disabled={mutation.isPending}>
+          <Button type="submit" size="sm" disabled={mutation.isPending} loading={mutation.isPending} loadingText="Guardando...">
             {mutation.isPending
               ? isEdit
                 ? "Actualizando..."

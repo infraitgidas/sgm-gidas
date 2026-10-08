@@ -55,7 +55,9 @@ export function useEquipamiento(
   return {
     list: equipamientoQuery.data ?? [],
     isLoading: equipamientoQuery.isLoading,
+    isFetching: equipamientoQuery.isFetching,
     isError: equipamientoQuery.isError,
+    refetch: equipamientoQuery.refetch,
 
     create: createMutation.mutateAsync,
     creating: createMutation.isPending,

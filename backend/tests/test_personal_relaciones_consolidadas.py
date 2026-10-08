@@ -44,8 +44,8 @@ class PersonalRelacionesConsolidadasTestCase(unittest.TestCase):
             _sincronizar_becas(
                 becario,
                 [
-                    {"beca_id": 1, "fecha_inicio": "2025-02-01", "monto_percibido": 150},
-                    {"beca_id": 3, "fecha_inicio": "2025-03-01"},
+                    {"beca_id": 1, "fecha_inicio": "2025-02-01", "fecha_fin": "2025-12-01", "monto_percibido": 150},
+                    {"beca_id": 3, "fecha_inicio": "2025-03-01", "fecha_fin": "2025-12-01"},
                 ],
                 user_id=9,
             )
@@ -63,15 +63,26 @@ class PersonalRelacionesConsolidadasTestCase(unittest.TestCase):
         beca.deleted_at = None
 
         with patch("extension.db.session.get", return_value=beca):
-            with self.assertRaisesRegex(ValueError, "IDs repetidos"):
+            with self.assertRaisesRegex(ValueError, "beca está repetida") as caught:
                 _sincronizar_becas(
                     becario,
                     [
-                        {"beca_id": 1, "fecha_inicio": "2025-01-01"},
-                        {"beca_id": 1, "fecha_inicio": "2025-02-01"},
+                        {"beca_id": 1, "fecha_inicio": "2025-01-01", "fecha_fin": "2025-12-01"},
+                        {"beca_id": 1, "fecha_inicio": "2025-02-01", "fecha_fin": "2025-12-01"},
                     ],
                     user_id=9,
                 )
+            self.assertIn("becas", caught.exception.details["fields"])
+
+    def test_exige_fecha_de_fin_para_registrar_el_plazo(self):
+        becario = Becario(id=7, nombre_apellido="Becario", horas_semanales=20)
+        becario.becas = []
+        beca = Beca(id=1, nombre_beca="Beca", created_by=1)
+        beca.deleted_at = None
+        with patch("extension.db.session.get", return_value=beca):
+            with self.assertRaisesRegex(ValueError, "fecha de fin") as caught:
+                _sincronizar_becas(becario, [{"beca_id": 1, "fecha_inicio": "2025-01-01"}], 9)
+        self.assertIn("becas", caught.exception.details["fields"])
 
 
 if __name__ == "__main__":

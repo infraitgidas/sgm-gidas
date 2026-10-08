@@ -1,140 +1,144 @@
-import { useNavigate, useLocation } from "react-router-dom";
-import { useEffect, useState, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import Button from "@/components/Button";
-import Tarjeta from "@/components/Tarjeta";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import SuccessToast from "@/components/SuccessToast";
 import MemoriaFilterBanner from "@/components/MemoriaFilterBanner";
-import { getErrorMessage } from "@/lib/httpError";
-
-import { useArticulosDivulgacion } from "@/modules/produccion/hooks/useArticulosDivulgacion";
-import type { ArticuloDivulgacion } from "@/modules/produccion/services/articulosDivulgacionServices";
+import SuccessToast from "@/components/SuccessToast";
+import Table, {
+  TableActionButton,
+  TableActions,
+  TableFilterChip,
+  TableRowActionButton,
+  TableSearch,
+  TableToolbar,
+  type TableColumn,
+} from "@/components/Table";
+import TableFilterSelect from "@/components/TableFilterSelect";
 import { useAuth } from "@/context/AuthContext";
+import { getErrorMessage } from "@/lib/httpError";
 import {
   applyMemoriaSectionFilter,
   getMemoriaSectionFilter,
 } from "@/lib/memoriaSectionFilter";
 import { buildMemoriaDetailState } from "@/lib/memoriaNavigation";
+import { useArticulosDivulgacion } from "@/modules/produccion/hooks/useArticulosDivulgacion";
+import {
+  getHistorialArticuloById,
+  type ArticuloDivulgacion,
+  type HistorialArticuloDivulgacionItem,
+} from "@/modules/produccion/services/articulosDivulgacionServices";
+import {
+  formatArticuloHistoryEntry,
+  presentArticuloHistoryItems,
+} from "@/modules/produccion/utils/articuloDivulgacionHistory";
+import { formatFechaHora, getCivilYear } from "@/utils/dateTime";
 
 const ITEMS_PER_PAGE = 9;
+const HISTORY_PER_PAGE = 3;
 
-const formatDate = (dateStr?: string | null) => {
-  if (!dateStr) return "-";
-
-  const [y, m, d] = dateStr.split("-");
-  if (!y || !m || !d) return dateStr;
-
-  return `${d}/${m}/${y}`;
+const formatDate = (date?: string | null) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date ?? "");
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : date || "-";
 };
 
 export default function ArticulosDivulgacionHome() {
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const location = useLocation();
-  const { canCreateRecords, canDeleteRecords } = useAuth();
-
-  const puedeCrear = canCreateRecords();
-  const puedeEliminar = canDeleteRecords();
-
+  const queryClient = useQueryClient();
+  const { canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filters, setFilters] = useState({ estado: "", grupo: "", anio: "" });
+  const [page, setPage] = useState(1);
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [pendingDelete, setPendingDelete] = useState<ArticuloDivulgacion | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
-
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [showConfirm, setShowConfirm] = useState(false);
-
-  const [showFilters, setShowFilters] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [page, setPage] = useState(1);
-
-  const [filters, setFilters] = useState({
-    estado: "",
-    grupo: "",
-    anio: "",
-  });
-
-  const [tempFilters, setTempFilters] = useState(filters);
   const memoriaFilter = useMemo(
     () => getMemoriaSectionFilter(location.state, "articulos-divulgacion"),
     [location.state]
   );
-
-  const filtroActivos = useMemo<"true" | "false" | "all">(() => {
-    if (memoriaFilter) return "all";
-    if (filters.estado === "todos") return "all";
+  const activos = useMemo<"true" | "false" | "all">(() => {
+    if (memoriaFilter || filters.estado === "todos") return "all";
     if (filters.estado === "inactivos") return "false";
     return "true";
   }, [filters.estado, memoriaFilter]);
-
-  const { list = [], isLoading, isError, remove } =
-    useArticulosDivulgacion(filtroActivos);
+  const articulos = useArticulosDivulgacion(activos);
   const scopedList = useMemo(
-    () => applyMemoriaSectionFilter(list, memoriaFilter),
-    [list, memoriaFilter]
+    () => applyMemoriaSectionFilter(articulos.list, memoriaFilter),
+    [articulos.list, memoriaFilter]
   );
-
-  const articulosFiltrados = useMemo(() => {
-    return scopedList.filter((a) => {
-      const query = searchQuery.toLowerCase().trim();
-
-      const matchSearch =
-        !query ||
-        String(a.titulo ?? "").toLowerCase().includes(query) ||
-        String(a.descripcion ?? "").toLowerCase().includes(query) ||
-        String(a.fecha_publicacion ?? "").toLowerCase().includes(query) ||
-        String(a.grupo_utn?.nombre ?? "").toLowerCase().includes(query);
-
-      const matchGrupo =
-        !filters.grupo ||
-        String(a.grupo_utn?.nombre ?? "")
-          .toLowerCase()
-          .includes(filters.grupo.toLowerCase());
-
-      const matchAnio =
-        !filters.anio ||
-        new Date(a.fecha_publicacion).getFullYear() === Number(filters.anio);
-
-      return matchSearch && matchGrupo && matchAnio;
+  const filterOptions = useMemo(() => {
+    const grupos = new Map<number, string>();
+    const anios = new Set<number>();
+    scopedList.forEach((item) => {
+      if (item.grupo_utn?.id && item.grupo_utn.nombre) {
+        grupos.set(item.grupo_utn.id, item.grupo_utn.nombre);
+      }
+      const anio = getCivilYear(item.fecha_publicacion);
+      if (anio) anios.add(anio);
     });
-  }, [scopedList, searchQuery, filters]);
-
-  const totalPages = Math.max(1, Math.ceil(articulosFiltrados.length / ITEMS_PER_PAGE));
-  const articulosPaginados = articulosFiltrados.slice(
-    (page - 1) * ITEMS_PER_PAGE,
-    page * ITEMS_PER_PAGE
+    return {
+      grupos: [...grupos.entries()]
+        .sort((a, b) => a[1].localeCompare(b[1], "es"))
+        .map(([value, label]) => ({ value: String(value), label })),
+      anios: [...anios]
+        .sort((a, b) => b - a)
+        .map((value) => ({ value: String(value), label: String(value) })),
+    };
+  }, [scopedList]);
+  const groupNames = useMemo(
+    () => Object.fromEntries(filterOptions.grupos.map((option) => [Number(option.value), option.label])),
+    [filterOptions.grupos]
   );
-
-  const filtrosActivosCount = Object.values(filters).filter(Boolean).length;
-
-  useEffect(() => {
-    if (location.state?.successMessage) {
-      setSuccessMessage(location.state.successMessage);
-      setShowSuccess(true);
-      navigate(location.pathname, { replace: true });
-    }
-  }, [location.state, navigate, location.pathname]);
+  const filteredList = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase("es");
+    return scopedList.filter((item) => {
+      const matchesSearch =
+        !query ||
+        [item.titulo, item.descripcion, item.fecha_publicacion, item.grupo_utn?.nombre].some(
+          (value) => String(value ?? "").toLocaleLowerCase("es").includes(query)
+        );
+      const matchesGrupo =
+        !filters.grupo || String(item.grupo_utn?.id ?? item.grupo_utn_id) === filters.grupo;
+      const matchesAnio =
+        !filters.anio || getCivilYear(item.fecha_publicacion) === Number(filters.anio);
+      return matchesSearch && matchesGrupo && matchesAnio;
+    });
+  }, [filters, scopedList, searchQuery]);
+  const totalPages = Math.ceil(filteredList.length / ITEMS_PER_PAGE);
+  const paginatedItems = useMemo(() => {
+    const start = (page - 1) * ITEMS_PER_PAGE;
+    return filteredList.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredList, page]);
+  const expandedItem =
+    expandedRow === null ? undefined : scopedList.find((item) => item.id === expandedRow);
+  const history = useQuery({
+    queryKey: ["articulo-divulgacion-historial", expandedItem?.id],
+    queryFn: () => getHistorialArticuloById(expandedItem!.id),
+    enabled: Boolean(expandedItem),
+    staleTime: 5 * 60_000,
+  });
 
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, filters]);
-
+    setExpandedRow(null);
+  }, [filters, searchQuery]);
   useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages);
-    }
+    if (page > Math.max(totalPages, 1)) setPage(Math.max(totalPages, 1));
   }, [page, totalPages]);
-
-  const setQuickEstado = (estado: "" | "todos" | "inactivos") => {
-    setFilters((prev) => ({
-      ...prev,
-      estado,
-    }));
-  };
+  useEffect(() => {
+    if (!location.state?.successMessage) return;
+    setSuccessMessage(location.state.successMessage);
+    setShowSuccess(true);
+    navigate(location.pathname, { replace: true });
+  }, [location.pathname, location.state, navigate]);
 
   const quickEstadoActual =
     filters.estado === "todos"
@@ -142,398 +146,195 @@ export default function ArticulosDivulgacionHome() {
       : filters.estado === "inactivos"
         ? "inactivos"
         : "activos";
-
-  const toggleSelect = (id: number, checked: boolean) => {
-    if (!puedeEliminar) return;
-
-    const item = scopedList.find((x) => x.id === id);
-
-    if (item?.deleted_at) {
-      setErrorMessage(
-        "No se puede eliminar un articulo de divulgacion que ya fue eliminado."
-      );
-      setShowError(true);
-      return;
-    }
-
-    setSelectedIds((prev) =>
-      checked ? [...prev, id] : prev.filter((x) => x !== id)
-    );
-  };
-
-  const cancelSelection = () => {
-    setSelectMode(false);
-    setSelectedIds([]);
-    setShowConfirm(false);
-  };
-
-  const selectedItems = scopedList.filter((a) =>
-    selectedIds.includes(a.id)
-  );
-  const selectedActiveItems = selectedItems.filter((a) => !a.deleted_at);
+  const setFilter = (field: keyof typeof filters, value?: string) =>
+    setFilters((current) => ({ ...current, [field]: value ?? "" }));
 
   const confirmDelete = async () => {
-    const invalidItems = selectedItems.filter((a) => a.deleted_at);
-
-    if (invalidItems.length > 0) {
-      setShowConfirm(false);
-      setErrorMessage(
-        invalidItems.length === 1
-          ? "El articulo seleccionado ya fue eliminado."
-          : "Uno o mas articulos seleccionados ya fueron eliminados."
-      );
-      setShowError(true);
-      return;
-    }
-
+    if (!pendingDelete || pendingDelete.deleted_at || !canDeleteRecords()) return;
     try {
-      for (const item of selectedActiveItems) {
-        await remove(item.id);
-      }
-
-      await qc.invalidateQueries({ queryKey: ["articulos-divulgacion"] });
-
-      cancelSelection();
-
-      setSuccessMessage(
-        selectedActiveItems.length === 1
-          ? "Articulo de divulgacion eliminado con exito."
-          : "Articulos de divulgacion eliminados con exito."
-      );
+      await articulos.remove(pendingDelete.id);
+      await queryClient.invalidateQueries({ queryKey: ["articulos-divulgacion"] });
+      setPendingDelete(null);
+      setSuccessMessage("Artículo de divulgación eliminado con éxito.");
       setShowSuccess(true);
     } catch (error) {
-      setShowConfirm(false);
+      setPendingDelete(null);
       setErrorMessage(
         getErrorMessage(
           error,
-          "Lo sentimos, no pudimos completar la operacion. Intente nuevamente."
+          "Lo sentimos, no pudimos completar la operación. Intente nuevamente."
         )
       );
-
       setShowError(true);
     }
   };
 
-  return (
-    <section className="flex min-h-[calc(100vh-80px)] w-full flex-col px-4 py-4 text-sm md:px-6">
-      <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <h2 className="text-2xl font-semibold leading-none text-slate-800 md:text-3xl">
-            Articulos de Divulgacion
-          </h2>
-          <p className="mt-2 text-xs text-slate-500">
-            {articulosFiltrados.length} de {scopedList.length} resultados
-          </p>
+  const renderHistory = () => {
+    if (history.isLoading) {
+      return <LoadingSkeleton variant="compact" label="Cargando historial…" />;
+    }
+    if (history.isError) {
+      return (
+        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-rose-700">
+          <span>Lo sentimos, no pudimos recuperar el historial. Intente nuevamente.</span>
+          <TableActionButton onClick={() => history.refetch()}>Reintentar</TableActionButton>
         </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <button
-              type="button"
-              onClick={() => setQuickEstado("")}
-              className={`px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "activos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Activos
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickEstado("todos")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "todos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Todos
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickEstado("inactivos")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "inactivos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Inactivos
-            </button>
-          </div>
-
-          <div className="relative w-full sm:w-64">
-            <input
-              type="text"
-              placeholder="Buscar por titulo, descripcion o fecha..."
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-10 text-xs outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-200"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-            </div>
-          </div>
-
-          {!selectMode ? (
-            <div className="flex gap-2">
-              {puedeEliminar && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setSelectMode(true)}
-                >
-                  Seleccionar
-                </Button>
-              )}
-
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setTempFilters(filters);
-                  setShowFilters(true);
-                }}
-              >
-                Filtros
-                {filtrosActivosCount > 0 && (
-                  <span className="ml-1.5 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-white">
-                    {filtrosActivosCount}
-                  </span>
-                )}
-              </Button>
-
-              {puedeCrear && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => navigate("/articulos-divulgacion/nuevo")}
-                >
-                  Nuevo
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              {selectedIds.length > 0 && puedeEliminar && (
-                <Button size="sm" onClick={() => setShowConfirm(true)}>
-                  Eliminar
-                </Button>
-              )}
-
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={cancelSelection}
-              >
-                Cancelar
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {memoriaFilter && <MemoriaFilterBanner filter={memoriaFilter} />}
-
-      <div className="flex-1">
-        {isLoading ? (
-          <p className="py-10 text-center text-slate-500">Cargando...</p>
-        ) : isError ? (
-          <p className="py-10 text-center text-slate-500">Error al cargar.</p>
-        ) : articulosFiltrados.length === 0 ? (
-          <p className="py-10 text-center text-slate-500">
-            No hay articulos de divulgacion registrados.
-          </p>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {articulosPaginados.map((a: ArticuloDivulgacion) => (
-                <Tarjeta<ArticuloDivulgacion>
-                  key={a.id}
-                  item={a}
-                  title={(x) => x.titulo || "-"}
-                  subtitle={(x) => formatDate(x.fecha_publicacion)}
-                  badge={(x) => (x.deleted_at ? "INACTIVO" : "ACTIVO")}
-                  selectable={puedeEliminar && selectMode}
-                  selectDisabled={!!a.deleted_at}
-                  selected={selectedIds.includes(a.id)}
-                  onSelectChange={(checked) => toggleSelect(a.id, checked)}
-                  onClick={() =>
-                    !selectMode &&
-                    navigate(`/articulos-divulgacion/${a.id}`, {
-                      state: buildMemoriaDetailState(location),
-                    })
-                  }
-                />
-              ))}
-            </div>
-
-            {totalPages > 1 && (
-              <div className="mt-6 flex items-center justify-between">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                  disabled={page === 1}
-                >
-                  Anterior
-                </Button>
-
-                <span className="text-sm text-slate-500">
-                  Pagina {page} de {totalPages}
+      );
+    }
+    const entries = presentArticuloHistoryItems(
+      (history.data ?? []) as HistorialArticuloDivulgacionItem[]
+    );
+    if (!entries.length) {
+      return <p className="text-sm text-slate-500">No hay cambios registrados.</p>;
+    }
+    const pages = Math.ceil(entries.length / HISTORY_PER_PAGE);
+    const visible = entries.slice(
+      (historyPage - 1) * HISTORY_PER_PAGE,
+      historyPage * HISTORY_PER_PAGE
+    );
+    return (
+      <div>
+        <h3 className="mb-3 text-sm font-semibold text-slate-900">Historial de cambios</h3>
+        <ul className="space-y-2">
+          {visible.map((entry) => {
+            const presentation = formatArticuloHistoryEntry(entry, groupNames);
+            return (
+              <li key={entry.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                <span className="block font-medium text-slate-800">{presentation.title}</span>
+                <span className="mt-1 block text-slate-600">{presentation.description}</span>
+                <span className="mt-1 block text-xs text-slate-500">
+                  {formatFechaHora(entry.fecha_cambio)} · {entry.usuario_nombre || "Usuario no informado"}
                 </span>
-
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-                  disabled={page === totalPages}
-                >
-                  Siguiente
-                </Button>
-              </div>
-            )}
-          </>
+              </li>
+            );
+          })}
+        </ul>
+        {pages > 1 && (
+          <nav aria-label="Paginación del historial" className="mt-3 flex gap-2">
+            <TableActionButton disabled={historyPage === 1} onClick={() => setHistoryPage((value) => value - 1)}>Anterior</TableActionButton>
+            <span className="self-center text-xs text-slate-500">Página {historyPage} de {pages}</span>
+            <TableActionButton disabled={historyPage === pages} onClick={() => setHistoryPage((value) => value + 1)}>Siguiente</TableActionButton>
+          </nav>
         )}
       </div>
+    );
+  };
 
-      <ConfirmDialog
-        open={showConfirm}
-        title="Eliminar articulos de divulgacion"
-        message="¿Eliminar los siguientes articulos?"
-        items={selectedActiveItems.map((a) => a.titulo || "-")}
-        onCancel={cancelSelection}
-        onConfirm={confirmDelete}
-      />
+  const columns: TableColumn<ArticuloDivulgacion>[] = [
+    {
+      id: "titulo",
+      header: "Título",
+      render: (item) => <span className="block font-medium text-slate-900">{item.titulo || "-"}</span>,
+    },
+    {
+      id: "descripcion",
+      header: "Descripción",
+      priority: "secondary",
+      render: (item) => <span className="line-clamp-2 max-w-lg">{item.descripcion || "-"}</span>,
+    },
+    {
+      id: "fecha_publicacion",
+      header: "Fecha de publicación",
+      priority: "tertiary",
+      render: (item) => formatDate(item.fecha_publicacion),
+    },
+    {
+      id: "estado",
+      header: "Estado",
+      render: (item) => {
+        const activo = !item.deleted_at;
+        return (
+          <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${activo ? "text-emerald-700" : "text-rose-700"}`}>
+            <span aria-hidden="true" className={`h-2 w-2 rounded-full ${activo ? "bg-emerald-500" : "bg-rose-500"}`} />
+            {activo ? "Activo" : "Inactivo"}
+          </span>
+        );
+      },
+    },
+    {
+      id: "acciones",
+      header: "Acciones",
+      align: "right",
+      render: (item) => {
+        const activo = !item.deleted_at;
+        const label = item.titulo || "artículo";
+        return (
+          <TableActions>
+            <TableRowActionButton action="view" aria-label={`Ver detalle de ${label}`} onClick={() => navigate(`/articulos-divulgacion/${item.id}`, { state: buildMemoriaDetailState(location) })} />
+            {activo && canEditRecords() && (
+              <TableRowActionButton action="edit" aria-label={`Editar ${label}`} onClick={() => navigate(`/articulos-divulgacion/${item.id}/editar`)} />
+            )}
+            {activo && canDeleteRecords() && (
+              <TableRowActionButton action="delete" aria-label={`Eliminar ${label}`} onClick={() => setPendingDelete(item)} />
+            )}
+          </TableActions>
+        );
+      },
+    },
+  ];
 
-      <SuccessToast
-        open={showSuccess}
-        message={successMessage}
-        onClose={() => setShowSuccess(false)}
-      />
-
-      <SuccessToast
-        open={showError}
-        message={errorMessage}
-        onClose={() => setShowError(false)}
-        variant="error"
-      />
-
-      {showFilters && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
-            onClick={() => setShowFilters(false)}
-          />
-
-          <div className="fixed top-0 right-0 z-50 flex h-full w-[380px] flex-col overflow-y-auto bg-white p-6 shadow-2xl">
-            <h3 className="mb-6 text-xl font-semibold">Filtros avanzados</h3>
-
-            <div className="flex-1 space-y-5 text-[11px]">
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Estado
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.estado}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      estado: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Activos (Default)</option>
-                  <option value="todos">Todos</option>
-                  <option value="inactivos">Inactivos</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Grupo UTN
-                </label>
-                <input
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.grupo}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      grupo: e.target.value,
-                    })
-                  }
-                  placeholder="Ej: GIDAS"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Año
-                </label>
-                <input
-                  type="number"
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.anio}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      anio: e.target.value,
-                    })
-                  }
-                  placeholder="Ej: 2025"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-between gap-2 border-t pt-6">
-              <Button
-                variant="secondary"
-                className="flex-1"
-                size="sm"
-                onClick={() =>
-                  setTempFilters({
-                    estado: "",
-                    grupo: "",
-                    anio: "",
-                  })
-                }
-              >
-                Limpiar
-              </Button>
-
-              <Button
-                className="flex-1"
-                size="sm"
-                onClick={() => {
-                  setFilters(tempFilters);
-                  setShowFilters(false);
-                }}
-              >
-                Aplicar
-              </Button>
-            </div>
+  return (
+    <>
+      <section className="min-h-[calc(100vh-120px)] w-full px-4 py-4">
+        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold md:text-3xl">Artículos de divulgación</h2>
+            <p className="mt-1 text-sm text-slate-500">Gestione las publicaciones de divulgación, sus fechas y estados.</p>
           </div>
-        </>
-      )}
-    </section>
+          {canCreateRecords() && <Button size="sm" onClick={() => navigate("/articulos-divulgacion/nuevo")}>Agregar nuevo</Button>}
+        </div>
+
+        {memoriaFilter && <div className="mb-4"><MemoriaFilterBanner filter={memoriaFilter} /></div>}
+
+        <Table
+          caption="Listado de artículos de divulgación"
+          columns={columns}
+          rows={paginatedItems}
+          getRowId={(item) => item.id}
+          density="compact"
+          loading={articulos.isLoading}
+          refreshing={articulos.isFetching && !articulos.isLoading}
+          error={articulos.isError}
+          onRetry={() => articulos.refetch()}
+          emptyMessage="No hay artículos de divulgación que coincidan con los filtros."
+          onRowClick={(item) => navigate(`/articulos-divulgacion/${item.id}`, { state: buildMemoriaDetailState(location) })}
+          getRowTitle={(item) => `Ver detalle de ${item.titulo || "artículo"}`}
+          expandedRowId={expandedRow}
+          renderExpanded={renderHistory}
+          onToggleRow={(item) => {
+            setExpandedRow((current) => (current === item.id ? null : item.id));
+            setHistoryPage(1);
+          }}
+          getExpandLabel={(item, expanded) => `${expanded ? "Ocultar" : "Mostrar"} historial de ${item.titulo || "el artículo"}`}
+          page={page}
+          totalPages={totalPages}
+          totalRecords={filteredList.length}
+          onPageChange={(nextPage) => {
+            setExpandedRow(null);
+            setPage(nextPage);
+          }}
+          toolbar={
+            <TableToolbar>
+              <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
+                <TableSearch label="Buscar artículos de divulgación" placeholder="Buscar por título, descripción, UCT o fecha" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+                <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de artículos de divulgación">
+                  <span className="shrink-0 text-xs font-medium text-slate-500">Estado</span>
+                  <TableFilterChip className="shrink-0" active={quickEstadoActual === "activos"} onClick={() => setFilter("estado", "")}>Activos</TableFilterChip>
+                  <TableFilterChip className="shrink-0" active={quickEstadoActual === "todos"} onClick={() => setFilter("estado", "todos")}>Todos</TableFilterChip>
+                  <TableFilterChip className="shrink-0" active={quickEstadoActual === "inactivos"} onClick={() => setFilter("estado", "inactivos")}>Inactivos</TableFilterChip>
+                  <TableFilterSelect label="Filtrar por UCT" placeholder="Todas las UCT" value={filters.grupo || undefined} onValueChange={(value) => setFilter("grupo", value)} options={filterOptions.grupos} />
+                  <TableFilterSelect label="Filtrar por año" placeholder="Todos los años" value={filters.anio || undefined} onValueChange={(value) => setFilter("anio", value)} options={filterOptions.anios} />
+                </div>
+              </div>
+            </TableToolbar>
+          }
+        />
+
+        <ConfirmDialog open={Boolean(pendingDelete)} title="Eliminar artículo de divulgación" message={`¿Está seguro de eliminar ${pendingDelete?.titulo || "este artículo"}?`} onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete} loadingText="Eliminando..." />
+      </section>
+
+      <SuccessToast open={showSuccess} message={successMessage} onClose={() => setShowSuccess(false)} />
+      <SuccessToast open={showError} message={errorMessage} onClose={() => setShowError(false)} variant="error" />
+    </>
   );
 }

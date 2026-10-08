@@ -1,16 +1,22 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import Button from "@/components/Button";
 import HistorialCambiosCard from "@/components/HistorialCambiosCard";
+import { formatFechaHora } from "@/utils/dateTime";
 import SuccessToast from "@/components/SuccessToast";
 import { useAuditoria } from "@/modules/shared/hooks/useAuditoria";
 import { useAuth } from "@/context/AuthContext";
 import {
   getHistorialVisitanteById,
-  getTiposVisita,
   getVisitanteById,
 } from "@/modules/grupo/services/visitantesServices";
+import { getTiposVisita } from "@/modules/grupo/services/tiposVisitaServices";
+import {
+  formatVisitHistoryEntry,
+  presentVisitHistoryItems,
+} from "@/modules/grupo/utils/visitHistory";
 import {
   navigateBackFromMemoriaContext,
   stripSuccessMessageState,
@@ -64,6 +70,14 @@ export default function VisitantesDetalle() {
     () => new Map(tiposVisita.map((tipo) => [tipo.id, tipo.nombre])),
     [tiposVisita]
   );
+  const historialPresentable = useMemo(
+    () => presentVisitHistoryItems(historialCambios),
+    [historialCambios]
+  );
+  const historialContext = useMemo(
+    () => ({ tiposVisita: tiposVisitaMap, visita: data ?? undefined }),
+    [data, tiposVisitaMap]
+  );
 
   const formatFecha = (fecha?: string | Date | null) => {
     if (!fecha) return "-";
@@ -95,14 +109,13 @@ export default function VisitantesDetalle() {
     return dateStr;
   };
 
-  const formatFechaHora = (fecha?: string | null) => {
-    if (!fecha) return "-";
-    return new Date(fecha).toLocaleString("es-AR");
-  };
-
-  if (isLoading) return <p className="text-slate-500">Cargando...</p>;
+  if (isLoading) return <LoadingSkeleton variant="detail" label="Cargando visita..." />;
   if (isError || !data) {
-    return <p className="text-slate-500">No se encontro el visitante.</p>;
+    return (
+      <p role="alert" className="text-slate-500">
+        Lo sentimos, no pudimos recuperar la visita. Intente nuevamente.
+      </p>
+    );
   }
 
   const isDeleted = !!data.deleted_at;
@@ -140,27 +153,27 @@ export default function VisitantesDetalle() {
         <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
             <p>
-              <span className="font-medium text-slate-700">Fecha:</span>{" "}
+              <span className="font-semibold text-slate-800">Fecha:</span>{" "}
               {formatFecha(data.fecha)}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Razon de la visita:</span>{" "}
+              <span className="font-semibold text-slate-800">Razon de la visita:</span>{" "}
               {data.razon || "-"}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Procedencia:</span>{" "}
+              <span className="font-semibold text-slate-800">Procedencia u origen:</span>{" "}
               {data.procedencia || "-"}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Tipo de visita:</span>{" "}
+              <span className="font-semibold text-slate-800">Tipo de visita:</span>{" "}
               {data.tipo_visita?.nombre || "-"}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Grupo UTN:</span>{" "}
+              <span className="font-semibold text-slate-800">Grupo UTN:</span>{" "}
               {data.grupo || "-"}
             </p>
           </div>
@@ -168,7 +181,7 @@ export default function VisitantesDetalle() {
 
         <article className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-slate-700">Auditoria</h3>
+            <h3 className="text-lg font-semibold text-slate-800">Auditoría</h3>
             <p className="mt-1 text-xs text-slate-500">
               {data.razon || "-"}
             </p>
@@ -176,25 +189,25 @@ export default function VisitantesDetalle() {
 
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
             <p>
-              <span className="font-medium text-slate-700">Creado por:</span>{" "}
+              <span className="font-semibold text-slate-800">Creado por:</span>{" "}
               {data.created_by_nombre || auditoria.nombreCreador}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">
-                Fecha de creacion:
+              <span className="font-semibold text-slate-800">
+                Fecha de creación:
               </span>{" "}
               {formatFechaHora(data.created_at)}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Eliminado por:</span>{" "}
+              <span className="font-semibold text-slate-800">Eliminado por:</span>{" "}
               {data.deleted_by_nombre || auditoria.nombreEliminador}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">
-                Fecha de eliminacion:
+              <span className="font-semibold text-slate-800">
+                Fecha de eliminación:
               </span>{" "}
               {formatFechaHora(data.deleted_at)}
             </p>
@@ -203,30 +216,13 @@ export default function VisitantesDetalle() {
 
         <HistorialCambiosCard
           subtitle={data.razon || "-"}
-          items={historialCambios}
+          items={historialPresentable}
           isLoading={isLoadingHistorial}
           updatedAt={data.updated_at}
           updatedByName={data.updated_by_nombre}
-          formatItemValue={(item, value) => {
-            if (item.campo === "tipo_visita_id") {
-              if (value === null || value === undefined || value === "") return "-";
-              const idValue = Number(value);
-              return (
-                tiposVisitaMap.get(idValue) ||
-                (idValue === data.tipo_visita_id ? data.tipo_visita?.nombre || "-" : `ID ${idValue}`)
-              );
-            }
-
-            if (item.campo === "grupo_utn_id") {
-              if (value === null || value === undefined || value === "") return "-";
-              const idValue = Number(value);
-              return idValue === data.grupo_utn_id ? data.grupo || `ID ${idValue}` : `ID ${idValue}`;
-            }
-
-            return value === null || value === undefined || value === ""
-              ? "-"
-              : String(value);
-          }}
+          formatItemPresentation={(item) =>
+            formatVisitHistoryEntry(item, historialContext)
+          }
         />
 
         <div className="flex justify-start pt-4">

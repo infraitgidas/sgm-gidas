@@ -1,8 +1,16 @@
+from modules.memorias.services.memoria_periodo_service import (
+    consultar_entidades_memoria, resolver_horas_al_fin,
+)
 from datetime import date
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import or_
+from sqlalchemy.orm import joinedload, lazyload, selectinload
 
 from extension import db
+from modules.personal.services.identidad_service import asignar_identidad, conflicto_identidad_por_integridad
+from modules.shared.services.text_validation import has_only_letters_and_spaces
+from modules.personal.services.horas_validation import validar_horas_semanales as _validar_horas
 from modules.shared.exceptions import (
     ConflictError,
     NotFoundError,
@@ -12,6 +20,8 @@ from modules.personal.models.personal import Investigador, TipoDedicacion, Inves
 from modules.catalogos.models.categoria_utn import CategoriaUtn
 from modules.grupo.models.programa_incentivos import ProgramaIncentivos
 from modules.grupo.models.grupo import GrupoInvestigacionUtn
+from modules.proyectos.models.proyecto_investigacion import InvestigadorProyecto
+from modules.produccion.models.trabajo_autor import TrabajoReunionAutor
 from modules.shared.services.auditoria_service import AuditoriaService
 from modules.memorias.services.memoria_periodo_service import (
     validar_fecha_alta_grupo,
@@ -33,36 +43,32 @@ def _validar_id_positivo(valor, campo: str, permitir_none: bool = False):
         return valor
 
     if not isinstance(valor, int) or valor <= 0:
-        raise ValueError(f"El campo '{campo}' debe ser un entero positivo.")
+        raise ValueError(f"El campo '{campo}' debe ser un entero positivo.", details={"fields": {campo: "Seleccione una opción válida"}})
 
     return valor
 
 
 def _validar_user_id(user_id: int):
     if not isinstance(user_id, int) or user_id <= 0:
-        raise ValueError("El user_id es invalido.")
+        raise ValueError("No pudimos procesar la solicitud. Intente nuevamente.")
 
 
 def _validar_nombre(nombre: str):
     if not isinstance(nombre, str):
-        raise ValueError("El nombre y apellido es obligatorio.")
+        raise ValueError("El nombre y apellido es obligatorio.", details={"fields": {"nombre_apellido": "Ingrese nombre y apellido"}})
 
     nombre = nombre.strip()
 
     if not nombre:
-        raise ValueError("El nombre y apellido es obligatorio.")
+        raise ValueError("El nombre y apellido es obligatorio.", details={"fields": {"nombre_apellido": "Ingrese nombre y apellido"}})
+
+    if not has_only_letters_and_spaces(nombre):
+        raise ValueError("Use solo letras y espacios en nombre y apellido.", details={"fields": {"nombre_apellido": "Use solo letras y espacios en nombre y apellido"}})
 
     if len(nombre) > 120:
-        raise ValueError("El nombre y apellido no puede superar los 120 caracteres.")
+        raise ValueError("El nombre y apellido no puede superar los 120 caracteres.", details={"fields": {"nombre_apellido": "Use hasta 120 caracteres"}})
 
     return nombre
-
-
-def _validar_horas(horas):
-    if not isinstance(horas, int) or horas <= 0:
-        raise ValueError("Las horas semanales deben ser un numero positivo.")
-
-    return horas
 
 
 def _obtener_historiales_activos(investigador):
@@ -111,7 +117,7 @@ def _validar_tipo_dedicacion(tipo_dedicacion_id):
     tipo_dedicacion_id = _validar_id_positivo(tipo_dedicacion_id, "tipo_dedicacion_id")
 
     if not TipoDedicacion.query.get(tipo_dedicacion_id):
-        raise ValueError("Tipo de dedicacion invalido.")
+        raise ValueError("Tipo de dedicacion invalido.", details={"fields": {"tipo_dedicacion_id": "Seleccione una dedicación disponible"}})
 
     return tipo_dedicacion_id
 
@@ -122,7 +128,7 @@ def _validar_categoria_utn(categoria_utn_id):
     )
 
     if categoria_utn_id and not CategoriaUtn.query.get(categoria_utn_id):
-        raise ValueError("Categoria UTN invalida.")
+        raise ValueError("Categoria UTN invalida.", details={"fields": {"categoria_utn_id": "Seleccione una categoría disponible"}})
 
     return categoria_utn_id
 
@@ -133,7 +139,7 @@ def _validar_programa_incentivos(programa_incentivos_id):
     )
 
     if programa_incentivos_id and not ProgramaIncentivos.query.get(programa_incentivos_id):
-        raise ValueError("Programa de incentivos invalido.")
+        raise ValueError("Programa de incentivos invalido.", details={"fields": {"programa_incentivos_id": "Seleccione un programa disponible"}})
 
     return programa_incentivos_id
 
@@ -144,7 +150,7 @@ def _validar_grupo_utn(grupo_utn_id):
     )
 
     if grupo_utn_id and not GrupoInvestigacionUtn.query.get(grupo_utn_id):
-        raise ValueError("Grupo UTN invalido.")
+        raise ValueError("Grupo UTN invalido.", details={"fields": {"grupo_utn_id": "Seleccione una UCT disponible"}})
 
     return grupo_utn_id
 
@@ -174,9 +180,17 @@ def crear_investigador(data, user_id):
         activo=True,
         created_by=user_id
     )
+    asignar_identidad(investigador, data, nueva=True)
 
-    db.session.add(investigador)
-    db.session.flush()
+    try:
+        db.session.add(investigador)
+        db.session.flush()
+    except IntegrityError as error:
+        db.session.rollback()
+        try:
+            conflicto_identidad_por_integridad(error)
+        except IntegrityError:
+            raise ConflictError("Error de integridad al crear el investigador.") from error
 
     historial = InvestigadorHorasHistorial(
         investigador_id=investigador.id,
@@ -191,9 +205,12 @@ def crear_investigador(data, user_id):
     try:
         db.session.commit()
         return investigador
-    except IntegrityError:
+    except IntegrityError as error:
         db.session.rollback()
-        raise ConflictError("Error de integridad al crear el investigador.")
+        try:
+            conflicto_identidad_por_integridad(error)
+        except IntegrityError:
+            raise ConflictError("Error de integridad al crear el investigador.") from error
 
 
 # =====================================================
@@ -203,9 +220,12 @@ def crear_investigador(data, user_id):
 def actualizar_investigador(id, data, user_id):
     _validar_payload(data)
     _validar_user_id(user_id)
+    if "horas_semanales" in data:
+        _validar_horas(data["horas_semanales"])
 
     investigador = _obtener_investigador_activo(id)
     cambios = {}
+    cambios.update(asignar_identidad(investigador, data))
 
     if "nombre_apellido" in data:
         nuevo_valor = _validar_nombre(data["nombre_apellido"])
@@ -319,6 +339,9 @@ def actualizar_investigador(id, data, user_id):
     try:
         db.session.commit()
         return investigador
+    except IntegrityError as error:
+        db.session.rollback()
+        conflicto_identidad_por_integridad(error)
     except Exception:
         db.session.rollback()
         raise
@@ -379,8 +402,21 @@ def restaurar_investigador(id):
 # LISTAR
 # =====================================================
 
-def listar_investigadores(activos=None):
-    query = Investigador.query
+def _consulta_investigadores(activos=None):
+    query = Investigador.query.options(
+        lazyload("*"),
+        joinedload(Investigador.identidad),
+        selectinload(Investigador.historial_horas),
+        joinedload(Investigador.categoria_utn),
+        joinedload(Investigador.programa_incentivos),
+        joinedload(Investigador.tipo_dedicacion),
+        joinedload(Investigador.grupo_utn).lazyload("*"),
+        selectinload(Investigador.participaciones_proyecto)
+        .joinedload(InvestigadorProyecto.proyecto).lazyload("*"),
+        selectinload(Investigador.participaciones_relevantes),
+        selectinload(Investigador.autorias_reunion)
+        .joinedload(TrabajoReunionAutor.trabajo).lazyload("*"),
+    )
 
     if activos is None:
         activos = "true"
@@ -388,15 +424,27 @@ def listar_investigadores(activos=None):
     activos = str(activos).strip().lower()
 
     if activos == "true":
-        query = query.filter(Investigador.deleted_at.is_(None))
+        query = query.filter(Investigador.deleted_at.is_(None), Investigador.activo.is_(True))
     elif activos == "false":
-        query = query.filter(Investigador.deleted_at.isnot(None))
+        query = query.filter(or_(Investigador.deleted_at.isnot(None), Investigador.activo.is_(False)))
     elif activos == "all":
         pass
     else:
-        query = query.filter(Investigador.deleted_at.is_(None))
+        query = query.filter(Investigador.deleted_at.is_(None), Investigador.activo.is_(True))
 
-    return query.all()
+    return query.order_by(Investigador.id.asc())
+
+
+def listar_investigadores(activos=None):
+    return _consulta_investigadores(activos).all()
+
+
+def listar_investigadores_paginado(page, per_page, activos="true", orden="asc"):
+    query = _consulta_investigadores(activos)
+    if orden == "desc":
+        query = query.order_by(None).order_by(Investigador.id.desc())
+    total = query.count()
+    return query.offset((page - 1) * per_page).limit(per_page).all(), total
 
 
 # =====================================================
@@ -423,7 +471,7 @@ def obtener_historial_investigador(id):
 
 
 def snapshot_investigadores_para_memoria_version(memoria_version, user_id):
-    investigadores = Investigador.query.filter().all()
+    investigadores = consultar_entidades_memoria(Investigador, memoria_version)
 
     snapshots = []
     for investigador in investigadores:
@@ -437,7 +485,8 @@ def snapshot_investigadores_para_memoria_version(memoria_version, user_id):
             memoria_version_id=memoria_version.id,
             investigador_id=investigador.id,
             nombre_apellido=investigador.nombre_apellido,
-            horas_semanales=_resolver_horas_activas(investigador),
+            fecha_alta_grupo=investigador.fecha_alta_grupo,
+            horas_semanales=resolver_horas_al_fin(investigador, memoria_version),
             tipo_dedicacion_id=investigador.tipo_dedicacion_id,
             tipo_dedicacion_nombre=(
                 investigador.tipo_dedicacion.nombre

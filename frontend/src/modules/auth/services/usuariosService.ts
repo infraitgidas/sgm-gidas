@@ -1,7 +1,7 @@
 import { http } from "@/lib/http";
 import type { Rol } from "./authService";
 
-export type UsuarioRol = Rol | "LECTOR";
+export type UsuarioRol = Rol;
 
 export type Usuario = {
   id: number;

@@ -4,10 +4,12 @@ from modules.grupo.services.visita_service import (
     actualizar_visita_academica,
     eliminar_visita_academica,
     listar_visitas,
+    listar_visitas_paginado,
     obtener_visita_por_id,
     obtener_historial_visita,
 )
-from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, parse_pagination_params
+from modules.shared.controllers.responses import error_response, exception_response, paginated_response
 
 
 class VisitaAcademicaController:
@@ -24,9 +26,18 @@ class VisitaAcademicaController:
     @staticmethod
     def listar(req: Request) -> Response:
         try:
+            if pagination_requested(req.args):
+                params = parse_pagination_params(req.args)
+                visitas, total = listar_visitas_paginado(**params)
+                return paginated_response(
+                    [v.serialize() for v in visitas], params["page"], params["per_page"], total,
+                    meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"},
+                )
             activos = req.args.get("activos", "true")
             visitas = listar_visitas(activos)
             return jsonify([v.serialize() for v in visitas]), 200
+        except ValueError as error:
+            return error_response("VALIDATION_ERROR", message=str(error), status_code=400)
         except Exception as error:
             return exception_response(error, operation="listar visitas academicas")
 

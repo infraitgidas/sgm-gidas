@@ -1,565 +1,201 @@
-import { useNavigate, useLocation } from "react-router-dom";
-import { useState, useEffect, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import Button from "@/components/Button";
-import Tarjeta from "@/components/Tarjeta";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import SuccessToast from "@/components/SuccessToast";
 import MemoriaFilterBanner from "@/components/MemoriaFilterBanner";
-import { getErrorMessage } from "@/lib/httpError";
-import { useEquipamiento } from "@/modules/recursos/hooks/useEquipamiento";
+import SuccessToast from "@/components/SuccessToast";
+import Table, { TableActionButton, TableActions, TableFilterChip, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
+import type { TableColumn } from "@/components/Table";
+import TableFilterSelect from "@/components/TableFilterSelect";
 import { useAuth } from "@/context/AuthContext";
-import {
-  applyMemoriaSectionFilter,
-  getMemoriaSectionFilter,
-} from "@/lib/memoriaSectionFilter";
+import { getErrorMessage } from "@/lib/httpError";
+import { applyMemoriaSectionFilter, getMemoriaSectionFilter } from "@/lib/memoriaSectionFilter";
 import { buildMemoriaDetailState } from "@/lib/memoriaNavigation";
+import { useEquipamiento } from "@/modules/recursos/hooks/useEquipamiento";
+import { getHistorialEquipamientoById, type Equipamiento, type HistorialEquipamientoItem } from "@/modules/recursos/services/equipamientoServices";
+import { getCivilYear } from "@/utils/dateTime";
 
 const ITEMS_PER_PAGE = 9;
+const HISTORY_PER_PAGE = 3;
+const historyLabels: Record<string, string> = {
+  denominacion: "Denominación",
+  descripcion_breve: "Descripción breve",
+  monto_invertido: "Monto invertido",
+  fecha_incorporacion: "Fecha de incorporación",
+  grupo_utn_id: "Grupo UTN",
+};
+
+const formatDate = (value?: string | null) => {
+  if (!value) return "-";
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+};
+const formatMoney = (value: number) => Number.isFinite(value)
+  ? new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(value)
+  : "-";
+const formatHistoryValue = (field: string, value: unknown, item: Equipamiento) => {
+  if (value === null || value === undefined || value === "") return "-";
+  if (field === "monto_invertido") return formatMoney(Number(value));
+  if (field === "fecha_incorporacion") return formatDate(String(value));
+  if (field === "grupo_utn_id") return Number(value) === item.grupo_utn_id ? item.grupo || "Grupo UTN" : "Grupo UTN";
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : "-";
+};
 
 export default function EquipamientoLanding() {
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const location = useLocation();
-  const { canCreateRecords, canDeleteRecords } = useAuth();
-
-  const puedeCrear = canCreateRecords();
-  const puedeEliminar = canDeleteRecords();
-
+  const queryClient = useQueryClient();
+  const { canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
-
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [showConfirm, setShowConfirm] = useState(false);
-
-  const [showFilters, setShowFilters] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Equipamiento | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
+  const [page, setPage] = useState(1);
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [filters, setFilters] = useState({ estado: "", montoMin: "", montoMax: "", anio: "" });
 
-  const [filters, setFilters] = useState({
-    estado: "",
-    montoMin: "",
-    montoMax: "",
-    anio: "",
-  });
-
-  const [tempFilters, setTempFilters] = useState(filters);
-  const memoriaFilter = useMemo(
-    () => getMemoriaSectionFilter(location.state, "equipamiento"),
-    [location.state]
-  );
-
-  const filtroActivos = useMemo<"true" | "false" | "all">(() => {
-    if (memoriaFilter) return "all";
-    if (filters.estado === "todos") return "all";
-    if (filters.estado === "inactivos") return "false";
-    return "true";
-  }, [filters.estado, memoriaFilter]);
-
-  const { list = [], isLoading, isError, remove } =
-    useEquipamiento(filtroActivos);
+  const memoriaFilter = useMemo(() => getMemoriaSectionFilter(location.state, "equipamiento"), [location.state]);
+  const filtroActivos: "true" | "false" | "all" = memoriaFilter || filters.estado === "todos"
+    ? "all" : filters.estado === "inactivos" ? "false" : "true";
+  const equipamiento = useEquipamiento(filtroActivos);
   const scopedList = useMemo(
-    () => applyMemoriaSectionFilter(list, memoriaFilter),
-    [list, memoriaFilter]
+    () => applyMemoriaSectionFilter(equipamiento.list, memoriaFilter),
+    [equipamiento.list, memoriaFilter]
   );
-
-  const aniosDisponibles = useMemo(() => {
-    const years = scopedList
-      .filter((e) => e.fecha_incorporacion)
-      .map((e) => new Date(e.fecha_incorporacion).getFullYear());
-
-    return [...new Set(years)].sort((a, b) => b - a);
-  }, [scopedList]);
-
-  const equipamientoFiltrado = useMemo(() => {
-    return scopedList.filter((e) => {
-      const query = searchQuery.toLowerCase().trim();
-
-      const matchSearch =
-        !query ||
-        String(e.denominacion ?? "").toLowerCase().includes(query) ||
-        String(e.descripcion_breve ?? "").toLowerCase().includes(query);
-
-      const matchMontoMin =
-        !filters.montoMin || e.monto_invertido >= Number(filters.montoMin);
-
-      const matchMontoMax =
-        !filters.montoMax || e.monto_invertido <= Number(filters.montoMax);
-
-      const matchAnio =
-        !filters.anio ||
-        new Date(e.fecha_incorporacion).getFullYear().toString() === filters.anio;
-
-      return matchSearch && matchMontoMin && matchMontoMax && matchAnio;
+  const years = useMemo(() => [...new Set(scopedList.map((item) => getCivilYear(item.fecha_incorporacion))
+    .filter((year): year is number => year !== null))].sort((a, b) => b - a)
+    .map((year) => ({ value: String(year), label: String(year) })), [scopedList]);
+  const filteredList = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase("es");
+    return scopedList.filter((item) => {
+      const matchesSearch = !query || [item.denominacion, item.descripcion_breve]
+        .some((value) => value.toLocaleLowerCase("es").includes(query));
+      const matchesMin = !filters.montoMin || item.monto_invertido >= Number(filters.montoMin);
+      const matchesMax = !filters.montoMax || item.monto_invertido <= Number(filters.montoMax);
+      const matchesYear = !filters.anio || getCivilYear(item.fecha_incorporacion) === Number(filters.anio);
+      return matchesSearch && matchesMin && matchesMax && matchesYear;
     });
   }, [scopedList, searchQuery, filters]);
+  const totalPages = Math.ceil(filteredList.length / ITEMS_PER_PAGE);
+  const paginatedItems = useMemo(() => filteredList.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE), [filteredList, page]);
+  const expandedItem = expandedRow === null ? undefined : scopedList.find((item) => item.id === expandedRow);
+  const history = useQuery({
+    queryKey: ["equipamiento-historial", expandedItem?.id],
+    queryFn: () => getHistorialEquipamientoById(expandedItem!.id),
+    enabled: Boolean(expandedItem),
+    staleTime: 5 * 60_000,
+  });
 
-  const filtrosActivosCount = Object.values(filters).filter(Boolean).length;
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(equipamientoFiltrado.length / ITEMS_PER_PAGE)
-  );
-
-  const paginatedItems = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return equipamientoFiltrado.slice(start, start + ITEMS_PER_PAGE);
-  }, [equipamientoFiltrado, currentPage]);
-
+  useEffect(() => { setPage(1); setExpandedRow(null); }, [filters, searchQuery]);
+  useEffect(() => { if (page > Math.max(totalPages, 1)) setPage(Math.max(totalPages, 1)); }, [page, totalPages]);
   useEffect(() => {
-    setCurrentPage(1);
-  }, [filters, searchQuery]);
-
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
-
-  useEffect(() => {
-    if (location.state?.successMessage) {
-      setSuccessMessage(location.state.successMessage);
-      setShowSuccess(true);
-      navigate(location.pathname, { replace: true });
-    }
-  }, [location.state, navigate, location.pathname]);
-
-  const setQuickEstado = (estado: "" | "todos" | "inactivos") => {
-    setFilters((prev) => ({
-      ...prev,
-      estado,
-    }));
-  };
-
-  const quickEstadoActual =
-    filters.estado === "todos"
-      ? "todos"
-      : filters.estado === "inactivos"
-        ? "inactivos"
-        : "activos";
-
-  const toggleSelect = (id: number, checked: boolean) => {
-    if (!puedeEliminar) return;
-
-    const item = scopedList.find((x) => x.id === id);
-
-    if (item?.deleted_at) {
-      setErrorMessage(
-        "No se puede eliminar un equipamiento que ya fue eliminado."
-      );
-      setShowError(true);
-      return;
-    }
-
-    setSelectedIds((prev) =>
-      checked ? [...prev, id] : prev.filter((x) => x !== id)
-    );
-  };
-
-  const cancelSelection = () => {
-    setSelectMode(false);
-    setSelectedIds([]);
-    setShowConfirm(false);
-  };
-
-  const selectedItems = scopedList.filter((e) =>
-    selectedIds.includes(e.id)
-  );
-  const selectedActiveItems = selectedItems.filter((e) => !e.deleted_at);
+    if (!location.state?.successMessage) return;
+    setSuccessMessage(location.state.successMessage);
+    setShowSuccess(true);
+    navigate(location.pathname, { replace: true });
+  }, [location.pathname, location.state, navigate]);
 
   const confirmDelete = async () => {
-    const invalidItems = selectedItems.filter((e) => e.deleted_at);
-
-    if (invalidItems.length > 0) {
-      setShowConfirm(false);
-      setErrorMessage(
-        invalidItems.length === 1
-          ? "El equipamiento seleccionado ya fue eliminado."
-          : "Uno o mas equipamientos seleccionados ya fueron eliminados."
-      );
-      setShowError(true);
-      return;
-    }
-
+    if (!pendingDelete || pendingDelete.deleted_at || !canDeleteRecords()) return;
     try {
-      for (const item of selectedActiveItems) {
-        await remove(item.id);
-      }
-
-      await qc.invalidateQueries({ queryKey: ["equipamiento"] });
-      cancelSelection();
-
-      setSuccessMessage(
-        selectedActiveItems.length === 1
-          ? "Equipamiento eliminado con exito."
-          : "Equipamientos eliminados con exito."
-      );
+      await equipamiento.remove(pendingDelete.id);
+      await queryClient.invalidateQueries({ queryKey: ["equipamiento"] });
+      setPendingDelete(null);
+      setSuccessMessage("Equipamiento eliminado con éxito.");
       setShowSuccess(true);
     } catch (error) {
-      setShowConfirm(false);
-      setErrorMessage(
-        getErrorMessage(
-          error,
-          "Lo sentimos, no pudimos completar la operacion. Intente nuevamente."
-        )
-      );
-
+      setPendingDelete(null);
+      setErrorMessage(getErrorMessage(error, "Lo sentimos, no pudimos completar la operación. Intente nuevamente."));
       setShowError(true);
     }
   };
 
-  return (
-    <section className="w-full min-h-[calc(100vh-80px)] px-4 py-4 flex flex-col text-sm md:px-6">
-      <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <h2 className="text-2xl font-semibold leading-none text-slate-800 md:text-3xl">
-            Equipamiento e Infraestructura
-          </h2>
-          <p className="mt-2 text-xs text-slate-500">
-            {equipamientoFiltrado.length} de {scopedList.length} resultados
-          </p>
-        </div>
+  const renderHistory = (item: Equipamiento) => {
+    if (history.isLoading) return <LoadingSkeleton variant="compact" label="Cargando historial…" />;
+    if (history.isError) return <div role="alert" className="flex items-center gap-3 text-sm text-rose-700"><span>Lo sentimos, no pudimos recuperar el historial. Intente nuevamente.</span><TableActionButton onClick={() => { void history.refetch(); }}>Reintentar</TableActionButton></div>;
+    const entries = (history.data ?? []).filter((entry: HistorialEquipamientoItem) =>
+      Boolean(entry.campo && historyLabels[entry.campo]) &&
+      entry.valor_anterior !== null && entry.valor_anterior !== undefined && entry.valor_anterior !== "" &&
+      formatHistoryValue(entry.campo ?? "", entry.valor_anterior, item) !== formatHistoryValue(entry.campo ?? "", entry.valor_nuevo, item)
+    );
+    if (!entries.length) return <p className="text-sm text-slate-500">No hay cambios registrados.</p>;
+    const pages = Math.ceil(entries.length / HISTORY_PER_PAGE);
+    const visible = entries.slice((historyPage - 1) * HISTORY_PER_PAGE, historyPage * HISTORY_PER_PAGE);
+    return <div>
+      <h3 className="mb-3 text-sm font-semibold text-slate-900">Historial de cambios</h3>
+      <ul className="space-y-2">{visible.map((entry) => <li key={entry.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+        <span className="block font-medium text-slate-800">{historyLabels[entry.campo ?? ""]}</span>
+        <span className="mt-1 block text-slate-600">{formatHistoryValue(entry.campo ?? "", entry.valor_anterior, item)} → {formatHistoryValue(entry.campo ?? "", entry.valor_nuevo, item)}</span>
+        <span className="mt-1 block text-xs text-slate-500">{formatDate(entry.fecha_cambio)}{entry.usuario_nombre ? ` · Por ${entry.usuario_nombre}` : ""}</span>
+      </li>)}</ul>
+      {pages > 1 && <nav aria-label="Paginación del historial" className="mt-3 flex gap-2"><TableActionButton disabled={historyPage === 1} onClick={() => setHistoryPage((value) => value - 1)}>Anterior</TableActionButton><span className="self-center text-xs text-slate-500">Página {historyPage} de {pages}</span><TableActionButton disabled={historyPage === pages} onClick={() => setHistoryPage((value) => value + 1)}>Siguiente</TableActionButton></nav>}
+    </div>;
+  };
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <button
-              type="button"
-              onClick={() => setQuickEstado("")}
-              className={`px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "activos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Activos
-            </button>
+  const columns: TableColumn<Equipamiento>[] = [
+    { id: "denominacion", header: "Equipamiento", render: (item) => <div><span className="block font-medium text-slate-900">{item.denominacion || "-"}</span><span className="mt-0.5 block text-xs text-slate-500">{item.descripcion_breve || "Sin descripción"}</span></div> },
+    { id: "fecha", header: "Fecha de incorporación", priority: "secondary", render: (item) => formatDate(item.fecha_incorporacion) },
+    { id: "monto", header: "Monto invertido", priority: "tertiary", render: (item) => formatMoney(item.monto_invertido) },
+    { id: "estado", header: "Estado", render: (item) => { const active = !item.deleted_at; return <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${active ? "text-emerald-700" : "text-rose-700"}`}><span aria-hidden="true" className={`h-2 w-2 rounded-full ${active ? "bg-emerald-500" : "bg-rose-500"}`} />{active ? "Activo" : "Inactivo"}</span>; } },
+    { id: "acciones", header: "Acciones", align: "right", render: (item) => <TableActions>
+      <TableRowActionButton action="view" aria-label={`Ver detalle de ${item.denominacion || "equipamiento"}`} onClick={() => navigate(`/equipamiento/${item.id}`, { state: buildMemoriaDetailState(location) })} />
+      {!item.deleted_at && canEditRecords() && <TableRowActionButton action="edit" aria-label={`Editar ${item.denominacion || "equipamiento"}`} onClick={() => navigate(`/equipamiento/${item.id}/editar`)} />}
+      {!item.deleted_at && canDeleteRecords() && <TableRowActionButton action="delete" aria-label={`Eliminar ${item.denominacion || "equipamiento"}`} onClick={() => setPendingDelete(item)} />}
+    </TableActions> },
+  ];
+  const setFilter = (field: keyof typeof filters, value?: string) => setFilters((current) => ({ ...current, [field]: value ?? "" }));
+  const quickEstadoActual = filters.estado === "todos" ? "todos" : filters.estado === "inactivos" ? "inactivos" : "activos";
 
-            <button
-              type="button"
-              onClick={() => setQuickEstado("todos")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "todos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Todos
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickEstado("inactivos")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "inactivos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Inactivos
-            </button>
-          </div>
-
-          <div className="relative w-full sm:w-64">
-            <input
-              type="text"
-              placeholder="Buscar por denominacion o descripcion..."
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-10 text-xs outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-200"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-            </div>
-          </div>
-
-          {!selectMode ? (
-            <>
-              {puedeEliminar && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setSelectMode(true)}
-                >
-                  Seleccionar
-                </Button>
-              )}
-
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setTempFilters(filters);
-                  setShowFilters(true);
-                }}
-              >
-                Filtros
-                {filtrosActivosCount > 0 && (
-                  <span className="ml-1.5 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-white">
-                    {filtrosActivosCount}
-                  </span>
-                )}
-              </Button>
-
-              {puedeCrear && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => navigate("/equipamiento/nuevo")}
-                >
-                  Nuevo
-                </Button>
-              )}
-            </>
-          ) : (
-            <>
-              {selectedIds.length > 0 && puedeEliminar && (
-                <Button size="sm" onClick={() => setShowConfirm(true)}>
-                  Eliminar
-                </Button>
-              )}
-
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={cancelSelection}
-              >
-                Cancelar
-              </Button>
-            </>
-          )}
-        </div>
+  return <>
+    <section className="min-h-[calc(100vh-120px)] w-full px-4 py-4">
+      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div><h2 className="text-2xl font-semibold md:text-3xl">Equipamiento e Infraestructura</h2><p className="mt-1 text-sm text-slate-500">Consulte el equipamiento, su inversión y estado.</p></div>
+        {canCreateRecords() && <Button size="sm" onClick={() => navigate("/equipamiento/nuevo")}>Agregar nuevo</Button>}
       </div>
-
-      {memoriaFilter && <MemoriaFilterBanner filter={memoriaFilter} />}
-
-      <div className="flex flex-1 flex-col">
-        {isLoading ? (
-          <p className="py-10 text-center text-slate-500">Cargando...</p>
-        ) : isError ? (
-          <p className="py-10 text-center text-slate-500">Error al cargar.</p>
-        ) : equipamientoFiltrado.length === 0 ? (
-          <p className="py-10 text-center text-slate-500">
-            No hay equipamiento registrado.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {paginatedItems.map((e) => (
-              <Tarjeta
-                key={e.id}
-                item={e}
-                title={(x) => x.denominacion || "-"}
-                subtitle={(x) => x.descripcion_breve || "Sin descripcion"}
-                badge={(x) => (x.deleted_at ? "INACTIVO" : "ACTIVO")}
-                selectable={puedeEliminar && selectMode}
-                selectDisabled={!!e.deleted_at}
-                selected={selectedIds.includes(e.id)}
-                onSelectChange={(checked) => toggleSelect(e.id, checked)}
-                onClick={() =>
-                  !selectMode &&
-                  navigate(`/equipamiento/${e.id}`, {
-                    state: buildMemoriaDetailState(location),
-                  })
-                }
-              />
-            ))}
+      {memoriaFilter && <div className="mb-4"><MemoriaFilterBanner filter={memoriaFilter} /></div>}
+      <Table
+        caption="Listado de equipamiento e infraestructura"
+        columns={columns}
+        rows={paginatedItems}
+        getRowId={(item) => item.id}
+        density="compact"
+        loading={equipamiento.isLoading}
+        refreshing={equipamiento.isFetching && !equipamiento.isLoading}
+        error={equipamiento.isError}
+        onRetry={() => { void equipamiento.refetch(); }}
+        emptyMessage="No hay equipamientos que coincidan con los filtros."
+        onRowClick={(item) => navigate(`/equipamiento/${item.id}`, { state: buildMemoriaDetailState(location) })}
+        getRowTitle={(item) => `Ver detalle de ${item.denominacion || "equipamiento"}`}
+        expandedRowId={expandedRow}
+        renderExpanded={renderHistory}
+        onToggleRow={(item) => { setExpandedRow((current) => current === item.id ? null : item.id); setHistoryPage(1); }}
+        getExpandLabel={(item, expanded) => `${expanded ? "Ocultar" : "Mostrar"} historial de ${item.denominacion || "equipamiento"}`}
+        page={page}
+        totalPages={totalPages}
+        totalRecords={filteredList.length}
+        onPageChange={(nextPage) => { setExpandedRow(null); setPage(nextPage); }}
+        toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
+          <TableSearch label="Buscar equipamiento" placeholder="Buscar por denominación o descripción" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de equipamiento">
+            <span className="shrink-0 text-xs font-medium text-slate-500">Estado</span>
+            <TableFilterChip className="shrink-0" active={quickEstadoActual === "activos"} onClick={() => setFilter("estado", "")}>Activos</TableFilterChip>
+            <TableFilterChip className="shrink-0" active={quickEstadoActual === "todos"} onClick={() => setFilter("estado", "todos")}>Todos</TableFilterChip>
+            <TableFilterChip className="shrink-0" active={quickEstadoActual === "inactivos"} onClick={() => setFilter("estado", "inactivos")}>Inactivos</TableFilterChip>
+            <TableFilterSelect label="Filtrar por año de incorporación" placeholder="Todos los años" value={filters.anio || undefined} onValueChange={(value) => setFilter("anio", value)} options={years} />
+            <label className="flex shrink-0 items-center gap-1 text-xs text-slate-600">Monto desde<input type="number" min="0" step="0.01" className="h-8 w-28 rounded-lg border border-slate-300 bg-white px-2 outline-none focus-visible:ring-2 focus-visible:ring-slate-500" placeholder="Mínimo" value={filters.montoMin} onChange={(event) => setFilter("montoMin", event.target.value)} /></label>
+            <label className="flex shrink-0 items-center gap-1 text-xs text-slate-600">Hasta<input type="number" min="0" step="0.01" className="h-8 w-28 rounded-lg border border-slate-300 bg-white px-2 outline-none focus-visible:ring-2 focus-visible:ring-slate-500" placeholder="Máximo" value={filters.montoMax} onChange={(event) => setFilter("montoMax", event.target.value)} /></label>
           </div>
-        )}
-
-        {totalPages > 1 && (
-          <div className="mt-auto pt-8">
-            <div className="flex items-center justify-between">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-              >
-                Anterior
-              </Button>
-
-              <span className="text-sm text-slate-500">
-                Pagina {currentPage} de {totalPages}
-              </span>
-
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() =>
-                  setCurrentPage((prev) => Math.min(totalPages, prev + 1))
-                }
-                disabled={currentPage === totalPages}
-              >
-                Siguiente
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <ConfirmDialog
-        open={showConfirm}
-        title="Eliminar equipamiento"
-        message="¿Eliminar los siguientes items?"
-        items={selectedActiveItems.map((e) => e.denominacion || "-")}
-        onCancel={cancelSelection}
-        onConfirm={confirmDelete}
+        </div></TableToolbar>}
       />
-
-      <SuccessToast
-        open={showSuccess}
-        message={successMessage || "Eliminado con exito."}
-        onClose={() => setShowSuccess(false)}
-      />
-
-      <SuccessToast
-        open={showError}
-        message={errorMessage}
-        onClose={() => setShowError(false)}
-        variant="error"
-      />
-
-      {showFilters && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
-            onClick={() => setShowFilters(false)}
-          />
-
-          <div className="fixed top-0 right-0 z-50 flex h-full w-[380px] flex-col overflow-y-auto bg-white p-6 shadow-2xl">
-            <h3 className="mb-6 text-xl font-semibold">Filtros avanzados</h3>
-
-            <div className="flex-1 space-y-5 text-[11px]">
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Estado
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.estado}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      estado: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Activos (Default)</option>
-                  <option value="todos">Todos</option>
-                  <option value="inactivos">Inactivos</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Monto minimo
-                </label>
-                <input
-                  type="number"
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.montoMin}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      montoMin: e.target.value,
-                    })
-                  }
-                  placeholder="Ej: 100000"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Monto maximo
-                </label>
-                <input
-                  type="number"
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.montoMax}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      montoMax: e.target.value,
-                    })
-                  }
-                  placeholder="Ej: 500000"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Ano de incorporacion
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.anio}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      anio: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos</option>
-                  {aniosDisponibles.map((anio) => (
-                    <option key={anio} value={anio}>
-                      {anio}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-between gap-2 border-t pt-6">
-              <Button
-                variant="secondary"
-                className="flex-1"
-                size="sm"
-                onClick={() =>
-                  setTempFilters({
-                    estado: "",
-                    montoMin: "",
-                    montoMax: "",
-                    anio: "",
-                  })
-                }
-              >
-                Limpiar
-              </Button>
-
-              <Button
-                className="flex-1"
-                size="sm"
-                onClick={() => {
-                  setFilters(tempFilters);
-                  setShowFilters(false);
-                }}
-              >
-                Aplicar
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
+      <ConfirmDialog open={Boolean(pendingDelete)} title="Eliminar equipamiento" message={`¿Está seguro de eliminar ${pendingDelete?.denominacion || "este equipamiento"}?`} onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete} loadingText="Eliminando..." />
     </section>
-  );
+    <SuccessToast open={showSuccess} message={successMessage} onClose={() => setShowSuccess(false)} />
+    <SuccessToast open={showError} message={errorMessage} onClose={() => setShowError(false)} variant="error" />
+  </>;
 }

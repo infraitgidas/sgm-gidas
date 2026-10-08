@@ -4,6 +4,7 @@ from modules.produccion.services.trabajo_reunion_service import (
     TrabajoReunionCientificaService,
 )
 from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, filtered_page_response
 from modules.shared.exceptions import ValidationError
 
 
@@ -13,11 +14,14 @@ class TrabajoReunionCientificaController:
     def get_all():
         try:
             filtros = {
-                "investigador_id": request.args.get("investigador_id", type=int),
+                "autor_id": request.args.get("autor_id"),
+                "autor_rol": request.args.get("autor_rol"),
                 "grupo_utn_id": request.args.get("grupo_utn_id", type=int),
                 "orden": request.args.get("orden"),
                 "activos": request.args.get("activos", "true"),
             }
+            if pagination_requested(request.args):
+                return filtered_page_response(TrabajoReunionCientificaService, filtros, request.args)
             return jsonify(TrabajoReunionCientificaService.get_all(filtros)), 200
         except Exception as error:
             return exception_response(error, operation="listar trabajos en reuniones")
@@ -71,30 +75,13 @@ class TrabajoReunionCientificaController:
             return exception_response(error, operation="restaurar trabajo en reunion")
 
     @staticmethod
-    def _investigadores_ids():
-        data = request.get_json()
-        if not isinstance(data, dict):
-            raise ValidationError("Body requerido")
-        return data.get("investigadores_ids")
-
-    @staticmethod
-    def add_investigadores(trabajo_id):
+    def remove_autores(trabajo_id):
         try:
-            return jsonify(TrabajoReunionCientificaService.vincular_investigadores(
-                trabajo_id,
-                TrabajoReunionCientificaController._investigadores_ids(),
-                g.current_user_id,
+            data = request.get_json()
+            if not isinstance(data, dict):
+                raise ValidationError("Body requerido")
+            return jsonify(TrabajoReunionCientificaService.desvincular_autores(
+                trabajo_id, data.get("autores"), g.current_user_id,
             )), 200
         except Exception as error:
-            return exception_response(error, operation="vincular investigadores a trabajo en reunion")
-
-    @staticmethod
-    def remove_investigadores(trabajo_id):
-        try:
-            return jsonify(TrabajoReunionCientificaService.desvincular_investigadores(
-                trabajo_id,
-                TrabajoReunionCientificaController._investigadores_ids(),
-                g.current_user_id,
-            )), 200
-        except Exception as error:
-            return exception_response(error, operation="desvincular investigadores de trabajo en reunion")
+            return exception_response(error, operation="desvincular autores de trabajo")

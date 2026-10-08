@@ -2,12 +2,15 @@ from flask import g, jsonify, request
 
 from modules.proyectos.services.participacion_relevante_service import ParticipacionRelevanteService
 from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, filtered_page_response
 
 
 class ParticipacionRelevanteController:
     @staticmethod
     def get_all():
         try:
+            if pagination_requested(request.args):
+                return filtered_page_response(ParticipacionRelevanteService, request.args.to_dict(), request.args)
             return jsonify(ParticipacionRelevanteService.get_all(request.args.to_dict())), 200
         except Exception as error:
             return exception_response(error, operation="listar participaciones relevantes")

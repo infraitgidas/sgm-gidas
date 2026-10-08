@@ -4,12 +4,14 @@ from modules.personal.services.personal_service import (
     actualizar_personal,
     eliminar_personal_por_rol,
     listar_personal,
+    listar_personal_pagina,
     obtener_historial_personal_por_rol
 )
 from modules.personal.services.personal_completo_service import (
     obtener_personal_por_tipo
 )
-from modules.shared.controllers.responses import error_response, exception_response
+from modules.shared.controllers.pagination import pagination_requested, parse_pagination_params
+from modules.shared.controllers.responses import error_response, exception_response, paginated_response
 
 
 class PersonalController:
@@ -35,10 +37,20 @@ class PersonalController:
     @staticmethod
     def listar(req: Request) -> Response:
         try:
+            if pagination_requested(req.args):
+                params = parse_pagination_params(req.args)
+                personal, total = listar_personal_pagina(**params)
+                return paginated_response(
+                    [p.serialize() for p in personal], params["page"],
+                    params["per_page"], total,
+                    meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"},
+                )
             activos = req.args.get("activos")
             personal = listar_personal(activos)
             return jsonify([p.serialize() for p in personal]), 200
 
+        except ValueError as error:
+            return error_response("VALIDATION_ERROR", message=str(error), status_code=400)
         except Exception as error:
             return exception_response(error, operation="listar personal")
 

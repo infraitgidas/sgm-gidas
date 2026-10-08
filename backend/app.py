@@ -5,7 +5,6 @@ from config import get_config_class
 from modules import blueprints
 from modules import models_registry  # noqa: F401
 from werkzeug.middleware.proxy_fix import ProxyFix
-from modules.shared.controllers.pagination import register_legacy_list_pagination
 from modules.shared.routes.versioning import (
     register_api_version_header,
     register_blueprints,
@@ -18,6 +17,8 @@ from modules.shared.services.logging_config import (
 )
 from modules.shared.services.request_security import register_request_body_security
 from modules.auth.commands.refresh_sessions import register_refresh_session_commands
+from modules.shared.services.tenant_request import register_tenant_request_scope
+from modules.shared.services.tenant_scope import register_tenant_orm_policy
 
 
 logger = get_logger(__name__)
@@ -54,6 +55,8 @@ def create_app():
 
     register_blueprints(app, blueprints)
     register_api_version_header(app)
+    register_tenant_orm_policy()
+    register_tenant_request_scope(app)
 
     @app.after_request
     def add_security_headers(response):
@@ -77,7 +80,6 @@ def create_app():
             )
         return response
 
-    register_legacy_list_pagination(app)
     register_refresh_session_commands(app)
 
     logger.info("Aplicación inicializada. Usa 'flask db upgrade' para crear/migrar tablas.")

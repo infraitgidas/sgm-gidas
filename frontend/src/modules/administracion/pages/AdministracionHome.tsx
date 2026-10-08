@@ -92,7 +92,7 @@ export default function AdministracionHome() {
       ? {
           title: "Registrar autoridades",
           description: "La UCT todavía no tiene un equipo directivo vigente.",
-          to: "/uct/nueva",
+          to: "/uct/editar",
         }
       : null,
     primerAccesoPendiente > 0
@@ -198,7 +198,7 @@ export default function AdministracionHome() {
           <ActionCard
             title="Organización"
             description="Configure la UCT, sus datos institucionales y autoridades vigentes."
-            to="/uct/nueva"
+            to={uct ? "/uct/editar" : "/uct/nueva"}
             action={uct ? "Revisar configuración" : "Configurar UCT"}
             icon={Building2}
           />

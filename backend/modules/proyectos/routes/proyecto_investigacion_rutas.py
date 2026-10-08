@@ -44,10 +44,22 @@ def update(proyecto_id):
 def cerrar(proyecto_id):
     return ProyectoInvestigacionController.cerrar(proyecto_id)
 
+
+@proyecto_investigacion_bp.route("/<int:proyecto_id>/cerrar", methods=["POST"])
+@requiere_rol("ADMIN", "GESTOR")
+def cerrar_con_fecha(proyecto_id):
+    return ProyectoInvestigacionController.cerrar_con_fecha(proyecto_id)
+
 @proyecto_investigacion_bp.route("/<int:proyecto_id>/reabrir", methods=["PUT"])
 @requiere_rol("ADMIN", "GESTOR")
 def reabrir(proyecto_id):
     return ProyectoInvestigacionController.reabrir(proyecto_id)
+
+
+@proyecto_investigacion_bp.route("/<int:proyecto_id>/prorroga", methods=["POST"])
+@requiere_rol("ADMIN", "GESTOR")
+def prorrogar(proyecto_id):
+    return ProyectoInvestigacionController.prorrogar(proyecto_id)
 
 # =========================
 # BECARIOS ↔ PROYECTO

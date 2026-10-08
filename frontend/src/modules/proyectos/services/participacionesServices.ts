@@ -1,12 +1,25 @@
 import { http } from "@/lib/http";
 
+export type ParticipanteRol = "investigador" | "becario";
+
+export interface ParticipanteRef {
+  rol: ParticipanteRol;
+  id: number;
+}
+
+export interface Participante extends ParticipanteRef {
+  nombre_apellido: string;
+  tipo: "Investigador" | "Becario";
+}
+
 export interface Participacion {
   id: number;
   nombre_evento: string;
   forma_participacion: string;
   fecha: string;
-  investigador_id: number;
-  investigador?: string | null;
+  participante: Participante;
+  investigador_id?: number | null;
+  becario_id?: number | null;
   created_at?: string | null;
   created_by?: number | null;
   created_by_nombre?: string | null;
@@ -32,142 +45,113 @@ export interface ParticipacionPayload {
   nombre_evento: string;
   forma_participacion: string;
   fecha: string;
-  investigador_id: number;
+  participante: ParticipanteRef;
 }
 
-type GetParticipacionesOptions = {
-  investigadorId?: number;
+export type GetParticipacionesOptions = {
+  participante?: ParticipanteRef;
   orden?: "asc" | "desc";
   activos?: "true" | "false" | "all";
 };
 
-type ParticipacionApiResponse = Omit<Participacion, "investigador"> & {
+type ParticipacionApiResponse = Omit<Participacion, "participante"> & {
+  participante?: Partial<Participante> | null;
   investigador?: string | { nombre_apellido?: string | null } | null;
 };
 
 type ApiListResponse<T> = T[] | { data?: T[] };
 
-const normalizeParticipacion = (item: ParticipacionApiResponse): Participacion => ({
-  id: item.id,
-  nombre_evento: item.nombre_evento ?? "",
-  forma_participacion: item.forma_participacion ?? "",
-  fecha: item.fecha ?? "",
-  investigador_id: item.investigador_id,
-  investigador:
+const normalizeParticipacion = (item: ParticipacionApiResponse): Participacion => {
+  const rol: ParticipanteRol = item.participante?.rol === "becario" ? "becario" : "investigador";
+  const legacyName =
     typeof item.investigador === "string"
       ? item.investigador
-      : item.investigador?.nombre_apellido ?? null,
-  created_at: item.created_at ?? null,
-  created_by: item.created_by ?? null,
-  created_by_nombre: item.created_by_nombre ?? null,
-  updated_at: item.updated_at ?? null,
-  updated_by: item.updated_by ?? null,
-  updated_by_nombre: item.updated_by_nombre ?? null,
-  deleted_at: item.deleted_at ?? null,
-  deleted_by: item.deleted_by ?? null,
-  deleted_by_nombre: item.deleted_by_nombre ?? null,
-});
+      : item.investigador?.nombre_apellido ?? "";
+  const participanteId = Number(
+    item.participante?.id ?? (rol === "becario" ? item.becario_id : item.investigador_id) ?? 0
+  );
+
+  return {
+    ...item,
+    nombre_evento: item.nombre_evento ?? "",
+    forma_participacion: item.forma_participacion ?? "",
+    fecha: item.fecha ?? "",
+    participante: {
+      rol,
+      id: participanteId,
+      nombre_apellido: item.participante?.nombre_apellido ?? legacyName,
+      tipo: rol === "becario" ? "Becario" : "Investigador",
+    },
+  };
+};
 
 export const getParticipaciones = async (
   options: GetParticipacionesOptions = {}
 ): Promise<Participacion[]> => {
-  const { investigadorId, orden = "desc", activos } = options;
+  const { participante, orden = "desc", activos } = options;
   const params = new URLSearchParams();
-
-  if (typeof investigadorId === "number") {
-    params.append("investigador_id", String(investigadorId));
+  if (participante) {
+    params.set("participante_rol", participante.rol);
+    params.set("participante_id", String(participante.id));
   }
-
-  if (orden) {
-    params.append("orden", orden);
-  }
-
-  if (activos) {
-    params.append("activos", activos);
-  }
-
+  if (orden) params.set("orden", orden);
+  if (activos) params.set("activos", activos);
   const query = params.toString();
-  const endpoint = query
-    ? `/participaciones-relevantes?${query}`
-    : "/participaciones-relevantes";
-
-  const response = await http<ApiListResponse<ParticipacionApiResponse>>(endpoint, {
-    method: "GET",
-  });
-
+  const response = await http<ApiListResponse<ParticipacionApiResponse>>(
+    query ? `/participaciones-relevantes?${query}` : "/participaciones-relevantes",
+    { method: "GET" }
+  );
   const items = Array.isArray(response)
     ? response
     : Array.isArray(response?.data)
       ? response.data
       : [];
-
   return items.map(normalizeParticipacion);
 };
 
-export const getParticipacionById = async (
-  id: number
-): Promise<Participacion> => {
-  const response = await http<ParticipacionApiResponse>(`/participaciones-relevantes/${id}`, {
-    method: "GET",
-  });
-
-  return normalizeParticipacion(response);
-};
+export const getParticipacionById = async (id: number): Promise<Participacion> =>
+  normalizeParticipacion(
+    await http<ParticipacionApiResponse>(`/participaciones-relevantes/${id}`, {
+      method: "GET",
+    })
+  );
 
 export const getHistorialParticipacionById = async (
   id: number
 ): Promise<HistorialParticipacionItem[]> => {
-  const response = await http<ApiListResponse<HistorialParticipacionItem>>(`/participaciones-relevantes/${id}/historial`, {
-    method: "GET",
-  });
-
-  if (Array.isArray(response)) {
-    return response;
-  }
-
-  if (Array.isArray(response?.data)) {
-    return response.data;
-  }
-
-  return [];
+  const response = await http<ApiListResponse<HistorialParticipacionItem>>(
+    `/participaciones-relevantes/${id}/historial`,
+    { method: "GET" }
+  );
+  return Array.isArray(response)
+    ? response
+    : Array.isArray(response?.data)
+      ? response.data
+      : [];
 };
 
 export const crearParticipacion = async (
   payload: ParticipacionPayload
-): Promise<Participacion> => {
-  const response = await http<ParticipacionApiResponse>("/participaciones-relevantes/", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
-  return normalizeParticipacion(response);
-};
+): Promise<Participacion> =>
+  normalizeParticipacion(
+    await http<ParticipacionApiResponse>("/participaciones-relevantes/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+  );
 
 export const actualizarParticipacion = async (
   id: number,
   payload: Partial<ParticipacionPayload>
-): Promise<Participacion> => {
-  const body: Record<string, unknown> = {};
+): Promise<Participacion> =>
+  normalizeParticipacion(
+    await http<ParticipacionApiResponse>(`/participaciones-relevantes/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    })
+  );
 
-  if ("nombre_evento" in payload) body.nombre_evento = payload.nombre_evento;
-  if ("forma_participacion" in payload) {
-    body.forma_participacion = payload.forma_participacion;
-  }
-  if ("fecha" in payload) body.fecha = payload.fecha;
-  if ("investigador_id" in payload) body.investigador_id = payload.investigador_id;
-
-  const response = await http<ParticipacionApiResponse>(`/participaciones-relevantes/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
-
-  return normalizeParticipacion(response);
-};
-
-export const eliminarParticipacion = async (
-  id: number
-): Promise<{ message: string }> => {
-  return http<{ message: string }>(`/participaciones-relevantes/${id}`, {
+export const eliminarParticipacion = (id: number) =>
+  http<{ message: string }>(`/participaciones-relevantes/${id}`, {
     method: "DELETE",
   });
-};

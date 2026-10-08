@@ -1,3 +1,6 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import MemoriaPeriodoForm from "@/modules/memorias/components/MemoriaPeriodoForm";
+import HistorialCambiosCard from "@/components/HistorialCambiosCard";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,29 +12,24 @@ import { getErrorMessage } from "@/lib/httpError";
 import {
   cambiarEstadoMemoria,
   getMemoriaById,
+  getHistorialMemoria,
   reabrirMemoria,
   type Memoria,
   type MemoriaEstado,
 } from "@/modules/memorias/services/memoriasService";
-import { formatFecha } from "@/utils/formatFecha";
-
-const formatFechaHora = (fecha?: string | null) => {
-  if (!fecha) return "-";
-  const date = new Date(fecha);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString("es-AR");
-};
+import { formatFecha, formatFechaHora } from "@/utils/dateTime";
 
 export default function MemoriaDetalle() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isGestor } = useAuth();
 
-  const puedeEditar = isAdmin();
-  const puedeReabrir = isAdmin();
+  const puedeEditar = isAdmin() || isGestor();
+  const puedeReabrir = isAdmin() || isGestor();
 
+  const [editandoPeriodo, setEditandoPeriodo] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [showError, setShowError] = useState(false);
@@ -44,6 +42,12 @@ export default function MemoriaDetalle() {
     queryFn: () => getMemoriaById(Number(id)),
     enabled: !!id,
     refetchOnMount: "always",
+  });
+
+  const { data: historial = [], isLoading: cargandoHistorial, isError: errorHistorial } = useQuery({
+    queryKey: ["memoria-historial", id],
+    queryFn: () => getHistorialMemoria(Number(id)),
+    enabled: !!id,
   });
 
   useEffect(() => {
@@ -67,10 +71,13 @@ export default function MemoriaDetalle() {
           estado === "cerrada" ? new Date().toISOString().slice(0, 19) : undefined,
       }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["memorias"] });
-      await queryClient.invalidateQueries({ queryKey: ["memoria", id] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["memorias"] }),
+        queryClient.invalidateQueries({ queryKey: ["memoria", id] }),
+        queryClient.invalidateQueries({ queryKey: ["memoria-historial", id] }),
+      ]);
 
-      setSuccessMessage("Estado de la memoria actualizado con exito.");
+      setSuccessMessage("Estado de la memoria actualizado con éxito.");
       setShowSuccess(true);
       setEstadoPendiente(null);
     },
@@ -89,10 +96,12 @@ export default function MemoriaDetalle() {
         fecha_apertura: new Date().toISOString().slice(0, 19),
       }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["memorias"] });
-      await queryClient.invalidateQueries({ queryKey: ["memoria", id] });
-
-      setSuccessMessage("Memoria reabierta con exito.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["memorias"] }),
+        queryClient.invalidateQueries({ queryKey: ["memoria", id] }),
+        queryClient.invalidateQueries({ queryKey: ["memoria-historial", id] }),
+      ]);
+      setSuccessMessage("Memoria reabierta con éxito.");
       setShowSuccess(true);
       setShowReopenConfirm(false);
     },
@@ -122,14 +131,17 @@ export default function MemoriaDetalle() {
   }, [versionActual?.estado]);
 
   if (isLoading) {
-    return <p className="text-slate-500">Cargando memoria...</p>;
+    return <LoadingSkeleton variant="detail" label="Cargando memoria..." />;
   }
 
-  if (isError || !memoria || !versionActual) {
-    return <p className="text-slate-500">No se encontro la memoria.</p>;
+  if (isError) return <p role="alert">Lo sentimos, no pudimos recuperar la información. Intente nuevamente.</p>;
+
+  if (!memoria || !versionActual) {
+    return <p className="text-slate-500">No se encontró la memoria.</p>;
   }
 
-  const anioMemoria = new Date(`${memoria.periodo_fin}T00:00:00`).getFullYear();
+  const puedeCorregirPeriodo = (isAdmin() || isGestor()) && !memoria.deleted_at &&
+    !(memoria.versiones || []).some((v) => v.estado === "cerrada" || !!v.fecha_cierre);
   const snapshotDisponible = versionActual.estado === "cerrada";
 
   return (
@@ -138,7 +150,7 @@ export default function MemoriaDetalle() {
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-2">
             <h2 className="text-2xl font-semibold leading-none md:text-3xl">
-              Memoria {anioMemoria}
+              Memoria {formatFecha(memoria.periodo_inicio)}–{formatFecha(memoria.periodo_fin)}
             </h2>
 
             <span
@@ -155,6 +167,7 @@ export default function MemoriaDetalle() {
           </div>
 
           <div className="flex flex-wrap justify-end gap-2">
+            {puedeCorregirPeriodo && !editandoPeriodo && <Button size="sm" variant="secondary" onClick={() => setEditandoPeriodo(true)}>Editar período</Button>}
             <Button
               variant="secondary"
               size="sm"
@@ -175,7 +188,11 @@ export default function MemoriaDetalle() {
                   variant="secondary"
                   onClick={() => setEstadoPendiente(estado)}
                 >
-                  Pasar a {estado}
+                  {estado === "cerrada"
+                    ? "Cerrar memoria"
+                    : estado === "en revision"
+                      ? "Enviar a revisión"
+                      : "Volver a abierta"}
                 </Button>
               ))}
 
@@ -189,32 +206,45 @@ export default function MemoriaDetalle() {
           </div>
         </div>
 
+        {!memoria.grupo_utn_id && <p role="status">Esta memoria anterior requiere una asociación explícita a una UCT. Las versiones cerradas se conservan sin reconstruir su historia.</p>}
+        {editandoPeriodo && puedeCorregirPeriodo && <article className="rounded-2xl border border-slate-200 bg-white p-6">
+          <h3 className="mb-4 text-lg font-semibold">Editar período</h3>
+          <MemoriaPeriodoForm memoria={memoria} onCancel={() => setEditandoPeriodo(false)} onSaved={() => {
+            setEditandoPeriodo(false);
+            navigate(`/memorias/${memoria.id}`, { replace: true, state: { successMessage: "Período de la memoria actualizado con éxito." } });
+          }} />
+        </article>}
         <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-slate-700">
+            <h3 className="text-lg font-semibold text-slate-800">
               Datos de la memoria
             </h3>
           </div>
 
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
+            <p><span className="font-semibold text-slate-800">UCT:</span> {memoria.grupo_utn_nombre || "Pendiente de asociar"}</p>
             <p>
-              <span className="font-medium text-slate-700">Periodo de inicio:</span>{" "}
+              El período define qué información integra la memoria. Su estado
+              permanece abierto hasta que un gestor o administrador la cierre.
+            </p>
+            <p>
+              <span className="font-semibold text-slate-800">Período de inicio:</span>{" "}
               {formatFecha(memoria.periodo_inicio)}
             </p>
             <p>
-              <span className="font-medium text-slate-700">Periodo de fin:</span>{" "}
+              <span className="font-semibold text-slate-800">Período de fin:</span>{" "}
               {formatFecha(memoria.periodo_fin)}
             </p>
             <p>
-              <span className="font-medium text-slate-700">Cantidad de versiones:</span>{" "}
+              <span className="font-semibold text-slate-800">Cantidad de versiones:</span>{" "}
               {memoria.cantidad_versiones}
             </p>
             <p>
-              <span className="font-medium text-slate-700">Creada por:</span>{" "}
+              <span className="font-semibold text-slate-800">Creada por:</span>{" "}
               {memoria.created_by_nombre || "-"}
             </p>
             <p>
-              <span className="font-medium text-slate-700">Fecha de creacion:</span>{" "}
+              <span className="font-semibold text-slate-800">Fecha de creación:</span>{" "}
               {formatFechaHora(memoria.created_at)}
             </p>
           </div>
@@ -222,32 +252,32 @@ export default function MemoriaDetalle() {
 
         <article className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-slate-700">Version actual</h3>
+            <h3 className="text-lg font-semibold text-slate-800">Versión actual</h3>
           </div>
 
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
             <p>
-              <span className="font-medium text-slate-700">Numero de version:</span>{" "}
+              <span className="font-semibold text-slate-800">Número de versión:</span>{" "}
               {versionActual.numero_version}
             </p>
             <p>
-              <span className="font-medium text-slate-700">Estado:</span>{" "}
+              <span className="font-semibold text-slate-800">Estado:</span>{" "}
               {versionActual.estado}
             </p>
             <p>
-              <span className="font-medium text-slate-700">Fecha de apertura:</span>{" "}
+              <span className="font-semibold text-slate-800">Fecha de apertura:</span>{" "}
               {formatFechaHora(versionActual.fecha_apertura)}
             </p>
             <p>
-              <span className="font-medium text-slate-700">Fecha de cierre:</span>{" "}
+              <span className="font-semibold text-slate-800">Fecha de cierre:</span>{" "}
               {formatFechaHora(versionActual.fecha_cierre)}
             </p>
             <p>
-              <span className="font-medium text-slate-700">Ultima actualizacion:</span>{" "}
+              <span className="font-semibold text-slate-800">Última actualización:</span>{" "}
               {formatFechaHora(versionActual.updated_at)}
             </p>
             <p>
-              <span className="font-medium text-slate-700">Actualizada por:</span>{" "}
+              <span className="font-semibold text-slate-800">Actualizada por:</span>{" "}
               {versionActual.updated_by_nombre || "-"}
             </p>
           </div>
@@ -255,7 +285,7 @@ export default function MemoriaDetalle() {
 
         <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-slate-700">
+            <h3 className="text-lg font-semibold text-slate-800">
               Historial de versiones
             </h3>
           </div>
@@ -268,19 +298,19 @@ export default function MemoriaDetalle() {
               >
                 <div className="space-y-1 text-sm text-slate-500">
                   <p>
-                    <span className="font-medium text-slate-700">Version:</span>{" "}
+                    <span className="font-semibold text-slate-800">Versión:</span>{" "}
                     {version.numero_version}
                   </p>
                   <p>
-                    <span className="font-medium text-slate-700">Estado:</span>{" "}
+                    <span className="font-semibold text-slate-800">Estado:</span>{" "}
                     {version.estado}
                   </p>
                   <p>
-                    <span className="font-medium text-slate-700">Apertura:</span>{" "}
+                    <span className="font-semibold text-slate-800">Apertura:</span>{" "}
                     {formatFechaHora(version.fecha_apertura)}
                   </p>
                   <p>
-                    <span className="font-medium text-slate-700">Cierre:</span>{" "}
+                    <span className="font-semibold text-slate-800">Cierre:</span>{" "}
                     {formatFechaHora(version.fecha_cierre)}
                   </p>
                 </div>
@@ -307,6 +337,21 @@ export default function MemoriaDetalle() {
           </div>
         </article>
 
+        <article className="rounded-2xl border border-slate-200 bg-white p-6">
+          <h3 className="mb-4 text-lg font-semibold">Auditoría</h3>
+          <p className="text-sm text-slate-500">Creada: {formatFechaHora(memoria.created_at)} por {memoria.created_by_nombre || "-"}</p>
+          <p className="text-sm text-slate-500">Actualizada: {formatFechaHora(memoria.updated_at)} por {memoria.updated_by_nombre || "-"}</p>
+          {memoria.deleted_at && <p className="text-sm text-slate-500">Baja: {formatFechaHora(memoria.deleted_at)} por {memoria.deleted_by_nombre || "-"}</p>}
+        </article>
+        {errorHistorial ? <p role="alert">Lo sentimos, no pudimos recuperar el historial. Intente nuevamente.</p> :
+          <HistorialCambiosCard
+            items={historial.map((item) => ({
+              ...item,
+              campo: item.campo === "grupo_utn_id" ? "UCT" : item.campo,
+            }))}
+            isLoading={cargandoHistorial}
+            pageSize={3}
+          />}
         <div className="flex justify-start pt-4">
           <Button variant="secondary" size="sm" onClick={() => navigate("/memorias")}>
             Volver
@@ -318,7 +363,7 @@ export default function MemoriaDetalle() {
         open={!!estadoPendiente}
         title="Cambiar estado de memoria"
         message={`Cambiar la memoria al estado "${estadoPendiente || ""}"?`}
-        items={[`Version actual: ${versionActual.numero_version}`]}
+        items={[`Versión actual: ${versionActual.numero_version}`]}
         onCancel={() => setEstadoPendiente(null)}
         onConfirm={() =>
           estadoPendiente
@@ -326,17 +371,19 @@ export default function MemoriaDetalle() {
             : Promise.resolve(undefined)
         }
         confirmText={isChangingState ? "Actualizando..." : "Confirmar"}
-      />
+       loadingText="Actualizando..."
+     />
 
       <ConfirmDialog
         open={showReopenConfirm}
         title="Reabrir memoria"
-        message="Se creara una nueva version abierta a partir de la actual. Desea continuar?"
+        message="Se creará una nueva versión abierta a partir de la actual. ¿Desea continuar?"
         items={[`Memoria ${memoria.id}`]}
         onCancel={() => setShowReopenConfirm(false)}
         onConfirm={() => reabrir()}
         confirmText={isReopening ? "Reabriendo..." : "Confirmar"}
-      />
+       loadingText="Reabriendo..."
+     />
 
       <SuccessToast
         open={showSuccess}

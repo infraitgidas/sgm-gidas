@@ -33,11 +33,23 @@ def get_actuales(grupo_id):
     return DirectivoController.get_actuales(grupo_id)
 
 
+@directivo_bp.route("/grupo/<int:grupo_id>/cambios", methods=["GET"])
+@requiere_rol("ADMIN", "GESTOR", "LECTURA")
+def get_cambios(grupo_id):
+    return DirectivoController.get_cambios(grupo_id)
+
+
 # =====================================================
 # MODIFICACIONES (requieren escritura)
 # =====================================================
 
 # Crear directivo
+@directivo_bp.route("/crear-y-asignar", methods=["POST"])
+@requiere_rol("ADMIN", "GESTOR")
+def crear_y_asignar():
+    return DirectivoController.crear_y_asignar()
+
+
 @directivo_bp.route("/", methods=["POST"])
 @requiere_rol("ADMIN", "GESTOR")
 def create():

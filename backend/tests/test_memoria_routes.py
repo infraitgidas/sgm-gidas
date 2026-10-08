@@ -8,7 +8,10 @@ from modules.shared.exceptions import ValidationError
 class MemoriaRoutesTestCase(unittest.TestCase):
 
     def setUp(self):
-        self.app = create_app()
+        # Route/RBAC contract tests use fake tokens and mocked services.
+        # Tenant authorization with real memberships is covered separately.
+        with patch("app.register_tenant_request_scope"):
+            self.app = create_app()
         self.app.testing = True
         self.client = self.app.test_client()
 
@@ -31,6 +34,26 @@ class MemoriaRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), [])
         mock_get_all.assert_called_once_with("true")
+
+    def test_get_all_paginado_usa_service_limitado(self):
+        with patch(
+            "modules.shared.services.middleware.AuthService.verify_token",
+            return_value={"sub": "1", "rol": "LECTURA"}
+        ), patch(
+            "modules.memorias.controllers.memoria_controller.MemoriaService.get_page",
+            return_value=([{"id": 2}], 12)
+        ) as mock_page, patch(
+            "modules.memorias.controllers.memoria_controller.MemoriaService.get_all"
+        ) as mock_all:
+            response = self.client.get(
+                "/api/v1/memorias?page=2&per_page=3", headers=self._headers()
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["data"], [{"id": 2}])
+        self.assertEqual(response.get_json()["meta"]["total_pages"], 4)
+        mock_page.assert_called_once_with(page=2, per_page=3, activos="true", orden="asc")
+        mock_all.assert_not_called()
 
     def test_get_by_id_sin_token_devuelve_401(self):
         response = self.client.get("/api/v1/memorias/1")
@@ -467,12 +490,13 @@ class MemoriaRoutesTestCase(unittest.TestCase):
         )
         mock_delete.assert_called_once_with(1, 6)
 
-    def test_reopen_con_rol_gestor_devuelve_403(self):
+    def test_reopen_con_rol_gestor_devuelve_200(self):
         with patch(
             "modules.shared.services.middleware.AuthService.verify_token",
             return_value={"sub": "7", "rol": "GESTOR"}
         ), patch(
-            "modules.memorias.controllers.memoria_controller.MemoriaService.reopen"
+            "modules.memorias.controllers.memoria_controller.MemoriaService.reopen",
+            return_value={"id": 1, "version_actual": {"numero_version": 2}}
         ) as mock_reopen:
             response = self.client.put(
                 "/api/v1/memorias/1/reabrir",
@@ -480,9 +504,8 @@ class MemoriaRoutesTestCase(unittest.TestCase):
                 headers=self._headers()
             )
 
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.get_json()["error"]["code"], "FORBIDDEN")
-        mock_reopen.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        mock_reopen.assert_called_once_with(1, 7, {"fecha_apertura": "2026-03-05"})
 
     def test_reopen_con_rol_admin_devuelve_200(self):
         with patch(

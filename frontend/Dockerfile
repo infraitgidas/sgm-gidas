@@ -1,4 +1,4 @@
-FROM node:20-alpine AS dependencies
+FROM node:24.11.1-alpine AS dependencies
 
 WORKDIR /app
 
@@ -20,9 +20,11 @@ ENV VITE_APP_ENV=${VITE_APP_ENV} \
     VITE_BASE_PATH=${VITE_BASE_PATH}
 
 COPY . .
-RUN npm run build:production
+RUN npm run build:production \
+    && find dist -type f \( -name '*.js' -o -name '*.css' -o -name '*.svg' -o -name '*.json' \) \
+        -exec gzip -9 -k {} +
 
-FROM nginxinc/nginx-unprivileged:1.27-alpine AS production
+FROM nginxinc/nginx-unprivileged:1.31-alpine3.24 AS production
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html

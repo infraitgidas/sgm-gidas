@@ -3,7 +3,8 @@ import Button from "@/components/Button";
 import SuccessToast from "@/components/SuccessToast";
 import { useAdoptantes, useCreateAdoptante } from "@/modules/transferencia/hooks/useAdoptantes";
 import type { Adoptante, AdoptantePayload } from "@/modules/transferencia/services/adoptantesServices";
-import { getErrorMessage } from "@/lib/httpError";
+import { applyFieldErrors, focusFieldErrors, getErrorMessage } from "@/lib/httpError";
+import { hasOnlyLettersAndSpaces } from "../lib/textValidation";
 
 type Props = {
     selected: Adoptante[];
@@ -23,6 +24,7 @@ export default function AdoptanteSelector({ selected, onChange }: Props) {
     const [showForm, setShowForm] = useState(false);
     const [showError, setShowError] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
+    const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
     // Adoptantes no seleccionados aún, filtrados por búsqueda
     const options = useMemo(() => {
@@ -50,14 +52,29 @@ export default function AdoptanteSelector({ selected, onChange }: Props) {
     const [formNombre, setFormNombre] = useState("");
 
     const submitNew = async () => {
-        if (!formNombre.trim()) return;
+        if (createMut.isPending) return;
+        if (!formNombre.trim()) {
+            const next = { nombre: "Ingrese el nombre del adoptante." };
+            setFormErrors(next);
+            focusFieldErrors(next);
+            return;
+        }
+        if (!hasOnlyLettersAndSpaces(formNombre)) {
+            const next = { nombre: "Use solo letras y espacios en el nombre." };
+            setFormErrors(next);
+            focusFieldErrors(next);
+            return;
+        }
+        setShowError(false);
         const payload: AdoptantePayload = { nombre: formNombre.trim() };
         try {
             const created = await createMut.mutateAsync(payload);
             add(created);
             setFormNombre("");
+            setFormErrors({});
             setShowForm(false);
         } catch (err: unknown) {
+            if (applyFieldErrors(err, setFormErrors, ["nombre"])) return;
             setErrorMessage(getErrorMessage(err, "Lo sentimos, no pudimos crear el adoptante. Verifique los datos e intente nuevamente."));
             setShowError(true);
         }
@@ -148,12 +165,22 @@ export default function AdoptanteSelector({ selected, onChange }: Props) {
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
                     <p className="text-sm font-medium">Nuevo adoptante</p>
 
-                    <input
-                        className="input text-sm"
-                        placeholder="Nombre del adoptante *"
-                        value={formNombre}
-                        onChange={(e) => setFormNombre(e.target.value)}
-                    />
+                    <div data-error-field="nombre">
+                        <label htmlFor="nuevo-adoptante-nombre" className="block text-sm font-medium">Nombre del adoptante *</label>
+                        <input
+                            id="nuevo-adoptante-nombre"
+                            className={`input text-sm ${formErrors.nombre ? "border-red-500" : ""}`}
+                            placeholder="Ingrese el nombre"
+                            value={formNombre}
+                            aria-invalid={Boolean(formErrors.nombre)}
+                            aria-describedby={formErrors.nombre ? "nuevo-adoptante-error" : undefined}
+                            onChange={(e) => {
+                                setFormNombre(e.target.value);
+                                if (formErrors.nombre) setFormErrors((previous) => ({ ...previous, nombre: "" }));
+                            }}
+                        />
+                        {formErrors.nombre && <p id="nuevo-adoptante-error" role="alert" className="mt-1 text-sm text-red-600">{formErrors.nombre}</p>}
+                    </div>
 
                     <div className="flex gap-2 justify-end">
                         <Button
@@ -164,6 +191,7 @@ export default function AdoptanteSelector({ selected, onChange }: Props) {
                             onClick={() => {
                                 setShowForm(false);
                                 setFormNombre("");
+                                setFormErrors({});
                             }}
                         >
                             Cancelar
@@ -172,7 +200,7 @@ export default function AdoptanteSelector({ selected, onChange }: Props) {
                             type="button"
                             size="sm"
                             className="px-3 py-1 text-xs"
-                            disabled={createMut.isPending || !formNombre.trim()}
+                            disabled={createMut.isPending}
                             onClick={submitNew}
                         >
                             {createMut.isPending ? "Creando…" : "Crear y agregar"}

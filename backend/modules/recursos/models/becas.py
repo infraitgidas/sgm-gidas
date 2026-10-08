@@ -5,6 +5,7 @@ class Beca(db.Model, AuditMixin):
     __tablename__ = "beca"
 
     id = db.Column(db.Integer, primary_key=True)
+    grupo_utn_id = db.Column(db.Integer, db.ForeignKey("grupo_utn.id"), nullable=True, index=True)
     nombre_beca = db.Column(db.String(100), nullable=False)
     descripcion = db.Column(db.Text, nullable=True)
     fecha_alta_grupo = db.Column(db.Date, nullable=True)
@@ -44,7 +45,8 @@ class Beca(db.Model, AuditMixin):
                     "monto_percibido": b.monto_percibido
                 }
                 for b in self.becarios
-                if not hasattr(b, "deleted_at") or b.deleted_at is None
+                if (not hasattr(b, "deleted_at") or b.deleted_at is None)
+                and b.becario.deleted_at is None
             ]
         })
 

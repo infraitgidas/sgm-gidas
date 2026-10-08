@@ -151,8 +151,8 @@ class AuditoriaTanda2ServicesTestCase(unittest.TestCase):
         ), patch(
             "modules.proyectos.services.participacion_relevante_service.ParticipacionRelevanteService._validar_no_duplicado"
         ), patch(
-            "modules.proyectos.services.participacion_relevante_service.ParticipacionRelevanteService._validar_investigador",
-            return_value=11
+            "modules.proyectos.services.participacion_relevante_service.ParticipacionRelevanteService._validar_participante",
+            return_value=("investigador", 11, SimpleNamespace(nombre_apellido="Investigador B"))
         ), patch(
             "modules.proyectos.services.participacion_relevante_service.AuditoriaService.registrar_cambios"
         ) as mock_registrar:
@@ -160,7 +160,7 @@ class AuditoriaTanda2ServicesTestCase(unittest.TestCase):
                 3,
                 {
                     "nombre_evento": "Evento B",
-                    "investigador_id": 11
+                    "participante": {"rol": "investigador", "id": 11}
                 },
                 user_id=15
             )

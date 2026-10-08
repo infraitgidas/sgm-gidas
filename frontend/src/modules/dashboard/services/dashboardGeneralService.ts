@@ -19,6 +19,11 @@ export type DashboardResumen = {
   total_grupos: number;
   total_becas: number;
   total_erogaciones: number;
+  total_ingresos: string;
+  total_egresos: string;
+  saldo_financiero: string;
+  egresos_corrientes: string;
+  egresos_capital: string;
   total_transferencias: number;
   total_fuentes_financiamiento: number;
   monto_total_proyectos: number;
@@ -77,7 +82,7 @@ export type SerieAnual = {
 
 export type ProyectoPorVencer = {
   id: number;
-  codigo_proyecto: number;
+  codigo_proyecto: string;
   nombre_proyecto: string;
   fecha_fin: string;
   dias_restantes: number;

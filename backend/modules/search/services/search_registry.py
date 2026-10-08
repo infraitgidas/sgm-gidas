@@ -8,7 +8,7 @@ from modules.recursos.models.equipamiento import Equipamiento
 from modules.grupo.models.visita_grupo import VisitaAcademica
 from modules.produccion.models.trabajo_revista import TrabajosRevistasReferato
 from modules.proyectos.models.participacion_relevante import ParticipacionRelevante
-from modules.recursos.models.erogacion import Erogacion
+from modules.recursos.models.movimiento_financiero import MovimientoFinanciero
 from modules.recursos.models.becas import Beca
 
 
@@ -48,17 +48,17 @@ SEARCH_ENTITIES = [
     
     {
         "type": "erogacion",
-        "model": Erogacion,
-        "fields": ["numero_erogacion","ingresos", "egresos", "fuente_financiamiento.nombre", "tipo_erogacion.nombre"],
+        "model": MovimientoFinanciero,
+        "fields": ["numero_movimiento", "tipo_movimiento", "monto", "fuente_financiamiento.nombre", "categoria_erogacion.nombre"],
         "serializer": lambda e: {
             "type": "erogacion",
             "id": e.id,
-            "title": f"Erogación {e.numero_erogacion}",
-            "description": f"Ingresos: ${e.ingresos}, Egresos: ${e.egresos}",
+            "title": f"Movimiento {e.numero_movimiento}",
+            "description": f"{e.tipo_movimiento}: {e.monto} {e.moneda}",
             "extra": {
                 "grupo": e.grupo_utn.nombre_sigla_grupo if e.grupo_utn else None
             },
-            "url": f"/erogaciones/{e.id}"
+            "url": f"/movimientos/{e.id}"
         }
     },
 
@@ -307,14 +307,11 @@ SEARCH_ENTITIES = [
             "title": t.titulo_trabajo,
             "description": f"{t.nombre_reunion} – {t.tipo_reunion_cientifica}",
             "extra": {
-                "investigadores": [
-                    inv.nombre_apellido
-                    for inv in t.investigadores
-                ],
+                "autores": [a.serialize() for a in t.autorias],
                 "procedencia": t.procedencia,
                 "fecha": (
-                    t.fecha_inicio.isoformat()
-                    if t.fecha_inicio else None
+                    t.fecha_presentacion.isoformat()
+                    if t.fecha_presentacion else None
                 ),
                 "grupo": (
                     t.grupo_utn.nombre_sigla_grupo
@@ -407,14 +404,11 @@ SEARCH_ENTITIES = [
                     t.grupo_utn.nombre_sigla_grupo
                     if t.grupo_utn else None
                 ),
-                "tipo_reunion": (
-                    t.tipo_reunion.nombre
-                    if t.tipo_reunion else None
+                "tipo_revista": (
+                    t.tipo_revista.nombre
+                    if t.tipo_revista else None
                 ),
-                "investigadores": [
-                    inv.nombre_apellido
-                    for inv in t.investigadores
-                ]
+                "autores": [a.serialize() for a in t.autorias]
             },
             "url": f"/trabajos-revistas/{t.id}"
         }
@@ -436,9 +430,9 @@ SEARCH_ENTITIES = [
             "title": p.nombre_evento,
             "description": f"Participación como {p.forma_participacion}",
             "extra": {
-                "investigador": (
-                    p.investigador.nombre_apellido
-                    if p.investigador else None
+                "participante": p.participante.nombre_apellido if p.participante else None,
+                "categoria": (
+                    "Investigador" if p.participante_rol == "investigador" else "Becario"
                 ),
                 "fecha": (
                     p.fecha.isoformat()

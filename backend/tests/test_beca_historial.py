@@ -29,7 +29,7 @@ class BecaHistorialTestCase(unittest.TestCase):
         )
 
         with patch(
-            "modules.recursos.services.becas_service._get_beca_activa_or_404",
+            "modules.recursos.services.becas_service._get_beca_or_404",
             return_value=SimpleNamespace(id=3)
         ), patch(
             "modules.shared.services.auditoria_service.AuditoriaCampo",

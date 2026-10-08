@@ -1,8 +1,12 @@
+from modules.memorias.services.memoria_periodo_service import (
+    consultar_entidades_memoria, registro_puntual_en_memoria,
+)
 from datetime import datetime, date
 
 from sqlalchemy import or_
 
 from extension import db
+from modules.shared.services.text_validation import has_letter
 from modules.shared.exceptions import ConflictError, NotFoundError, ValidationError
 from modules.produccion.models.registro_patente import (
     RegistrosPropiedad,
@@ -11,6 +15,7 @@ from modules.produccion.models.registro_patente import (
 )
 from modules.grupo.models.grupo import GrupoInvestigacionUtn
 from modules.shared.services.auditoria_service import AuditoriaService
+from modules.shared.services.date_time import INSTITUTIONAL_MIN_DATE
 from modules.memorias.services.memoria_periodo_service import esta_en_periodo_memoria
 
 
@@ -27,13 +32,18 @@ class RegistrosPropiedadService:
     @staticmethod
     def _validar_id(valor, campo: str):
         if not isinstance(valor, int) or valor <= 0:
-            raise ValidationError(f"El campo '{campo}' debe ser un entero positivo")
+            if campo == "tipo_registro_id":
+                raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {campo: "Seleccione un tipo de registro disponible."}})
+            raise ValidationError("No pudimos procesar la solicitud. Intente nuevamente.")
         return valor
 
     @staticmethod
     def _validar_texto(valor: str, campo: str):
         if not isinstance(valor, str) or not valor.strip():
-            raise ValidationError(f"{campo} es obligatorio")
+            labels = {"nombre_articulo": "el nombre del artículo", "organismo_registrante": "el organismo registrante"}
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {campo: f"Ingrese {labels.get(campo, 'este dato')}."}})
+        if campo == "nombre_articulo" and not has_letter(valor):
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {campo: "El nombre del artículo debe contener letras."}})
         return " ".join(valor.strip().split())
 
     @staticmethod
@@ -47,13 +57,13 @@ class RegistrosPropiedadService:
         try:
             fecha = datetime.strptime(fecha_str, "%Y-%m-%d").date()
         except (KeyError, TypeError, ValueError):
-            raise ValidationError(
-                "fecha_registro es obligatoria y debe tener formato YYYY-MM-DD"
-            )
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"fecha_registro": "Ingrese una fecha válida."}})
 
         if fecha > date.today():
-            raise ValidationError("fecha_registro no puede ser futura")
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"fecha_registro": "Ingrese una fecha que no sea futura."}})
 
+        if fecha < INSTITUTIONAL_MIN_DATE:
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"fecha_registro": "Ingrese una fecha desde el 01/01/2010."}})
         return fecha
 
     @staticmethod
@@ -73,7 +83,7 @@ class RegistrosPropiedadService:
         )
         tipo_registro = db.session.get(TipoRegistroPropiedad, tipo_registro_id)
         if not tipo_registro:
-            raise ValidationError("tipo_registro_id invalido")
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"tipo_registro_id": "Seleccione un tipo de registro disponible."}})
         return tipo_registro.id
 
     @staticmethod
@@ -83,14 +93,14 @@ class RegistrosPropiedadService:
         )
         grupo = db.session.get(GrupoInvestigacionUtn, grupo_utn_id)
         if not grupo or grupo.deleted_at is not None:
-            raise ValidationError("grupo_utn_id invalido")
+            raise ValidationError("El grupo ya no está disponible. Recargue el formulario e intente nuevamente.")
         return grupo.id
 
     # =========================
     # LISTAR
     # =========================
     @staticmethod
-    def get_all(activos: str = "true"):
+    def _list_query(activos: str = "true"):
         query = RegistrosPropiedad.query
 
         activos = RegistrosPropiedadService._normalizar_activos(activos)
@@ -115,7 +125,18 @@ class RegistrosPropiedadService:
                 RegistrosPropiedad.activo.is_(True)
             )
 
-        return [r.serialize() for r in query.all()]
+        return query.order_by(RegistrosPropiedad.id.asc())
+
+    @staticmethod
+    def get_all(activos: str = "true"):
+        return [r.serialize() for r in RegistrosPropiedadService._list_query(activos).all()]
+
+    @staticmethod
+    def get_page(activos: str, page: int, per_page: int, orden: str = "asc"):
+        query = RegistrosPropiedadService._list_query(activos).order_by(None)
+        total = query.count()
+        direction = RegistrosPropiedad.id.desc() if orden == "desc" else RegistrosPropiedad.id.asc()
+        return [r.serialize() for r in query.order_by(direction).offset((page - 1) * per_page).limit(per_page).all()], total
 
     # =========================
     # OBTENER POR ID
@@ -235,13 +256,7 @@ class RegistrosPropiedadService:
                 registro.grupo_utn_id = nuevo_valor
 
         if "fecha_registro" in data:
-            try:
-                nuevo_valor = datetime.strptime(data["fecha_registro"], "%Y-%m-%d").date()
-            except (TypeError, ValueError):
-                raise ValidationError("fecha_registro debe tener formato YYYY-MM-DD")
-
-            if nuevo_valor > date.today():
-                raise ValidationError("fecha_registro no puede ser futura")
+            nuevo_valor = RegistrosPropiedadService._validar_fecha(data["fecha_registro"])
 
             cambio = AuditoriaService.construir_cambio(
                 registro.fecha_registro,
@@ -311,14 +326,11 @@ class RegistrosPropiedadService:
 
     @staticmethod
     def snapshot_para_memoria_version(memoria_version, user_id):
-        registros = RegistrosPropiedad.query.filter().all()
+        registros = consultar_entidades_memoria(RegistrosPropiedad, memoria_version)
 
         snapshots = []
         for registro in registros:
-            if not esta_en_periodo_memoria(
-                memoria_version,
-                registro.fecha_registro
-            ):
+            if not registro_puntual_en_memoria(memoria_version, registro, registro.fecha_registro):
                 continue
             snapshot = RegistrosPropiedadMemoriaVersion(
                 memoria_version_id=memoria_version.id,

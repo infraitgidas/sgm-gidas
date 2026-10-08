@@ -2,6 +2,8 @@ import { http } from "@/lib/http";
 
 export interface BecarioPayload {
   nombre_apellido: string;
+  dni: string;
+  cuil: string;
   horas_semanales: number;
   fecha_alta_grupo: string;
   grupo_utn_id: number;
@@ -29,6 +31,8 @@ export interface BecarioBeca {
 export interface Becario {
   id: number;
   nombre_apellido: string;
+  dni: string | null;
+  cuil: string | null;
   horas_semanales: number;
   grupo_utn_id: number;
   tipo_formacion_id: number;

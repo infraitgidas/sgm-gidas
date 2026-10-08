@@ -1,3 +1,4 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
@@ -12,7 +13,7 @@ import FormInvestigador from "./FormInvestigador";
 
 import { getPersonalCompletoByRolAndId } from "@/modules/personal/services/personalCompletoServices";
 
-type Tipo = "" | "PTAA" | "PROFESIONAL" | "BECARIO" | "INVESTIGADOR";
+type Tipo = "" | "PERSONAL" | "BECARIO" | "INVESTIGADOR";
 
 export default function PersonalForm() {
   const { rol: paramRol, id } = useParams<{ rol?: string; id?: string }>();
@@ -39,7 +40,11 @@ export default function PersonalForm() {
     enabled: Boolean(inferredRol && id),
   });
 
-  const [tipo, setTipo] = useState<Tipo>("");
+  const requestedTipo = new URLSearchParams(location.search).get("tipo");
+  const [tipo, setTipo] = useState<Tipo>(
+    requestedTipo === "PERSONAL" || requestedTipo === "BECARIO" || requestedTipo === "INVESTIGADOR"
+      ? requestedTipo : ""
+  );
   const [errorTipo, setErrorTipo] = useState(false);
 
   // 🔥 TOAST STATE
@@ -52,7 +57,9 @@ export default function PersonalForm() {
     setErrorMessage(
       getErrorMessage(
         error,
-        "Lo sentimos, no pudimos guardar los cambios. Verifique los datos e intente nuevamente."
+        isEdit
+          ? "Lo sentimos, no pudimos actualizar el integrante. Revise los datos e intente nuevamente."
+          : "Lo sentimos, no pudimos crear el integrante. Revise los datos e intente nuevamente."
       )
     );
     setShowError(true);
@@ -70,12 +77,18 @@ export default function PersonalForm() {
   }, [location.state]);
 
   useEffect(() => {
+    if (!isEdit && (requestedTipo === "PERSONAL" || requestedTipo === "BECARIO" || requestedTipo === "INVESTIGADOR")) {
+      setTipo(requestedTipo);
+    }
+  }, [isEdit, requestedTipo]);
+
+  useEffect(() => {
     const r = inferredRol;
     if (!r) return;
 
     const rolMap: Record<string, Tipo> = {
-      personal: "PTAA",
-      profesional: "PROFESIONAL",
+      personal: "PERSONAL",
+      profesional: "PERSONAL",
       becario: "BECARIO",
       investigador: "INVESTIGADOR",
     };
@@ -84,11 +97,11 @@ export default function PersonalForm() {
     if (mapped) setTipo(mapped);
   }, [inferredRol]);
 
-  if (isLoading) return <p>Cargando…</p>;
+  if (isLoading) return <LoadingSkeleton variant="form" label="Cargando…" />;
   if (isEdit && isError) {
     return (
       <p className="text-slate-500">
-        Lo sentimos, no pudimos recuperar la informacion. Intente nuevamente.
+        Lo sentimos, no pudimos recuperar la información. Intente nuevamente.
       </p>
     );
   }
@@ -106,35 +119,36 @@ export default function PersonalForm() {
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 space-y-6">
 
-        {!isEdit && (
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              Tipo de personal
-            </label>
-
-            <select
-              className={`input ${errorTipo ? "border-red-500 ring-2 ring-red-500 bg-red-50" : ""
-                }`}
-              value={tipo}
-              onChange={(e) => handleTipoChange(e.target.value as Tipo)}
-              onBlur={() => {
-                if (!tipo) setErrorTipo(true);
-              }}
-            >
-              <option value="">
-                Selecciona el rol del personal
-              </option>
-              <option value="PTAA">Técnico administrativo y de apoyo</option>
-              <option value="PROFESIONAL">Personal Profesional</option>
-              <option value="BECARIO">Becario</option>
-              <option value="INVESTIGADOR">Investigador</option>
-            </select>
+        {!isEdit ? (
+          <fieldset>
+            <legend className="block text-sm font-medium mb-3">
+              Clase de registro<span className="ml-1 text-rose-500" aria-hidden="true">*</span>
+            </legend>
+            <div className="grid gap-3 md:grid-cols-3">
+              {([
+                ["PERSONAL", "Personal de apoyo, técnico o administrativo", "Funciones de apoyo y gestión institucional."],
+                ["BECARIO", "Becario", "Integrantes con formación y becas asociadas."],
+                ["INVESTIGADOR", "Investigador", "Integrantes con dedicación y antecedentes de investigación."],
+              ] as const).map(([value, label, description]) => (
+                <button key={value} type="button" aria-pressed={tipo === value} onClick={() => handleTipoChange(value)}
+                  className={`rounded-xl border p-4 text-left outline-none transition motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-slate-500 ${tipo === value ? "border-slate-800 bg-slate-50 ring-1 ring-slate-800" : "border-slate-200 hover:border-slate-400"}`}>
+                  <span className="block text-sm font-semibold text-slate-900">{label}</span>
+                  <span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span>
+                </button>
+              ))}
+            </div>
 
             {errorTipo && (
               <p className="text-red-500 text-sm mt-1">
-                Debe seleccionar el rol del personal
+                Debe seleccionar una clase de registro
               </p>
             )}
+          </fieldset>
+        ) : (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Clase de registro</span>
+            <p className="mt-1 font-medium text-slate-900">{tipo === "PERSONAL" ? "Personal de apoyo, técnico o administrativo" : tipo === "BECARIO" ? "Becario" : "Investigador"}</p>
+            <p className="mt-1 text-xs text-slate-500">La clase no puede cambiarse porque corresponde a un tipo de registro persistente distinto.</p>
           </div>
         )}
 
@@ -152,10 +166,9 @@ export default function PersonalForm() {
           </div>
         )}
 
-        {(tipo === "PTAA" || tipo === "PROFESIONAL") && (
+        {tipo === "PERSONAL" && (
           <FormPTAAProfesional
             key={`${tipo}-${id ?? "new"}`}
-            tipo={tipo}
             initialData={initialData}
             onCancel={() => navigate(-1)}
             onError={handleFormError}

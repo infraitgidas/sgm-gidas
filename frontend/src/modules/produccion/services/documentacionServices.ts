@@ -89,6 +89,30 @@ export async function getDocumentacion(
   return items.map(normalizeDocumentacion);
 }
 
+export type DocumentacionPageParams = {
+  page: number;
+  activos: "true" | "false" | "all";
+  q: string;
+  direction: "asc" | "desc";
+  autor: string;
+  anio: string;
+  ids?: Array<number | string>;
+};
+
+export async function getDocumentacionPage(params: DocumentacionPageParams) {
+  const query = new URLSearchParams({
+    view: "table", page: String(params.page), per_page: "9", activos: params.activos,
+    q: params.q, sort: "titulo", direction: params.direction,
+    filter_autor: params.autor, filter_anio: params.anio,
+  });
+  if (params.ids !== undefined) query.set("ids", params.ids.join(","));
+  const response = await http<{
+    data: DocumentacionBackend[];
+    meta: { total: number; total_pages: number; options: Record<string, Array<{ value: string; label: string }>> };
+  }>(`/documentacion-bibliografica?${query}`);
+  return { ...response, data: response.data.map(normalizeDocumentacion) };
+}
+
 export async function getDocumentacionById(id: number): Promise<Documentacion> {
   const response = await http<DocumentacionBackend>(`/documentacion-bibliografica/${id}`);
   return normalizeDocumentacion(response);

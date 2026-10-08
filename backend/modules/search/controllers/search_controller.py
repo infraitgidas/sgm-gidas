@@ -35,16 +35,15 @@ class SearchController:
                     'El parametro "eliminados" debe ser "false", "true" o "all"'
                 )
 
-            resultados = SearchService.search(
+            paginated_results, total_resultados = SearchService.search_page(
                 query_text=query_text,
                 orden=orden,
                 eliminados=eliminados,
+                page=page,
+                per_page=per_page,
                 max_scan_per_model=current_app.config["SEARCH_MAX_SCAN_PER_MODEL"],
             )
-            total_resultados = len(resultados)
             total_pages = max(1, ceil(total_resultados / per_page))
-            offset = (page - 1) * per_page
-            paginated_results = resultados[offset:offset + per_page]
 
             response = jsonify({
                 "query": query_text,

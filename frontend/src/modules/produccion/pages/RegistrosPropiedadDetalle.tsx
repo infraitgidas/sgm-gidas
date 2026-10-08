@@ -1,3 +1,4 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -9,11 +10,12 @@ import {
   getRegistroPropiedadById,
   type RegistroPropiedad,
 } from "@/modules/produccion/services/registrosPropiedadServices";
-import { formatFecha } from "@/utils/formatFecha";
+import { formatFecha, formatFechaHora } from "@/utils/dateTime";
 import { useAuditoria } from "@/modules/shared/hooks/useAuditoria";
 import { useAuth } from "@/context/AuthContext";
 import { toTitleCase } from "@/utils/format";
 import { useTiposRegistroPropiedad } from "@/modules/produccion/hooks/useTipoRegistroPropiedad";
+import { presentRegistroPropiedadHistoryItems } from "@/modules/produccion/utils/registroPropiedadHistory";
 import {
   navigateBackFromMemoriaContext,
   stripSuccessMessageState,
@@ -58,17 +60,12 @@ export default function RegistrosPropiedadDetalle() {
     }
   }, [location.state, navigate, location.pathname]);
 
-  if (isLoading) return <p className="text-slate-500">Cargando...</p>;
+  if (isLoading) return <LoadingSkeleton variant="detail" label="Cargando..." />;
   if (isError || !data) {
-    return <p className="text-slate-500">No se encontro el registro.</p>;
+    return <p className="text-slate-500">No se encontró el registro.</p>;
   }
 
   const isDeleted = !!data.deleted_at;
-
-  const formatFechaHora = (fecha?: string | null) => {
-    if (!fecha) return "-";
-    return new Date(fecha).toLocaleString("es-AR");
-  };
 
   const formatHistorialValue = (item: { campo?: string }, value: unknown) => {
     if (value === null || value === undefined || value === "") {
@@ -132,35 +129,35 @@ export default function RegistrosPropiedadDetalle() {
         <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
             <p>
-              <span className="font-medium text-slate-700">
-                Nombre del articulo:
+              <span className="font-semibold text-slate-800">
+                Nombre del artículo:
               </span>{" "}
               {data.nombre_articulo || "-"}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">
+              <span className="font-semibold text-slate-800">
                 Organismo registrante:
               </span>{" "}
               {toTitleCase(data.organismo_registrante) || "-"}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">
+              <span className="font-semibold text-slate-800">
                 Fecha de registro:
               </span>{" "}
               {formatFecha(data.fecha_registro)}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">
+              <span className="font-semibold text-slate-800">
                 Tipo de registro:
               </span>{" "}
               {toTitleCase(data.tipo_registro) || "-"}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Grupo UTN:</span>{" "}
+              <span className="font-semibold text-slate-800">Grupo UTN:</span>{" "}
               {toTitleCase(data.grupo) || "-"}
             </p>
           </div>
@@ -168,7 +165,7 @@ export default function RegistrosPropiedadDetalle() {
 
         <article className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-slate-700">Auditoria</h3>
+            <h3 className="text-lg font-semibold text-slate-800">Auditoría</h3>
             <p className="mt-1 text-xs text-slate-500">
               {data.nombre_articulo || "-"}
             </p>
@@ -176,27 +173,27 @@ export default function RegistrosPropiedadDetalle() {
 
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
             <p>
-              <span className="font-medium text-slate-700">Creado por:</span>{" "}
+              <span className="font-semibold text-slate-800">Creado por:</span>{" "}
               {auditoria.nombreCreador}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">
-                Fecha de creacion:
+              <span className="font-semibold text-slate-800">
+                Fecha de creación:
               </span>{" "}
               {formatFechaHora(data.created_at)}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">
+              <span className="font-semibold text-slate-800">
                 Eliminado por:
               </span>{" "}
               {auditoria.nombreEliminador}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">
-                Fecha de eliminacion:
+              <span className="font-semibold text-slate-800">
+                Fecha de eliminación:
               </span>{" "}
               {formatFechaHora(data.deleted_at)}
             </p>
@@ -205,7 +202,7 @@ export default function RegistrosPropiedadDetalle() {
 
         <HistorialCambiosCard
           subtitle={data.nombre_articulo || "-"}
-          items={historialCambios}
+          items={presentRegistroPropiedadHistoryItems(historialCambios)}
           isLoading={isLoadingHistorial}
           updatedAt={data.updated_at}
           updatedByName={data.updated_by_nombre}

@@ -1,11 +1,17 @@
+from modules.shared.services.catalog_name_validation import validar_nombre_descriptivo
 from extension import db
 from sqlalchemy import func
 from modules.produccion.models.actividad_docencia import GradoAcademico
 from modules.shared.services.catalogo_auditoria_service import CatalogoAuditoriaService
 from modules.shared.exceptions import ConflictError, NotFoundError, ValidationError
+from modules.shared.services.catalog_pagination import catalog_page
 
 
 class GradoAcademicoService:
+
+    @staticmethod
+    def get_page(page, per_page, activos="true", orden="asc"):
+        return catalog_page(GradoAcademico, GradoAcademico.nombre, activos=activos, orden=orden, page=page, per_page=per_page)
 
     @staticmethod
     def _validar_id(grado_id: int):
@@ -26,6 +32,7 @@ class GradoAcademicoService:
         if not isinstance(nombre, str) or not nombre.strip():
             raise ValidationError("El nombre es obligatorio")
         nombre = nombre.strip()
+        validar_nombre_descriptivo(nombre)
         if len(nombre) < 2:
             raise ValidationError("El nombre debe tener al menos 2 caracteres")
         return nombre

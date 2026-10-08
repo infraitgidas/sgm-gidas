@@ -11,9 +11,10 @@ test("carga las paginas mediante imports dinamicos", () => {
   assert.doesNotMatch(mainSource, /^import\s+\w+\s+from\s+"@\/modules\/.*\/pages\//m);
 });
 
-test("muestra feedback accesible durante la carga y permite recuperar errores", () => {
+test("muestra feedback accesible durante la carga y permite recuperar errores", async () => {
   assert.match(mainSource, /<Suspense fallback={<RouteLoading \/>}>/);
-  assert.match(mainSource, /role="status" aria-live="polite"/);
+  assert.match(mainSource, /<LoadingSkeleton label="Cargando contenido/);
+  assert.match(await readFile(new URL("../src/components/LoadingSkeleton.tsx", import.meta.url), "utf8"), /role="status" aria-live="polite"/);
   assert.match(mainSource, /<RouteErrorBoundary>/);
   assert.match(mainSource, /window\.location\.reload\(\)/);
   assert.match(mainSource, />\s*Reintentar\s*</);

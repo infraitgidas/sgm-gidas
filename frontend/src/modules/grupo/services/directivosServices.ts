@@ -3,6 +3,7 @@ import { http } from "@/lib/http";
 
 export type Directivo = {
   id: number;
+  grupo_utn_id?: number | null;
   nombre_apellido: string;
 };
 
@@ -17,6 +18,26 @@ export type DirectivoActual = {
 export type DirectivoPeriodo = DirectivoActual & {
   id: number;
   fecha_fin: string | null;
+};
+
+export type CambioDirectivo = {
+  id: number;
+  entidad: "directivo" | "directivo_grupo";
+  campo: "nombre_apellido" | "mandato";
+  valor_anterior: string | null;
+  valor_nuevo: string | {
+    accion: "asignado" | "finalizado";
+    detalle: { nombre_apellido: string; cargo: string; fecha_inicio: string; fecha_fin: string | null };
+  };
+  fecha_cambio: string;
+  usuario_nombre: string | null;
+};
+
+export type CambiosDirectivosPage = {
+  items: CambioDirectivo[];
+  page: number;
+  per_page: number;
+  total: number;
 };
 
 export type UpdateDirectivoPayload = {
@@ -62,10 +83,26 @@ export function getDirectivosActuales(grupoId: number) {
   });
 }
 
-export function getHistorialDirectivos(grupoId: number) {
+export function crearYAsignarDirectivo(payload: {
+  nombre_apellido: string;
+  id_grupo_utn: number;
+  id_cargo: number;
+  fecha_inicio: string;
+}) {
+  return http<Directivo>("/directivos/crear-y-asignar", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getPeriodosDirectivos(grupoId: number) {
   return http<DirectivoPeriodo[]>(`/directivos/grupo/${grupoId}`, {
     method: "GET",
   });
+}
+
+export function getCambiosDirectivos(grupoId: number, page: number) {
+  return http<CambiosDirectivosPage>(`/directivos/grupo/${grupoId}/cambios?page=${page}`);
 }
 
 export function updateDirectivo(

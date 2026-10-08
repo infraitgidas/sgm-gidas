@@ -1,9 +1,18 @@
 from flask import jsonify, request, g
 from modules.recursos.services.becas_service import BecaService
-from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, parse_pagination_params
+from modules.shared.controllers.responses import exception_response, paginated_response
+from modules.shared.exceptions import ValidationError
 
 
 class BecaController:
+
+    @staticmethod
+    def proximas_a_vencer():
+        try:
+            return jsonify(BecaService.proximas_a_vencer()), 200
+        except Exception as error:
+            return exception_response(error, operation="consultar vencimientos de becas")
 
     # =========================
     # GET ALL
@@ -11,6 +20,16 @@ class BecaController:
     @staticmethod
     def get_all():
         try:
+            if pagination_requested(request.args):
+                try:
+                    params = parse_pagination_params(request.args)
+                except ValueError as error:
+                    raise ValidationError(str(error)) from error
+                data, total = BecaService.get_page(**params, q=request.args.get("q", ""))
+                return paginated_response(
+                    data, params["page"], params["per_page"], total,
+                    meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"},
+                )
             data = BecaService.get_all(request.args.get("activos", "true"))
             return jsonify(data), 200
         except Exception as error:
@@ -129,6 +148,14 @@ class BecaController:
     @staticmethod
     def get_becarios(beca_id):
         try:
+            if pagination_requested(request.args):
+                try:
+                    params = parse_pagination_params(request.args)
+                except ValueError as error:
+                    raise ValidationError(str(error)) from error
+                data, total = BecaService.get_becarios_de_beca(beca_id, params["page"], params["per_page"])
+                return paginated_response(data, params["page"], params["per_page"], total,
+                                          meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"})
             data = BecaService.get_becarios_de_beca(beca_id)
             return jsonify(data), 200
 
@@ -143,6 +170,15 @@ class BecaController:
     def get_activas():
         try:
             anio = request.args.get("anio", type=int)
+
+            if pagination_requested(request.args):
+                try:
+                    params = parse_pagination_params(request.args)
+                except ValueError as error:
+                    raise ValidationError(str(error)) from error
+                data, total = BecaService.get_becas_activas_en_anio(anio, params["page"], params["per_page"])
+                return paginated_response(data, params["page"], params["per_page"], total,
+                                          meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"})
 
             data = BecaService.get_becas_activas_en_anio(anio)
 

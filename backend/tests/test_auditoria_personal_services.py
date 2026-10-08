@@ -189,6 +189,31 @@ class AuditoriaPersonalServicesTestCase(unittest.TestCase):
         self.assertIsNone(investigador.updated_by)
         mock_registrar.assert_not_called()
 
+    def test_actualizar_investigador_permite_quitar_categoria_y_programa(self):
+        investigador = Investigador(id=5, nombre_apellido="Laura Ruiz", horas_semanales=15,
+                                    tipo_dedicacion_id=2, categoria_utn_id=7,
+                                    programa_incentivos_id=8, grupo_utn_id=9, created_by=1)
+        investigador.deleted_at = None
+        with patch("modules.personal.services.investigador_service._obtener_investigador_activo", return_value=investigador), patch(
+            "modules.personal.services.investigador_service.AuditoriaService.registrar_cambios"
+        ) as registrar:
+            actualizar_investigador(5, {"categoria_utn_id": None, "programa_incentivos_id": None}, user_id=2)
+
+        self.assertIsNone(investigador.categoria_utn_id)
+        self.assertIsNone(investigador.programa_incentivos_id)
+        cambios = registrar.call_args.kwargs["cambios"]
+        self.assertEqual(set(cambios), {"categoria_utn_id", "programa_incentivos_id"})
+
+    def test_actualizar_investigador_rechaza_catalogos_invalidos(self):
+        investigador = Investigador(id=6, nombre_apellido="Laura Ruiz", horas_semanales=15,
+                                    tipo_dedicacion_id=2, grupo_utn_id=9, created_by=1)
+        investigador.deleted_at = None
+        with patch("modules.personal.services.investigador_service._obtener_investigador_activo", return_value=investigador), patch(
+            "modules.personal.services.investigador_service.CategoriaUtn",
+            new=SimpleNamespace(query=SimpleNamespace(get=lambda _: None))
+        ), self.assertRaises(Exception):
+            actualizar_investigador(6, {"categoria_utn_id": 999}, user_id=2)
+
 
 if __name__ == "__main__":
     unittest.main()

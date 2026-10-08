@@ -1,30 +1,48 @@
-import { useNavigate, useLocation } from "react-router-dom";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import Button from "@/components/Button";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import SuccessToast from "@/components/SuccessToast";
-import Tarjeta from "@/components/Tarjeta";
 import MemoriaFilterBanner from "@/components/MemoriaFilterBanner";
+import SuccessToast from "@/components/SuccessToast";
+import Table, {
+  TableActionButton,
+  TableActions,
+  TableFilterChip,
+  TableRowActionButton,
+  TableSearch,
+  TableToolbar,
+} from "@/components/Table";
+import type { TableColumn } from "@/components/Table";
+import TableFilterSelect from "@/components/TableFilterSelect";
 import { useAuth } from "@/context/AuthContext";
 import { getErrorMessage } from "@/lib/httpError";
-import { useRegistrosPropiedad } from "@/modules/produccion/hooks/useRegistrosPropiedad";
-import {
-  deleteRegistroPropiedad,
-  type RegistroPropiedad,
-} from "@/modules/produccion/services/registrosPropiedadServices";
-import { toTitleCase } from "@/utils/format";
 import {
   applyMemoriaSectionFilter,
   getMemoriaSectionFilter,
 } from "@/lib/memoriaSectionFilter";
 import { buildMemoriaDetailState } from "@/lib/memoriaNavigation";
+import { useRegistrosPropiedad } from "@/modules/produccion/hooks/useRegistrosPropiedad";
+import {
+  deleteRegistroPropiedad,
+  getHistorialRegistroPropiedadById,
+  type HistorialRegistroPropiedadItem,
+  type RegistroPropiedad,
+} from "@/modules/produccion/services/registrosPropiedadServices";
+import {
+  formatRegistroPropiedadContractValue,
+  formatRegistroPropiedadHistoryEntry,
+  presentRegistroPropiedadHistoryItems,
+} from "@/modules/produccion/utils/registroPropiedadHistory";
+import { toTitleCase } from "@/utils/format";
 
 const ITEMS_PER_PAGE = 9;
+const HISTORY_PER_PAGE = 3;
 
 const formatFecha = (fecha?: string | null) => {
-  if (!fecha) return "-";
+  if (!fecha) return "—";
 
   const [y, m, d] = fecha.split("-");
   if (!y || !m || !d) return fecha;
@@ -35,29 +53,27 @@ const formatFecha = (fecha?: string | null) => {
 export default function RegistrosPropiedadLanding() {
   const navigate = useNavigate();
   const location = useLocation();
-  const qc = useQueryClient();
-  const { canCreateRecords, canDeleteRecords } = useAuth();
+  const queryClient = useQueryClient();
+  const { canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
 
   const puedeCrear = canCreateRecords();
-  const puedeEliminar = canDeleteRecords();
 
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
+  const [pendingDelete, setPendingDelete] =
+    useState<RegistroPropiedad | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
 
   const [filters, setFilters] = useState({
     estado: "",
     tipoRegistro: "",
     fechaRegistro: "",
   });
-  const [tempFilters, setTempFilters] = useState(filters);
   const memoriaFilter = useMemo(
     () => getMemoriaSectionFilter(location.state, "registros-propiedad"),
     [location.state]
@@ -84,10 +100,12 @@ export default function RegistrosPropiedadLanding() {
     const fechasRegistro = new Set<string>();
 
     scopedList.forEach((registro) => {
-      if (registro.tipo_registro != null) {
-        tiposRegistro.add(toTitleCase(registro.tipo_registro));
+      const tipoRegistro = formatRegistroPropiedadContractValue(
+        registro.tipo_registro
+      );
+      if (tipoRegistro) {
+        tiposRegistro.add(toTitleCase(tipoRegistro));
       }
-
       if (registro.fecha_registro) {
         fechasRegistro.add(formatFecha(registro.fecha_registro));
       }
@@ -102,20 +120,22 @@ export default function RegistrosPropiedadLanding() {
   const registrosFiltrados = useMemo(() => {
     return scopedList.filter((registro) => {
       const query = searchQuery.toLowerCase().trim();
-
+      const nombre = formatRegistroPropiedadContractValue(
+        registro.nombre_articulo
+      );
+      const tipo = formatRegistroPropiedadContractValue(registro.tipo_registro);
+      const organismo = formatRegistroPropiedadContractValue(
+        registro.organismo_registrante
+      );
       const matchesSearch =
         !query ||
-        String(registro.nombre_articulo ?? "").toLowerCase().includes(query) ||
-        String(registro.tipo_registro ?? "").toLowerCase().includes(query) ||
+        nombre.toLowerCase().includes(query) ||
+        tipo.toLowerCase().includes(query) ||
         String(registro.fecha_registro ?? "").toLowerCase().includes(query) ||
-        String(registro.organismo_registrante ?? "")
-          .toLowerCase()
-          .includes(query);
-
+        organismo.toLowerCase().includes(query);
       const matchTipoRegistro =
         !filters.tipoRegistro ||
-        toTitleCase(registro.tipo_registro) === filters.tipoRegistro;
-
+        toTitleCase(tipo) === filters.tipoRegistro;
       const matchFechaRegistro =
         !filters.fechaRegistro ||
         formatFecha(registro.fecha_registro) === filters.fechaRegistro;
@@ -125,16 +145,24 @@ export default function RegistrosPropiedadLanding() {
   }, [scopedList, filters, searchQuery]);
 
   const totalPages = Math.ceil(registrosFiltrados.length / ITEMS_PER_PAGE);
-
   const paginatedItems = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     return registrosFiltrados.slice(start, start + ITEMS_PER_PAGE);
   }, [currentPage, registrosFiltrados]);
-
-  const filtrosActivosCount = Object.values(filters).filter(Boolean).length;
+  const expandedItem =
+    expandedRow === null
+      ? undefined
+      : scopedList.find((registro) => registro.id === expandedRow);
+  const history = useQuery({
+    queryKey: ["registro-propiedad-historial", expandedItem?.id],
+    queryFn: () => getHistorialRegistroPropiedadById(expandedItem!.id),
+    enabled: Boolean(expandedItem),
+    staleTime: 5 * 60_000,
+  });
 
   useEffect(() => {
     setCurrentPage(1);
+    setExpandedRow(null);
   }, [filters, searchQuery]);
 
   useEffect(() => {
@@ -146,12 +174,8 @@ export default function RegistrosPropiedadLanding() {
   }, [location.state, navigate, location.pathname]);
 
   const setQuickEstado = (estado: "" | "todos" | "inactivos") => {
-    setFilters((prev) => ({
-      ...prev,
-      estado,
-    }));
+    setFilters((prev) => ({ ...prev, estado }));
   };
-
   const quickEstadoActual =
     filters.estado === "todos"
       ? "todos"
@@ -159,423 +183,361 @@ export default function RegistrosPropiedadLanding() {
         ? "inactivos"
         : "activos";
 
-  const toggleSelect = (id: number, checked: boolean) => {
-    if (!puedeEliminar) return;
-
-    const item = scopedList.find((registro) => registro.id === id);
-
-    if (item?.deleted_at) {
-      setErrorMessage(
-        "No se puede eliminar un registro de propiedad que ya fue eliminado."
-      );
-      setShowError(true);
-      return;
-    }
-
-    setSelectedIds((prev) =>
-      checked ? [...prev, id] : prev.filter((currentId) => currentId !== id)
-    );
-  };
-
-  const cancelSelection = () => {
-    setSelectMode(false);
-    setSelectedIds([]);
-    setShowConfirm(false);
-  };
-
-  const selectedItems = scopedList.filter((registro) =>
-    selectedIds.includes(registro.id)
-  );
-  const selectedActiveItems = selectedItems.filter(
-    (registro) => !registro.deleted_at
-  );
-
   const confirmDelete = async () => {
-    const invalidItems = selectedItems.filter((registro) => registro.deleted_at);
-
-    if (invalidItems.length > 0) {
-      setShowConfirm(false);
-      setErrorMessage(
-        invalidItems.length === 1
-          ? "El registro seleccionado ya fue eliminado."
-          : "Uno o mas registros seleccionados ya fueron eliminados."
-      );
-      setShowError(true);
-      return;
-    }
+    if (!pendingDelete || pendingDelete.deleted_at || !canDeleteRecords()) return;
 
     try {
-      for (const item of selectedActiveItems) {
-        await deleteRegistroPropiedad(item.id);
-      }
-
-      await qc.invalidateQueries({ queryKey: ["registros-propiedad"] });
-      cancelSelection();
-
-      setSuccessMessage(
-        selectedActiveItems.length === 1
-          ? "Registro eliminado con exito."
-          : "Registros eliminados con exito."
-      );
+      await deleteRegistroPropiedad(pendingDelete.id);
+      await queryClient.invalidateQueries({
+        queryKey: ["registros-propiedad"],
+      });
+      setPendingDelete(null);
+      setSuccessMessage("Registro eliminado con éxito.");
       setShowSuccess(true);
     } catch (error) {
-      setShowConfirm(false);
+      setPendingDelete(null);
       setErrorMessage(
         getErrorMessage(
           error,
-          "Lo sentimos, no pudimos completar la operacion. Intente nuevamente."
+          "Lo sentimos, no pudimos completar la operación. Intente nuevamente."
         )
       );
-
       setShowError(true);
     }
   };
 
+  const renderHistory = () => {
+    if (history.isLoading) {
+      return (
+        <LoadingSkeleton variant="compact" label="Cargando historial..." />
+      );
+    }
+    if (history.isError) {
+      return (
+        <div role="alert" className="flex items-center gap-3 text-sm text-rose-700">
+          <span>
+            Lo sentimos, no pudimos recuperar el historial. Intente nuevamente.
+          </span>
+          <TableActionButton onClick={() => history.refetch()}>
+            Reintentar
+          </TableActionButton>
+        </div>
+      );
+    }
+
+    const entries = presentRegistroPropiedadHistoryItems(
+      (history.data ?? []) as HistorialRegistroPropiedadItem[]
+    );
+    if (!entries.length) {
+      return (
+        <p className="text-sm text-slate-500">No hay cambios registrados.</p>
+      );
+    }
+
+    const pages = Math.ceil(entries.length / HISTORY_PER_PAGE);
+    const visible = entries.slice(
+      (historyPage - 1) * HISTORY_PER_PAGE,
+      historyPage * HISTORY_PER_PAGE
+    );
+
+    return (
+      <div>
+        <h3 className="mb-3 text-sm font-semibold text-slate-900">
+          Historial de cambios
+        </h3>
+        <ul className="space-y-2">
+          {visible.map((entry) => {
+            const presentation = formatRegistroPropiedadHistoryEntry(entry);
+            return (
+              <li
+                key={entry.id}
+                className="rounded-lg border border-slate-200 bg-white p-3 text-sm"
+              >
+                <span className="block font-medium text-slate-800">
+                  {presentation.title}
+                </span>
+                <span className="mt-1 block text-slate-600">
+                  {presentation.description}
+                </span>
+                {entry.usuario_nombre && (
+                  <span className="mt-1 block text-xs text-slate-500">
+                    Por {entry.usuario_nombre}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        {pages > 1 && (
+          <nav aria-label="Paginación del historial" className="mt-3 flex gap-2">
+            <TableActionButton
+              disabled={historyPage === 1}
+              onClick={() => setHistoryPage((value) => value - 1)}
+            >
+              Anterior
+            </TableActionButton>
+            <span className="self-center text-xs text-slate-500">
+              Página {historyPage} de {pages}
+            </span>
+            <TableActionButton
+              disabled={historyPage === pages}
+              onClick={() => setHistoryPage((value) => value + 1)}
+            >
+              Siguiente
+            </TableActionButton>
+          </nav>
+        )}
+      </div>
+    );
+  };
+
+  const columns: TableColumn<RegistroPropiedad>[] = [
+    {
+      id: "nombre",
+      header: "Registro de propiedad",
+      render: (registro) => (
+        <span className="font-medium text-slate-900">
+          {formatRegistroPropiedadContractValue(registro.nombre_articulo) ||
+            "—"}
+        </span>
+      ),
+    },
+    {
+      id: "tipo",
+      header: "Tipo",
+      priority: "secondary",
+      render: (registro) =>
+        toTitleCase(
+          formatRegistroPropiedadContractValue(registro.tipo_registro)
+        ) || "—",
+    },
+    {
+      id: "organismo",
+      header: "Organismo registrante",
+      priority: "secondary",
+      render: (registro) =>
+        toTitleCase(
+          formatRegistroPropiedadContractValue(registro.organismo_registrante)
+        ) || "—",
+    },
+    {
+      id: "fecha",
+      header: "Fecha de registro",
+      priority: "tertiary",
+      render: (registro) => formatFecha(registro.fecha_registro),
+    },
+    {
+      id: "estado",
+      header: "Estado",
+      render: (registro) => {
+        const activo = !registro.deleted_at;
+        return (
+          <span
+            className={`inline-flex items-center gap-1.5 text-xs font-medium ${
+              activo ? "text-emerald-700" : "text-rose-700"
+            }`}
+          >
+            <span
+              aria-hidden="true"
+              className={`h-2 w-2 rounded-full ${
+                activo ? "bg-emerald-500" : "bg-rose-500"
+              }`}
+            />
+            {activo ? "Activo" : "Inactivo"}
+          </span>
+        );
+      },
+    },
+    {
+      id: "acciones",
+      header: "Acciones",
+      align: "right",
+      render: (registro) => (
+        <TableActions>
+          <TableRowActionButton
+            action="view"
+            aria-label={`Ver detalle de ${formatRegistroPropiedadContractValue(registro.nombre_articulo) || "registro"}`}
+            onClick={() =>
+              navigate(`/registros-propiedad/${registro.id}`, {
+                state: buildMemoriaDetailState(location),
+              })
+            }
+          />
+          {!registro.deleted_at && canEditRecords() && (
+            <TableRowActionButton
+              action="edit"
+              aria-label={`Editar ${formatRegistroPropiedadContractValue(registro.nombre_articulo) || "registro"}`}
+              onClick={() =>
+                navigate(`/registros-propiedad/${registro.id}/editar`)
+              }
+            />
+          )}
+          {!registro.deleted_at && canDeleteRecords() && (
+            <TableRowActionButton
+              action="delete"
+              aria-label={`Eliminar ${formatRegistroPropiedadContractValue(registro.nombre_articulo) || "registro"}`}
+              onClick={() => setPendingDelete(registro)}
+            />
+          )}
+        </TableActions>
+      ),
+    },
+  ];
+
   return (
     <>
-      <section className="flex min-h-[calc(100vh-80px)] w-full flex-col px-4 py-4 text-sm md:px-6">
-        <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+      <section className="min-h-[calc(100vh-120px)] w-full px-4 py-4">
+        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <h2 className="text-2xl font-semibold leading-none text-slate-800 md:text-3xl">
+            <h2 className="text-2xl font-semibold md:text-3xl">
               Registros de Propiedad
             </h2>
-            <p className="mt-2 text-xs text-slate-500">
-              {registrosFiltrados.length} de {scopedList.length} resultados
+            <p className="mt-1 text-sm text-slate-500">
+              Gestione los registros, sus organismos y estados.
             </p>
           </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-              <button
-                type="button"
-                onClick={() => setQuickEstado("")}
-                className={`px-3 py-1.5 text-xs transition-colors ${
-                  quickEstadoActual === "activos"
-                    ? "bg-slate-800 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                Activos
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setQuickEstado("todos")}
-                className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                  quickEstadoActual === "todos"
-                    ? "bg-slate-800 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                Todos
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setQuickEstado("inactivos")}
-                className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                  quickEstadoActual === "inactivos"
-                    ? "bg-slate-800 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                Inactivos
-              </button>
-            </div>
-
-            <div className="relative w-full sm:w-64">
-              <input
-                type="text"
-                placeholder="Buscar por nombre, tipo, organismo..."
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-10 text-xs outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-200"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="11" cy="11" r="8"></circle>
-                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                </svg>
-              </div>
-            </div>
-
-            {!selectMode ? (
-              <div className="flex gap-2">
-                {puedeEliminar && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setSelectMode(true)}
-                  >
-                    Seleccionar
-                  </Button>
-                )}
-
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    setTempFilters(filters);
-                    setShowFilters(true);
-                  }}
-                >
-                  Filtros
-                  {filtrosActivosCount > 0 && (
-                    <span className="ml-1.5 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-white">
-                      {filtrosActivosCount}
-                    </span>
-                  )}
-                </Button>
-
-                {puedeCrear && (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => navigate("/registros-propiedad/nuevo")}
-                  >
-                    Nuevo
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                {selectedIds.length > 0 && puedeEliminar && (
-                  <Button size="sm" onClick={() => setShowConfirm(true)}>
-                    Eliminar
-                  </Button>
-                )}
-
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={cancelSelection}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {memoriaFilter && <MemoriaFilterBanner filter={memoriaFilter} />}
-
-        <div className="flex-1">
-          {isLoading ? (
-            <p className="py-10 text-center text-slate-500">Cargando...</p>
-          ) : isError ? (
-            <p className="py-10 text-center text-slate-500">Error al cargar.</p>
-          ) : registrosFiltrados.length === 0 ? (
-            <p className="py-10 text-center text-slate-500">
-              No hay registros de propiedad registrados.
-            </p>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {paginatedItems.map((registro: RegistroPropiedad) => (
-                  <Tarjeta<RegistroPropiedad>
-                    key={registro.id}
-                    item={registro}
-                    title={(item) => item.nombre_articulo || "-"}
-                    subtitle={(item) =>
-                      `${toTitleCase(item.tipo_registro) || "-"} · ${formatFecha(
-                        item.fecha_registro
-                      )}`
-                    }
-                    badge={(item) => (item.deleted_at ? "INACTIVO" : "ACTIVO")}
-                    selectable={puedeEliminar && selectMode}
-                    selectDisabled={!!registro.deleted_at}
-                    selected={selectedIds.includes(registro.id)}
-                    onSelectChange={(checked) =>
-                      toggleSelect(registro.id, checked)
-                    }
-                    onClick={() =>
-                      !selectMode &&
-                      navigate(`/registros-propiedad/${registro.id}`, {
-                        state: buildMemoriaDetailState(location),
-                      })
-                    }
-                  />
-                ))}
-              </div>
-
-              {totalPages > 1 && (
-                <div className="mt-8">
-                  <div className="flex items-center justify-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={currentPage === 1}
-                      onClick={() => setCurrentPage((page) => page - 1)}
-                    >
-                      {"<"}
-                    </Button>
-
-                    {[...Array(totalPages)].map((_, index) => {
-                      const page = index + 1;
-                      return (
-                        <button
-                          key={page}
-                          onClick={() => setCurrentPage(page)}
-                          className={`rounded-lg px-3 py-1 text-sm ${
-                            currentPage === page
-                              ? "bg-slate-800 text-white"
-                              : "bg-slate-100 hover:bg-slate-200"
-                          }`}
-                        >
-                          {page}
-                        </button>
-                      );
-                    })}
-
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={currentPage === totalPages}
-                      onClick={() => setCurrentPage((page) => page + 1)}
-                    >
-                      {">"}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </>
+          {puedeCrear && (
+            <Button
+              size="sm"
+              onClick={() => navigate("/registros-propiedad/nuevo")}
+            >
+              Agregar nuevo
+            </Button>
           )}
         </div>
 
+        {memoriaFilter && (
+          <div className="mb-4">
+            <MemoriaFilterBanner filter={memoriaFilter} />
+          </div>
+        )}
+
+        <Table
+          caption="Listado de registros de propiedad"
+          columns={columns}
+          rows={paginatedItems}
+          getRowId={(registro) => registro.id}
+          density="compact"
+          loading={isLoading}
+          error={isError}
+          emptyMessage="No hay registros de propiedad que coincidan con los filtros."
+          onRowClick={(registro) =>
+            navigate(`/registros-propiedad/${registro.id}`, {
+              state: buildMemoriaDetailState(location),
+            })
+          }
+          getRowTitle={(registro) =>
+            `Ver detalle de ${formatRegistroPropiedadContractValue(registro.nombre_articulo) || "registro"}`
+          }
+          expandedRowId={expandedRow}
+          renderExpanded={renderHistory}
+          onToggleRow={(registro) => {
+            setExpandedRow((current) =>
+              current === registro.id ? null : registro.id
+            );
+            setHistoryPage(1);
+          }}
+          getExpandLabel={(registro, expanded) =>
+            `${expanded ? "Ocultar" : "Mostrar"} historial de ${
+              formatRegistroPropiedadContractValue(registro.nombre_articulo) ||
+              "registro"
+            }`
+          }
+          page={currentPage}
+          totalPages={totalPages}
+          totalRecords={registrosFiltrados.length}
+          onPageChange={(nextPage) => {
+            setExpandedRow(null);
+            setCurrentPage(nextPage);
+          }}
+          toolbar={
+            <TableToolbar>
+              <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
+                <TableSearch
+                  label="Buscar registros de propiedad"
+                  placeholder="Buscar por nombre, tipo u organismo"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                />
+                <div
+                  className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1 whitespace-nowrap"
+                  aria-label="Filtros de registros de propiedad"
+                >
+                  <span className="shrink-0 text-xs font-medium text-slate-500">
+                    Estado
+                  </span>
+                  <TableFilterChip
+                    className="shrink-0"
+                    active={quickEstadoActual === "activos"}
+                    onClick={() => setQuickEstado("")}
+                  >
+                    Activos
+                  </TableFilterChip>
+                  <TableFilterChip
+                    className="shrink-0"
+                    active={quickEstadoActual === "todos"}
+                    onClick={() => setQuickEstado("todos")}
+                  >
+                    Todos
+                  </TableFilterChip>
+                  <TableFilterChip
+                    className="shrink-0"
+                    active={quickEstadoActual === "inactivos"}
+                    onClick={() => setQuickEstado("inactivos")}
+                  >
+                    Inactivos
+                  </TableFilterChip>
+                  <TableFilterSelect
+                    label="Filtrar por tipo de registro"
+                    placeholder="Todos los tipos"
+                    value={filters.tipoRegistro || undefined}
+                    onValueChange={(value) =>
+                      setFilters((current) => ({
+                        ...current,
+                        tipoRegistro: value ?? "",
+                      }))
+                    }
+                    options={opcionesFiltros.tiposRegistro.map((tipo) => ({
+                      value: tipo,
+                      label: tipo,
+                    }))}
+                  />
+                  <TableFilterSelect
+                    label="Filtrar por fecha de registro"
+                    placeholder="Todas las fechas"
+                    value={filters.fechaRegistro || undefined}
+                    onValueChange={(value) =>
+                      setFilters((current) => ({
+                        ...current,
+                        fechaRegistro: value ?? "",
+                      }))
+                    }
+                    options={opcionesFiltros.fechasRegistro.map((fecha) => ({
+                      value: fecha,
+                      label: fecha,
+                    }))}
+                  />
+                </div>
+              </div>
+            </TableToolbar>
+          }
+        />
+
         <ConfirmDialog
-          open={showConfirm}
-          title="Eliminar registros"
-          message="¿Eliminar los siguientes registros?"
-          items={selectedActiveItems.map((registro) => registro.nombre_articulo || "-")}
-          onCancel={cancelSelection}
+          open={Boolean(pendingDelete)}
+          title="Eliminar registro de propiedad"
+          message={`¿Está seguro de eliminar ${formatRegistroPropiedadContractValue(pendingDelete?.nombre_articulo) || "este registro"}?`}
+          onCancel={() => setPendingDelete(null)}
           onConfirm={confirmDelete}
+          loadingText="Eliminando..."
         />
       </section>
-
-      {showFilters && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
-            onClick={() => setShowFilters(false)}
-          />
-          <div className="fixed right-0 top-0 z-50 flex h-full w-[380px] flex-col overflow-y-auto bg-white p-6 shadow-2xl">
-            <h3 className="mb-6 text-xl font-semibold">Filtros Avanzados</h3>
-
-            <div className="flex-1 space-y-5 text-[11px]">
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Estado
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.estado}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      estado: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Activos (Default)</option>
-                  <option value="todos">Todos</option>
-                  <option value="inactivos">Inactivos</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Tipo de Registro
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.tipoRegistro}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      tipoRegistro: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos los tipos</option>
-                  {opcionesFiltros.tiposRegistro.map((tipo) => (
-                    <option key={tipo} value={tipo}>
-                      {tipo}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Fecha de Registro
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.fechaRegistro}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      fechaRegistro: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todas las fechas</option>
-                  {opcionesFiltros.fechasRegistro.map((fecha) => (
-                    <option key={fecha} value={fecha}>
-                      {fecha}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-between gap-2 border-t pt-6">
-              <Button
-                variant="secondary"
-                className="flex-1"
-                size="sm"
-                onClick={() =>
-                  setTempFilters({
-                    estado: "",
-                    tipoRegistro: "",
-                    fechaRegistro: "",
-                  })
-                }
-              >
-                Limpiar
-              </Button>
-
-              <Button
-                className="flex-1"
-                size="sm"
-                onClick={() => {
-                  setFilters(tempFilters);
-                  setShowFilters(false);
-                }}
-              >
-                Aplicar
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
 
       <SuccessToast
         open={showSuccess}
         message={successMessage}
         onClose={() => setShowSuccess(false)}
       />
-
       <SuccessToast
         open={showError}
         message={errorMessage}

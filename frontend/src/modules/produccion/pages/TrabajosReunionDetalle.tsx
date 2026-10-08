@@ -1,10 +1,13 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { enlaceSeguro } from "@/modules/produccion/utils/trabajoEnlace";
+import { autorEtiqueta } from "@/modules/produccion/services/trabajoAutoresServices";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Button from "@/components/Button";
 import HistorialCambiosCard from "@/components/HistorialCambiosCard";
 import SuccessToast from "@/components/SuccessToast";
-import { formatFecha } from "@/utils/formatFecha";
+import { formatFecha, formatFechaHora } from "@/utils/dateTime";
 import { useAuditoria } from "@/modules/shared/hooks/useAuditoria";
 import {
   getHistorialTrabajoReunionById,
@@ -18,6 +21,7 @@ import {
   navigateBackFromMemoriaContext,
   stripSuccessMessageState,
 } from "@/lib/memoriaNavigation";
+import { formatTrabajoReunionAuthorHistoryEntry } from "@/modules/produccion/utils/trabajoReunionHistory";
 
 export default function TrabajoReunionDetalle() {
   const { id } = useParams<{ id: string }>();
@@ -46,6 +50,10 @@ export default function TrabajoReunionDetalle() {
     refetchOnMount: "always",
   });
 
+  const historialVisible = useMemo(() => historialCambios.map(item => ({ ...item,
+    campo: ["fecha_inicio", "fecha_presentacion"].includes(item.campo ?? "") ? "Fecha de presentación" : item.campo,
+  })), [historialCambios]);
+
   const auditoria = useAuditoria(data);
 
   useEffect(() => {
@@ -59,17 +67,13 @@ export default function TrabajoReunionDetalle() {
     }
   }, [location.state, navigate, location.pathname]);
 
-  if (isLoading) return <p className="text-slate-500">Cargando...</p>;
+  if (isLoading) return <LoadingSkeleton variant="detail" label="Cargando..." />;
   if (isError || !data) {
-    return <p className="text-slate-500">Trabajo en reunion cientifica no encontrado.</p>;
+    return <p className="text-slate-500">Trabajo en reunión científica no encontrado.</p>;
   }
 
-  const isDeleted = !!data.deleted_at;
-
-  const formatFechaHora = (fecha?: string | null) => {
-    if (!fecha) return "-";
-    return new Date(fecha).toLocaleString("es-AR");
-  };
+  const enlace = enlaceSeguro(data.enlace);
+  const isDeleted = !!data.deleted_at || data.activo === false;
 
   const formatHistorialValue = (
     item: { campo?: string },
@@ -87,18 +91,22 @@ export default function TrabajoReunionDetalle() {
           ? Number(value)
           : NaN;
 
+    if (item.campo === "Fecha de presentación" && typeof value === "string") return formatFecha(value);
+
     if (item.campo === "tipo_reunion_id") {
       return tipos.find((tipo) => tipo.id === asNumber)?.nombre ?? String(value);
     }
 
-    if (item.campo === "investigadores" && typeof value === "object" && value !== null) {
+    if (item.campo === "autores" && typeof value === "object" && value !== null) {
       const payload = value as {
-        detalle?: { nombre_apellido?: string };
+        accion?: string;
+        detalle?: { nombre_apellido?: string; tipo?: string };
       };
       if (kind === "anterior") {
         return "-";
       }
-      return payload.detalle?.nombre_apellido ?? "Investigador";
+      return payload.detalle?.nombre_apellido
+        ? `${payload.accion === "desvincular" ? "Desvinculado" : "Vinculado"}: ${payload.detalle.nombre_apellido}${payload.detalle.tipo ? ` (${payload.detalle.tipo})` : ""}` : "Autor";
     }
 
     if (typeof value === "object") {
@@ -112,10 +120,7 @@ export default function TrabajoReunionDetalle() {
     return String(value);
   };
 
-  const investigadores =
-    data.investigadores && data.investigadores.length > 0
-      ? data.investigadores.map((inv) => inv.nombre_apellido).join(", ")
-      : "-";
+  const autores = data.autores?.length ? data.autores.map(autorEtiqueta).join(", ") : "-";
 
   return (
     <>
@@ -147,56 +152,64 @@ export default function TrabajoReunionDetalle() {
         <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="space-y-2 break-words text-sm text-slate-500 md:text-base">
             <p>
-              <span className="font-medium text-slate-700">Reunion:</span>{" "}
+              <span className="font-semibold text-slate-800">Reunión:</span>{" "}
               {toTitleCase(data.nombre_reunion) || "-"}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Tipo de reunion:</span>{" "}
+              <span className="font-semibold text-slate-800">Tipo de reunión:</span>{" "}
               {toTitleCase(data.tipo_reunion?.nombre) || "-"}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Procedencia:</span>{" "}
+              <span className="font-semibold text-slate-800">Procedencia:</span>{" "}
               {toTitleCase(data.procedencia) || "-"}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Fecha:</span>{" "}
-              {formatFecha(data.fecha_inicio)}
+              <span className="font-semibold text-slate-800">Fecha de presentación:</span>{" "}
+              {formatFecha(data.fecha_presentacion)}
             </p>
 
+            {enlace && <p className="break-words">
+              <span className="font-semibold text-slate-800">Enlace al trabajo o DOI:</span>{" "}
+              <a href={enlace} target="_blank" rel="noopener noreferrer"
+                className="text-blue-700 underline focus-visible:outline focus-visible:outline-2">
+                {enlace}<span className="sr-only"> (abre en una pestaña nueva)</span>
+              </a>
+            </p>}
+
             <p>
-              <span className="font-medium text-slate-700">Investigadores:</span>{" "}
-              {investigadores}
+              <span className="font-semibold text-slate-800">Autores:</span>{" "}
+              {autores}
             </p>
           </div>
         </article>
 
         <article className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-slate-700">Auditoria</h3>
+            <h3 className="text-lg font-semibold text-slate-800">Auditoría</h3>
             <p className="mt-1 text-xs text-slate-500">{data.titulo_trabajo || "-"}</p>
           </div>
 
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
             <p>
-              <span className="font-medium text-slate-700">Creado por:</span>{" "}
+              <span className="font-semibold text-slate-800">Creado por:</span>{" "}
               {auditoria.nombreCreador}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Fecha de creacion:</span>{" "}
+              <span className="font-semibold text-slate-800">Fecha de creación:</span>{" "}
               {formatFechaHora(data.created_at)}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Eliminado por:</span>{" "}
+              <span className="font-semibold text-slate-800">Eliminado por:</span>{" "}
               {auditoria.nombreEliminador}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Fecha de eliminacion:</span>{" "}
+              <span className="font-semibold text-slate-800">Fecha de eliminación:</span>{" "}
               {formatFechaHora(data.deleted_at)}
             </p>
           </div>
@@ -204,13 +217,14 @@ export default function TrabajoReunionDetalle() {
 
         <HistorialCambiosCard
           subtitle={data.titulo_trabajo || "-"}
-          items={historialCambios}
+          items={historialVisible}
           isLoading={isLoadingHistorial}
           updatedAt={data.updated_at}
           updatedByName={data.updated_by_nombre}
           formatItemValue={(item, value, kind) =>
             formatHistorialValue(item, value, kind)
           }
+          formatItemPresentation={formatTrabajoReunionAuthorHistoryEntry}
         />
 
         <div className="flex justify-start pt-4">

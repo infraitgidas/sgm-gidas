@@ -1,12 +1,18 @@
+from modules.shared.services.catalog_name_validation import validar_nombre_descriptivo
 from sqlalchemy import func
 
 from modules.recursos.models.erogacion import TipoErogacion
 from modules.shared.services.catalogo_auditoria_service import CatalogoAuditoriaService
+from modules.shared.services.catalog_pagination import catalog_page
 from extension import db
 from modules.shared.exceptions import ConflictError, NotFoundError, ValidationError
 
 
 class TipoErogacionService:
+
+    @staticmethod
+    def get_page(page, per_page, activos="true", orden="asc"):
+        return catalog_page(TipoErogacion, TipoErogacion.nombre, activos=activos, orden=orden, page=page, per_page=per_page)
 
     @staticmethod
     def _validar_id_positivo(tipo_id):
@@ -40,6 +46,7 @@ class TipoErogacionService:
             raise ValidationError("El nombre debe ser texto")
 
         nombre = nombre.strip()
+        validar_nombre_descriptivo(nombre)
         if not nombre:
             raise ValidationError("El nombre no puede estar vacío")
 

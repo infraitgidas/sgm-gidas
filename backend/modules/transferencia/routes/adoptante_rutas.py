@@ -19,6 +19,10 @@ adoptante_bp.route("/<int:adoptante_id>", methods=["GET"])(
     requiere_rol("ADMIN", "GESTOR", "LECTURA")(AdoptanteController.get_by_id)
 )
 
+adoptante_bp.route("/<int:adoptante_id>/historial", methods=["GET"])(
+    requiere_rol("ADMIN", "GESTOR", "LECTURA")(AdoptanteController.get_historial)
+)
+
 # -------------------------
 # CREATE
 # -------------------------

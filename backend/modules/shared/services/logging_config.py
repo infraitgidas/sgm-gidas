@@ -125,9 +125,9 @@ def register_request_logging(app):
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
         response.headers["X-Request-ID"] = request_id
         request_logger.info(
-            "request method=%s path=%s endpoint=%s status=%s duration_ms=%s",
+            "request method=%s path=%s endpoint=%s status=%s duration_ms=%s request_id=%s",
             request.method, request.path, request.endpoint,
-            response.status_code, duration_ms,
+            response.status_code, duration_ms, request_id,
         )
         return response
 

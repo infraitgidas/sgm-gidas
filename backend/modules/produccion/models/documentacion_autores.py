@@ -57,14 +57,15 @@ class DocumentacionBibliografica(db.Model, AuditMixin):
 
     
     
-class Autor(db.Model):
+class Autor(db.Model, AuditMixin):
     __tablename__ = 'autor'
     id = db.Column(db.Integer, primary_key=True)
+    grupo_utn_id = db.Column(db.Integer, db.ForeignKey("grupo_utn.id"), nullable=True, index=True)
     nombre_apellido = db.Column(db.Text, nullable=False)  
     libros = db.relationship("DocumentacionBibliografica", secondary=autor_libro, back_populates="autores")
     
     def serialize(self):
-        data = {c.name: getattr(self, c.name) for c in self.__table__.columns}
+        data = self.to_dict()
         data["libros"] = [
             {"id": a.id, "titulo": a.titulo}
             for a in self.libros

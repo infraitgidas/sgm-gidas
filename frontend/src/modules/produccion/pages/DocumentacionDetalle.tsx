@@ -1,3 +1,4 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -11,7 +12,8 @@ import {
 } from "@/modules/produccion/services/documentacionServices";
 import { useAuditoria } from "@/modules/shared/hooks/useAuditoria";
 import { useAuth } from "@/context/AuthContext";
-import { formatFecha } from "@/utils/formatFecha";
+import { formatFecha, formatFechaHora } from "@/utils/dateTime";
+import { formatDocumentacionAuthorHistoryEntry, formatDocumentacionHistoryValue, presentDocumentacionHistoryItems } from "@/modules/produccion/utils/documentacionHistory";
 import {
   navigateBackFromMemoriaContext,
   stripSuccessMessageState,
@@ -41,7 +43,7 @@ export default function DocumentacionDetalle() {
     refetchOnMount: "always",
   });
 
-  const { data: historialCambios = [], isLoading: isLoadingHistorial } = useQuery({
+  const { data: historialCambios = [], isLoading: isLoadingHistorial, isError: isHistoryError, refetch: retryHistory } = useQuery({
     queryKey: ["documentacion-historial", id],
     queryFn: () => getHistorialDocumentacionById(Number(id)),
     enabled: !!id,
@@ -63,19 +65,14 @@ export default function DocumentacionDetalle() {
     }
   }, [location.state, navigate, location.pathname]);
 
-  if (isLoading) return <p className="text-slate-500">Cargando...</p>;
+  if (isLoading) return <LoadingSkeleton variant="detail" label="Cargando documentación..." />;
   if (isError || !data) {
-    return <p className="text-slate-500">No se encontro el documento.</p>;
+    return <p role="alert" className="text-slate-500">Lo sentimos, no pudimos recuperar la información. Intente nuevamente.</p>;
   }
 
   const autores = data.autores?.length
     ? data.autores.map((autor) => autor.nombre_apellido).join(", ")
     : "-";
-
-  const formatFechaHora = (fecha?: string | null) => {
-    if (!fecha) return "-";
-    return new Date(fecha).toLocaleString("es-AR");
-  };
 
   const tituloFormateado = formatTitulo(data.titulo);
   const isDeleted = !!data.deleted_at;
@@ -110,20 +107,20 @@ export default function DocumentacionDetalle() {
         <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
             <p>
-              <span className="font-medium text-slate-700">Autores:</span> {autores}
+              <span className="font-semibold text-slate-800">Autores:</span> {autores}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Editorial:</span>{" "}
+              <span className="font-semibold text-slate-800">Editorial:</span>{" "}
               {data.editorial || "-"}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Ano:</span> {data.anio || "-"}
+              <span className="font-semibold text-slate-800">Año:</span> {data.anio || "-"}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Fecha:</span>{" "}
+              <span className="font-semibold text-slate-800">Fecha:</span>{" "}
               {formatFecha(data.fecha)}
             </p>
           </div>
@@ -131,44 +128,42 @@ export default function DocumentacionDetalle() {
 
         <article className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-slate-700">Auditoria</h3>
+            <h3 className="text-lg font-semibold text-slate-800">Auditoría</h3>
             <p className="mt-1 text-xs text-slate-500">{tituloFormateado}</p>
           </div>
 
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
             <p>
-              <span className="font-medium text-slate-700">Creado por:</span>{" "}
+              <span className="font-semibold text-slate-800">Creado por:</span>{" "}
               {data.created_by_nombre || auditoria.nombreCreador}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Fecha de creacion:</span>{" "}
+              <span className="font-semibold text-slate-800">Fecha de creación:</span>{" "}
               {formatFechaHora(data.created_at)}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Eliminado por:</span>{" "}
+              <span className="font-semibold text-slate-800">Eliminado por:</span>{" "}
               {data.deleted_by_nombre || auditoria.nombreEliminador}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Fecha de eliminacion:</span>{" "}
+              <span className="font-semibold text-slate-800">Fecha de eliminación:</span>{" "}
               {formatFechaHora(data.deleted_at)}
             </p>
           </div>
         </article>
 
+        {isHistoryError && <div role="alert" className="text-sm text-rose-700">Lo sentimos, no pudimos recuperar el historial. <Button type="button" variant="secondary" size="sm" onClick={() => retryHistory()}>Reintentar</Button></div>}
         <HistorialCambiosCard
           subtitle={tituloFormateado}
-          items={historialCambios}
+          items={presentDocumentacionHistoryItems(historialCambios)}
           isLoading={isLoadingHistorial}
           updatedAt={data.updated_at}
           updatedByName={data.updated_by_nombre}
-          formatItemValue={(item, value) => {
-            if (value === null || value === undefined || value === "") return "-";
-            if (item.campo === "fecha") return formatFecha(String(value));
-            return String(value);
-          }}
+          formatItemValue={formatDocumentacionHistoryValue}
+          formatItemPresentation={formatDocumentacionAuthorHistoryEntry}
         />
 
         <div className="flex justify-start pt-4">

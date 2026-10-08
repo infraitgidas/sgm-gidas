@@ -56,15 +56,8 @@ def restore(trabajo_id):
     return TrabajosRevistasReferatoController.restore(trabajo_id)
 
 @trabajos_revistas_referato_bp.route(
-    "/<int:trabajo_id>/investigadores/", methods=["POST"], strict_slashes=False
+    "/<int:trabajo_id>/autores/", methods=["DELETE"], strict_slashes=False
 )
 @requiere_rol("ADMIN", "GESTOR")
-def add_investigadores(trabajo_id):
-    return TrabajosRevistasReferatoController.add_investigadores(trabajo_id)
-
-@trabajos_revistas_referato_bp.route(
-    "/<int:trabajo_id>/investigadores/", methods=["DELETE"], strict_slashes=False
-)
-@requiere_rol("ADMIN", "GESTOR")
-def remove_investigadores(trabajo_id):
-    return TrabajosRevistasReferatoController.remove_investigadores(trabajo_id)
+def remove_autores(trabajo_id):
+    return TrabajosRevistasReferatoController.remove_autores(trabajo_id)

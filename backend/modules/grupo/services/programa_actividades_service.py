@@ -7,34 +7,34 @@ from modules.shared.services.auditoria_service import AuditoriaService
 
 def _validar_user_id(user_id):
     if not isinstance(user_id, int) or user_id <= 0:
-        raise ValueError("El user_id es invalido.")
+        raise ValueError("No pudimos procesar la solicitud. Intente nuevamente.")
 
 
 def _validar_descripcion(descripcion):
     if not isinstance(descripcion, str):
-        raise ValueError("La descripcion es obligatoria.")
+        raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"descripcion": "Ingrese la descripción de la planificación."}})
 
     descripcion = " ".join(descripcion.strip().split())
     if not descripcion:
-        raise ValueError("La descripcion es obligatoria.")
+        raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"descripcion": "Ingrese la descripción de la planificación."}})
 
     return descripcion
 
 
 def _validar_anio(anio):
     if not isinstance(anio, int) or anio < 2000:
-        raise ValueError("El anio es invalido.")
+        raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"anio": "Ingrese un año válido desde 2000."}})
 
     return anio
 
 
 def _obtener_grupo_activo(grupo_id):
     if not isinstance(grupo_id, int) or grupo_id <= 0:
-        raise ValueError("Grupo UTN invalido.")
+        raise ValueError("El grupo ya no está disponible. Recargue el formulario e intente nuevamente.")
 
     grupo = db.session.get(GrupoInvestigacionUtn, grupo_id)
     if not grupo or grupo.deleted_at is not None:
-        raise ValueError("Grupo UTN invalido.")
+        raise ValueError("El grupo ya no está disponible. Recargue el formulario e intente nuevamente.")
 
     return grupo
 
@@ -50,9 +50,7 @@ def _validar_planificacion_unica(grupo_id, anio, planificacion_id=None):
         query = query.filter(PlanificacionGrupo.id != planificacion_id)
 
     if query.first():
-        raise ValueError(
-            "Ya existe una planificacion para ese grupo en el anio indicado."
-        )
+        raise ValueError("Ya existe una planificación para ese año. Elija otro año e intente nuevamente.", details={"fields": {"anio": "Elija un año sin planificación existente."}})
 
 
 def crear_planificacion_grupo(data, user_id):
@@ -160,7 +158,7 @@ def eliminar_planificacion_grupo(id, user_id=None):
         raise
 
 
-def listar_planificaciones(activos="true"):
+def _consulta_planificaciones(activos="true", orden="asc"):
     query = PlanificacionGrupo.query
 
     if activos is None:
@@ -177,7 +175,18 @@ def listar_planificaciones(activos="true"):
     else:
         query = query.filter(PlanificacionGrupo.deleted_at.is_(None))
 
-    return query.all()
+    id_ = PlanificacionGrupo.id.desc() if orden == "desc" else PlanificacionGrupo.id.asc()
+    return query.order_by(id_)
+
+
+def listar_planificaciones(activos="true"):
+    return _consulta_planificaciones(activos).all()
+
+
+def listar_planificaciones_paginado(page, per_page, activos="true", orden="asc"):
+    query = _consulta_planificaciones(activos, orden)
+    total = query.count()
+    return query.offset((page - 1) * per_page).limit(per_page).all(), total
 
 
 def obtener_planificacion_por_id(id):

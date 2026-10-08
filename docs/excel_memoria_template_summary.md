@@ -1,5 +1,21 @@
 # Resumen Tecnico - Plantilla Excel de Memorias
 
+## Referencia vigente: etapa validada el 02/10/2026
+
+La referencia de ejecución es `backend/assets/Memorias 2025 - GIDAS.xlsx`.
+El resumen siguiente conserva la inspección inicial de la plantilla anterior y
+sus métricas históricas; no describe el renderer vigente.
+
+El exportador actual completa la referencia institucional sobre sus dos hojas,
+preserva encabezados y geometría e inserta filas del mismo formato sólo cuando
+hay desborde de registros. El contenido utiliza Calibri 11 negro, ajuste de texto
+y fechas/importes nativos. Los datos se obtienen exclusivamente de snapshots de
+la versión cerrada; los importes financieros se consolidan en ARS.
+
+Los contratos y la seed optativa se documentan en
+[Memorias backend](../backend/modules/memorias/README.md) y el flujo de generación
+en [Memorias frontend](../frontend/src/modules/memorias/README.md).
+
 ## Archivos inspeccionados
 - Generado actual: `memoria.xlsx`
 - Plantilla de referencia: `DS2025 - UTN - PLANTILLA MEMORIAS.xlsx`

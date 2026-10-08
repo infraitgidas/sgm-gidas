@@ -1,8 +1,22 @@
 from datetime import date, datetime
 from enum import Enum
+from flask import g, has_request_context, request
+from sqlalchemy import select
 
 from extension import db
 from modules.shared.models.auditoria_campo import AuditoriaCampo
+from modules.shared.services.date_time import serialize_temporal
+from modules.shared.exceptions import NotFoundError
+from modules.shared.exceptions import ValidationError
+from modules.shared.controllers.pagination import pagination_requested, parse_pagination_params
+from modules.shared.services.tenant_scope import _classes_by_table, _predicate
+
+
+HISTORY_TABLE_ALIASES = {
+    "visita_academica": "visita_grupo",
+    "registro_propiedad": "registros_patente_grupo",
+    "trabajo_revista_referato": "trabajos_revista",
+}
 
 
 class AuditoriaService:
@@ -10,7 +24,7 @@ class AuditoriaService:
     @staticmethod
     def _normalizar_valor(valor):
         if isinstance(valor, (datetime, date)):
-            return valor.isoformat()
+            return serialize_temporal(valor)
 
         if isinstance(valor, Enum):
             return valor.value
@@ -89,8 +103,20 @@ class AuditoriaService:
         db.session.add(auditoria)
 
     @staticmethod
-    def obtener_historial_entidad(entidad: str, registro_id: int):
-        historial = (
+    def obtener_historial_entidad(entidad: str, registro_id: int, *, paginate: bool = True,
+                                 extra_filter=None):
+        group_id = getattr(g, "current_grupo_utn_id", None) if has_request_context() else None
+        if group_id is not None:
+            classes = _classes_by_table()
+            model = classes.get(HISTORY_TABLE_ALIASES.get(entidad, entidad))
+            if model is None:
+                raise NotFoundError("Historial no encontrado")
+            predicate = _predicate(model, group_id, classes)
+            if predicate is not None and db.session.execute(
+                select(model.id).where(model.id == registro_id, predicate)
+            ).scalar_one_or_none() is None:
+                raise NotFoundError("Historial no encontrado")
+        query = (
             AuditoriaCampo.query
             .filter(
                 AuditoriaCampo.entidad == entidad,
@@ -100,6 +126,29 @@ class AuditoriaService:
                 AuditoriaCampo.fecha_cambio.desc(),
                 AuditoriaCampo.id.desc()
             )
-            .all()
         )
-        return [item.serialize() for item in historial]
+        if extra_filter is not None:
+            query = query.filter(extra_filter)
+        if paginate and has_request_context() and pagination_requested(request.args):
+            args = request.args.to_dict()
+            args.setdefault("per_page", "3")
+            try:
+                params = parse_pagination_params(args)
+            except ValueError as error:
+                raise ValidationError(str(error)) from error
+            total = query.count()
+            historial = query.offset((params["page"] - 1) * params["per_page"]).limit(
+                params["per_page"]
+            ).all()
+            return {
+                "data": [item.serialize() for item in historial],
+                "meta": {
+                    "page": params["page"], "per_page": params["per_page"],
+                    "total": total,
+                    "total_pages": max(1, (total + params["per_page"] - 1) // params["per_page"]),
+                    "activos": params["activos"], "orden": params["orden"],
+                    "source": "legacy-list",
+                },
+                "error": None,
+            }
+        return [item.serialize() for item in query.all()]

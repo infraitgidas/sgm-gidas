@@ -1,7 +1,15 @@
+from modules.memorias.services.memoria_periodo_service import (
+    consultar_entidades_memoria, fin_vigencia, resolver_horas_al_fin,
+)
 import builtins
 from datetime import date, datetime
 
 from extension import db
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload, lazyload, selectinload
+from modules.personal.services.identidad_service import asignar_identidad, conflicto_identidad_por_integridad
+from modules.shared.services.text_validation import has_only_letters_and_spaces
+from modules.personal.services.horas_validation import validar_horas_semanales as _validar_horas
 from modules.shared.exceptions import (
     ConflictError,
     NotFoundError,
@@ -11,6 +19,7 @@ from modules.personal.models.personal import Becario, TipoFormacion, BecarioHora
 from modules.grupo.models.grupo import GrupoInvestigacionUtn
 from modules.proyectos.models.proyecto_investigacion import ProyectoInvestigacion
 from modules.shared.services.auditoria_service import AuditoriaService
+from modules.shared.services.date_time import validate_institutional_date
 from modules.recursos.models.becas import Beca, Beca_Becario
 from modules.memorias.services.memoria_periodo_service import (
     validar_fecha_alta_grupo,
@@ -32,41 +41,37 @@ def _validar_id_positivo(valor, campo: str, permitir_none: bool = False):
         return valor
 
     if not isinstance(valor, int) or valor <= 0:
-        raise ValueError(f"El campo '{campo}' debe ser un entero positivo.")
+        raise ValueError(f"El campo '{campo}' debe ser un entero positivo.", details={"fields": {campo: "Seleccione una opción válida"}})
 
     return valor
 
 
 def _validar_user_id(user_id: int):
     if not isinstance(user_id, int) or user_id <= 0:
-        raise ValueError("El user_id es invalido.")
+        raise ValueError("No pudimos procesar la solicitud. Intente nuevamente.")
 
 
 def _validar_nombre(nombre: str):
     if not isinstance(nombre, str):
-        raise ValueError("El nombre y apellido es obligatorio.")
+        raise ValueError("El nombre y apellido es obligatorio.", details={"fields": {"nombre_apellido": "Ingrese nombre y apellido"}})
 
     nombre = nombre.strip()
 
     if not nombre:
-        raise ValueError("El nombre y apellido es obligatorio.")
+        raise ValueError("El nombre y apellido es obligatorio.", details={"fields": {"nombre_apellido": "Ingrese nombre y apellido"}})
+
+    if not has_only_letters_and_spaces(nombre):
+        raise ValueError("Use solo letras y espacios en nombre y apellido.", details={"fields": {"nombre_apellido": "Use solo letras y espacios en nombre y apellido"}})
 
     if len(nombre) > 120:
-        raise ValueError("El nombre y apellido no puede superar los 120 caracteres.")
+        raise ValueError("El nombre y apellido no puede superar los 120 caracteres.", details={"fields": {"nombre_apellido": "Use hasta 120 caracteres"}})
 
     return nombre
 
 
-def _validar_horas(horas):
-    if not isinstance(horas, int) or horas <= 0:
-        raise ValueError("Las horas semanales deben ser un numero positivo.")
-
-    return horas
-
-
 def _validar_proyectos_ids(proyectos_ids):
     if not isinstance(proyectos_ids, list):
-        raise ValueError("El campo 'proyectos' debe ser una lista.")
+        raise ValueError("Seleccione proyectos válidos.", details={"fields": {"proyectos": "Revise los proyectos seleccionados"}})
 
     ids_normalizados = []
     ids_vistos = set()
@@ -75,7 +80,7 @@ def _validar_proyectos_ids(proyectos_ids):
         proyecto_id = _validar_id_positivo(proyecto_id, "proyectos")
 
         if proyecto_id in ids_vistos:
-            raise ValueError("El campo 'proyectos' no puede contener IDs repetidos.")
+            raise ValueError("Un proyecto está repetido.", details={"fields": {"proyectos": "Quite el proyecto repetido"}})
 
         ids_vistos.add(proyecto_id)
         ids_normalizados.append(proyecto_id)
@@ -98,7 +103,7 @@ def _obtener_proyectos_validos(proyectos_ids):
     ]
 
     if len(proyectos_activos) != len(proyectos_ids):
-        raise ValueError("Uno o mas proyectos son invalidos.")
+        raise ValueError("Uno o más proyectos ya no están disponibles.", details={"fields": {"proyectos": "Quite los proyectos no disponibles y vuelva a intentar"}})
 
     return proyectos_activos
 
@@ -135,8 +140,7 @@ def _resolver_becas_percibidas(becario, memoria_version=None):
             if not estuvo_activo_en_periodo_memoria(
                 memoria_version,
                 getattr(relacion, "fecha_inicio", None),
-                getattr(relacion, "fecha_fin", None)
-                or getattr(relacion, "deleted_at", None)
+                fin_vigencia(relacion)
             ):
                 continue
         elif getattr(relacion, "deleted_at", None) is not None:
@@ -183,40 +187,47 @@ def _get_activo_or_404(id: int):
 def _parsear_fecha_relacion(valor, campo, permitir_none=False):
     if valor in (None, "") and permitir_none:
         return None
+    label = "inicio" if campo == "fecha_inicio" else "fin"
     if not isinstance(valor, str):
-        raise ValueError(f"El campo '{campo}' debe tener formato YYYY-MM-DD.")
+        raise ValueError("Revise la fecha de la beca.", details={"fields": {"becas": f"Ingrese la fecha de {label} en formato YYYY-MM-DD"}})
     try:
-        return datetime.strptime(valor, "%Y-%m-%d").date()
+        fecha = datetime.strptime(valor, "%Y-%m-%d").date()
     except builtins.ValueError as exc:
-        raise ValueError(f"El campo '{campo}' debe tener formato YYYY-MM-DD.") from exc
+        raise ValueError("Revise la fecha de la beca.", details={"fields": {"becas": f"Ingrese la fecha de {label} en formato YYYY-MM-DD"}}) from exc
+    try:
+        return validate_institutional_date(fecha, campo)
+    except ValueError as exc:
+        raise ValueError("Revise la fecha de la beca.", details={"fields": {"becas": f"Ingrese una fecha de {label} dentro del rango permitido"}}) from exc
 
 
 def _sincronizar_becas(becario, becas_data, user_id):
     if not isinstance(becas_data, list):
-        raise ValueError("El campo 'becas' debe ser una lista.")
+        raise ValueError("Revise las becas seleccionadas.", details={"fields": {"becas": "Seleccione becas válidas"}})
 
     deseadas = {}
     for item in becas_data:
         if not isinstance(item, dict):
-            raise ValueError("Cada beca vinculada debe ser un objeto.")
+            raise ValueError("Revise las becas seleccionadas.", details={"fields": {"becas": "Revise las becas seleccionadas"}})
         beca_id = _validar_id_positivo(item.get("beca_id"), "beca_id")
         if beca_id in deseadas:
-            raise ValueError("El campo 'becas' no puede contener IDs repetidos.")
+            raise ValueError("Una beca está repetida.", details={"fields": {"becas": "Quite la beca repetida"}})
         beca = db.session.get(Beca, beca_id)
         if not beca or beca.deleted_at is not None:
-            raise ValueError("Una de las becas seleccionadas no existe o esta eliminada.")
+            raise ValueError("Una beca ya no está disponible.", details={"fields": {"becas": "Quite la beca no disponible y vuelva a intentar"}})
         fecha_inicio = _parsear_fecha_relacion(item.get("fecha_inicio"), "fecha_inicio")
         fecha_fin = _parsear_fecha_relacion(item.get("fecha_fin"), "fecha_fin", True)
+        if fecha_fin is None:
+            raise ValueError("La fecha de fin es obligatoria para registrar el plazo de la beca.", details={"fields": {"becas": "Ingrese la fecha de fin de la beca"}})
         if fecha_fin and fecha_fin < fecha_inicio:
-            raise ValueError("La fecha_fin no puede ser anterior a la fecha_inicio.")
+            raise ValueError("La fecha de fin no puede ser anterior al inicio.", details={"fields": {"becas": "Elija una fecha de fin posterior o igual al inicio"}})
         monto = item.get("monto_percibido")
         if monto is not None:
             try:
                 monto = float(monto)
             except (TypeError, builtins.ValueError) as exc:
-                raise ValueError("El monto_percibido debe ser numerico.") from exc
+                raise ValueError("Revise el monto de la beca.", details={"fields": {"becas": "Ingrese un monto numérico válido"}}) from exc
             if monto < 0:
-                raise ValueError("El monto_percibido no puede ser negativo.")
+                raise ValueError("Revise el monto de la beca.", details={"fields": {"becas": "Ingrese un monto igual o mayor que cero"}})
         deseadas[beca_id] = (fecha_inicio, fecha_fin, monto)
 
     activas = {
@@ -295,9 +306,14 @@ def crear_becario(data: dict, user_id: int):
         activo=True,
         created_by=user_id
     )
+    asignar_identidad(becario, data, nueva=True)
 
-    db.session.add(becario)
-    db.session.flush()
+    try:
+        db.session.add(becario)
+        db.session.flush()
+    except IntegrityError as error:
+        db.session.rollback()
+        conflicto_identidad_por_integridad(error)
 
     historial = BecarioHorasHistorial(
         becario_id=becario.id,
@@ -323,6 +339,9 @@ def crear_becario(data: dict, user_id: int):
     try:
         db.session.commit()
         return becario
+    except IntegrityError as error:
+        db.session.rollback()
+        conflicto_identidad_por_integridad(error)
     except Exception:
         db.session.rollback()
         raise
@@ -335,9 +354,12 @@ def crear_becario(data: dict, user_id: int):
 def actualizar_becario(id: int, data: dict, user_id: int):
     _validar_payload(data)
     _validar_user_id(user_id)
+    if "horas_semanales" in data:
+        _validar_horas(data["horas_semanales"])
 
     becario = _get_activo_or_404(id)
     cambios = {}
+    cambios.update(asignar_identidad(becario, data))
 
     if "activo" in data:
         if not isinstance(data["activo"], bool):
@@ -455,6 +477,9 @@ def actualizar_becario(id: int, data: dict, user_id: int):
     try:
         db.session.commit()
         return becario
+    except IntegrityError as error:
+        db.session.rollback()
+        conflicto_identidad_por_integridad(error)
     except Exception:
         db.session.rollback()
         raise
@@ -496,8 +521,14 @@ def eliminar_becario(id: int, user_id: int):
 # LISTAR
 # =====================================================
 
-def listar_becarios(activos=None):
-    query = Becario.query
+def _consulta_becarios(activos=None):
+    query = Becario.query.options(
+        lazyload("*"),
+        joinedload(Becario.identidad),
+        selectinload(Becario.historial_horas),
+        joinedload(Becario.tipo_formacion),
+        joinedload(Becario.grupo_utn).lazyload("*"),
+    )
 
     if activos is None:
         activos = "true"
@@ -513,7 +544,19 @@ def listar_becarios(activos=None):
     else:
         query = query.filter(Becario.deleted_at.is_(None))
 
-    return query.all()
+    return query.order_by(Becario.id.asc())
+
+
+def listar_becarios(activos=None):
+    return _consulta_becarios(activos).all()
+
+
+def listar_becarios_paginado(page, per_page, activos="true", orden="asc"):
+    query = _consulta_becarios(activos)
+    if orden == "desc":
+        query = query.order_by(None).order_by(Becario.id.desc())
+    total = query.count()
+    return query.offset((page - 1) * per_page).limit(per_page).all(), total
 
 
 # =====================================================
@@ -539,7 +582,7 @@ def obtener_historial_becario(id: int):
 
 
 def snapshot_becarios_para_memoria_version(memoria_version, user_id):
-    becarios = Becario.query.filter().all()
+    becarios = consultar_entidades_memoria(Becario, memoria_version)
 
     snapshots = []
     for becario in becarios:
@@ -554,7 +597,8 @@ def snapshot_becarios_para_memoria_version(memoria_version, user_id):
             memoria_version_id=memoria_version.id,
             becario_id=becario.id,
             nombre_apellido=becario.nombre_apellido,
-            horas_semanales=_resolver_horas_activas(becario),
+            fecha_alta_grupo=becario.fecha_alta_grupo,
+            horas_semanales=resolver_horas_al_fin(becario, memoria_version),
             tipo_formacion_id=becario.tipo_formacion_id,
             tipo_formacion_nombre=(
                 becario.tipo_formacion.nombre

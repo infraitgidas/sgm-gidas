@@ -1,8 +1,12 @@
 from collections import Counter, defaultdict
 from datetime import date, datetime
+from decimal import Decimal
+
+from sqlalchemy.orm import joinedload, lazyload, selectinload
 
 from modules.recursos.models.becas import Beca, Beca_Becario
-from modules.recursos.models.erogacion import Erogacion
+from modules.recursos.models.movimiento_financiero import MovimientoFinanciero
+from modules.recursos.services.saldo_financiero_service import SaldoFinancieroService
 from modules.catalogos.models.fuente_financiamiento import FuenteFinanciamiento
 from modules.grupo.models.grupo import GrupoInvestigacionUtn
 from modules.personal.models.personal import Becario, Investigador, Personal
@@ -23,18 +27,29 @@ class DashboardService:
         solo_becarios_con_beca_activa: bool = False
     ):
         hoy = date.today()
-        todos_los_proyectos = ProyectoInvestigacion.query.all()
-        investigadores = Investigador.query.all()
-        becarios = Becario.query.all()
-        personal = Personal.query.all()
-        grupos = GrupoInvestigacionUtn.query.all()
+        todos_los_proyectos = ProyectoInvestigacion.query.options(
+            lazyload("*"),
+            joinedload(ProyectoInvestigacion.tipo_proyecto),
+            joinedload(ProyectoInvestigacion.fuente_financiamiento),
+            selectinload(ProyectoInvestigacion.distinciones),
+        ).all()
+        investigadores = Investigador.query.options(lazyload("*")).all()
+        becarios = Becario.query.options(
+            selectinload(Becario.tipo_formacion),
+        ).all()
+        personal = Personal.query.options(lazyload("*")).all()
+        grupos = GrupoInvestigacionUtn.query.options(lazyload("*")).all()
         fuentes = FuenteFinanciamiento.query.all()
         todas_las_becas = Beca.query.all()
         asignaciones_beca = Beca_Becario.query.all()
         participaciones_investigador = InvestigadorProyecto.query.all()
         participaciones_becario = BecarioProyecto.query.all()
-        todas_las_erogaciones = Erogacion.query.all()
-        todas_las_transferencias = TransferenciaSocioProductiva.query.all()
+        todas_las_erogaciones = MovimientoFinanciero.query.options(
+            joinedload(MovimientoFinanciero.categoria_erogacion)
+        ).filter(MovimientoFinanciero.deleted_at.is_(None)).all()
+        todas_las_transferencias = TransferenciaSocioProductiva.query.options(
+            joinedload(TransferenciaSocioProductiva.tipo_contrato_transferencia),
+        ).all()
 
         proyectos = DashboardService._filtrar_intervalo(
             todos_los_proyectos,
@@ -48,6 +63,9 @@ class DashboardService:
             fecha_desde,
             fecha_hasta,
             lambda erogacion: erogacion.fecha
+        )
+        saldo_financiero = SaldoFinancieroService.calcular(
+            None, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
         )
         transferencias = DashboardService._filtrar_intervalo(
             todas_las_transferencias,
@@ -122,6 +140,23 @@ class DashboardService:
             "total_grupos": len(grupos),
             "total_becas": len(becas),
             "total_erogaciones": len(erogaciones),
+            "total_ingresos": str(saldo_financiero.total_ingresos),
+            "total_egresos": str(saldo_financiero.total_egresos),
+            "saldo_financiero": str(saldo_financiero.saldo_disponible),
+            "egresos_corrientes": str(sum(
+                (item.monto_equivalente_ars or item.monto for item in erogaciones
+                 if item.tipo_movimiento == "EGRESO"
+                 and item.categoria_erogacion
+                 and item.categoria_erogacion.codigo == "CORRIENTE"),
+                start=Decimal("0"),
+            )),
+            "egresos_capital": str(sum(
+                (item.monto_equivalente_ars or item.monto for item in erogaciones
+                 if item.tipo_movimiento == "EGRESO"
+                 and item.categoria_erogacion
+                 and item.categoria_erogacion.codigo == "CAPITAL"),
+                start=Decimal("0"),
+            )),
             "total_transferencias": len(transferencias),
             "total_fuentes_financiamiento": len(fuentes),
             "monto_total_proyectos": round(monto_total_proyectos, 2),
@@ -153,7 +188,8 @@ class DashboardService:
             "integrantes_por_grupo": DashboardService._integrantes_por_grupo(
                 grupos,
                 hoy,
-                {proyecto.id for proyecto in proyectos}
+                {proyecto.id for proyecto in proyectos},
+                investigadores, becarios, personal, todos_los_proyectos,
             ),
         }
 
@@ -255,13 +291,21 @@ class DashboardService:
         ]
 
     @staticmethod
-    def _integrantes_por_grupo(grupos, hoy, proyecto_ids_filtrados=None):
+    def _integrantes_por_grupo(grupos, hoy, proyecto_ids_filtrados=None,
+                              investigadores=None, becarios=None, personal=None,
+                              proyectos=None):
         data = []
+        # Reuse the scoped rows already collected for the dashboard instead of
+        # issuing another query for each group and each collection.
+        counts = [Counter(item.grupo_utn_id for item in rows) if rows is not None else None
+                  for rows in (investigadores, becarios, personal)]
 
         for grupo in grupos:
             proyectos_activos = sum(
-                1 for proyecto in grupo.proyectos_investigacion
+                1 for proyecto in (proyectos if proyectos is not None else grupo.proyectos_investigacion)
                 if (
+                    (proyectos is None or proyecto.grupo_utn_id == grupo.id)
+                    and
                     (proyecto_ids_filtrados is None or proyecto.id in proyecto_ids_filtrados)
                     and (proyecto.fecha_fin is None or proyecto.fecha_fin >= hoy)
                 )
@@ -271,13 +315,13 @@ class DashboardService:
                 "grupo_id": grupo.id,
                 "grupo": grupo.nombre_sigla_grupo,
                 "unidad_academica": grupo.nombre_unidad_academica,
-                "investigadores": len(grupo.investigadores),
-                "becarios": len(grupo.becarios),
-                "personal": len(grupo.personal),
+                "investigadores": counts[0][grupo.id] if counts[0] is not None else len(grupo.investigadores),
+                "becarios": counts[1][grupo.id] if counts[1] is not None else len(grupo.becarios),
+                "personal": counts[2][grupo.id] if counts[2] is not None else len(grupo.personal),
                 "total_integrantes": (
-                    len(grupo.investigadores)
-                    + len(grupo.becarios)
-                    + len(grupo.personal)
+                    sum(counter[grupo.id] for counter in counts)
+                    if all(counter is not None for counter in counts)
+                    else len(grupo.investigadores) + len(grupo.becarios) + len(grupo.personal)
                 ),
                 "proyectos_activos": proyectos_activos,
             })
@@ -428,31 +472,34 @@ class DashboardService:
         agrupado = defaultdict(lambda: {
             "tipo": "Sin tipo",
             "total_registros": 0,
-            "total_egresos": 0.0,
-            "total_ingresos": 0.0,
-            "balance": 0.0,
+            "total_egresos": Decimal("0"),
+            "total_ingresos": Decimal("0"),
+            "balance": Decimal("0"),
         })
 
         for erogacion in erogaciones:
             tipo = (
-                erogacion.tipo_erogacion.nombre
-                if erogacion.tipo_erogacion else "Sin tipo"
+                "Ingresos" if erogacion.tipo_movimiento == "INGRESO" else
+                erogacion.categoria_erogacion.nombre
+                if erogacion.categoria_erogacion else "Sin categoría"
             )
 
             agrupado[tipo]["tipo"] = tipo
             agrupado[tipo]["total_registros"] += 1
-            agrupado[tipo]["total_egresos"] += float(erogacion.egresos or 0)
-            agrupado[tipo]["total_ingresos"] += float(erogacion.ingresos or 0)
-            agrupado[tipo]["balance"] = round(
+            if erogacion.tipo_movimiento == "EGRESO":
+                agrupado[tipo]["total_egresos"] += Decimal(str(erogacion.monto_equivalente_ars or erogacion.monto))
+            else:
+                agrupado[tipo]["total_ingresos"] += Decimal(str(erogacion.monto_equivalente_ars or erogacion.monto))
+            agrupado[tipo]["balance"] = (
                 agrupado[tipo]["total_ingresos"]
-                - agrupado[tipo]["total_egresos"],
-                2
+                - agrupado[tipo]["total_egresos"]
             )
 
         data = list(agrupado.values())
         for item in data:
-            item["total_egresos"] = round(item["total_egresos"], 2)
-            item["total_ingresos"] = round(item["total_ingresos"], 2)
+            item["total_egresos"] = float(item["total_egresos"])
+            item["total_ingresos"] = float(item["total_ingresos"])
+            item["balance"] = float(item["balance"])
 
         data.sort(key=lambda item: item["total_egresos"], reverse=True)
         return data

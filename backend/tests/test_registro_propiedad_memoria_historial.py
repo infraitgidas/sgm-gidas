@@ -1,8 +1,9 @@
-import unittest
+﻿import unittest
 from datetime import date, datetime
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+from modules import models_registry  # noqa: F401
 from modules.shared.models.auditoria_campo import AuditoriaCampo
 from modules.memorias.models.memorias import EstadoMemoria, Memoria, MemoriaVersion
 from modules.memorias.services.memoria_service import MemoriaService
@@ -12,6 +13,8 @@ from modules.produccion.services.registro_propiedad_service import RegistrosProp
 class RegistroPropiedadMemoriaHistorialTestCase(unittest.TestCase):
 
     def setUp(self):
+        self.enterContext(patch("modules.memorias.services.memoria_service.MemoriaService._validar_grupo", return_value=1))
+        self.enterContext(patch("modules.memorias.services.memoria_service.snapshot_contexto_institucional", return_value=None))
         self.add_patcher = patch("modules.produccion.services.registro_propiedad_service.db.session.add")
         self.commit_patcher = patch("extension.db.session.commit")
         self.rollback_patcher = patch("extension.db.session.rollback")
@@ -27,6 +30,7 @@ class RegistroPropiedadMemoriaHistorialTestCase(unittest.TestCase):
         self.addCleanup(self.rollback_patcher.stop)
         self.addCleanup(self.get_patcher.stop)
 
+    @patch("modules.produccion.services.registro_propiedad_service.consultar_entidades_memoria", new=lambda model, version, **kwargs: model.query.filter().all())
     def test_snapshot_registro_propiedad_para_memoria_version_persiste_foto(self):
         version = MemoriaVersion(
             id=101,
@@ -71,6 +75,7 @@ class RegistroPropiedadMemoriaHistorialTestCase(unittest.TestCase):
 
     def test_change_status_a_cerrada_genera_snapshot_registros_propiedad(self):
         memoria = Memoria(
+            grupo_utn_id=1,
             id=1,
             periodo_inicio=date(2026, 1, 1),
             periodo_fin=date(2026, 12, 31),
@@ -107,7 +112,7 @@ class RegistroPropiedadMemoriaHistorialTestCase(unittest.TestCase):
         ), patch(
             "modules.memorias.services.memoria_service.EquipamientoService.snapshot_para_memoria_version"
         ), patch(
-            "modules.memorias.services.memoria_service.ErogacionService.snapshot_para_memoria_version"
+            "modules.memorias.services.memoria_service.MovimientoFinancieroService.snapshot_para_memoria_version"
         ), patch(
             "modules.memorias.services.memoria_service.TransferenciaSocioProductivaService.snapshot_para_memoria_version"
         ), patch(
@@ -170,6 +175,62 @@ class RegistroPropiedadMemoriaHistorialTestCase(unittest.TestCase):
         self.assertEqual(len(historial), 1)
         self.assertEqual(historial[0]["campo"], "nombre_articulo")
         self.assertEqual(historial[0]["usuario_nombre"], "admin")
+
+    def test_alta_no_genera_cambios_de_inicializacion(self):
+        nuevo = SimpleNamespace(serialize=lambda: {"id": 5})
+
+        with patch(
+            "modules.produccion.services.registro_propiedad_service.RegistrosPropiedad",
+            return_value=nuevo,
+        ), patch.object(
+            RegistrosPropiedadService, "_validar_fecha", return_value=date(2026, 4, 12)
+        ), patch.object(
+            RegistrosPropiedadService, "_validar_texto", side_effect=["Patente", "INPI"]
+        ), patch.object(
+            RegistrosPropiedadService, "_validar_tipo_registro", return_value=2
+        ), patch.object(
+            RegistrosPropiedadService, "_validar_grupo", return_value=4
+        ), patch(
+            "modules.produccion.services.registro_propiedad_service.AuditoriaService.registrar_cambios"
+        ) as registrar_cambios:
+            resultado = RegistrosPropiedadService.create(
+                {
+                    "nombre_articulo": "Patente",
+                    "organismo_registrante": "INPI",
+                    "fecha_registro": "2026-04-12",
+                    "tipo_registro_id": 2,
+                    "grupo_utn_id": 4,
+                },
+                user_id=3,
+            )
+
+        self.assertEqual(resultado, {"id": 5})
+        registrar_cambios.assert_not_called()
+
+    def test_actualizacion_sin_diferencias_no_genera_historial(self):
+        registro = SimpleNamespace(
+            id=5,
+            activo=True,
+            nombre_articulo="Patente",
+            mark_updated=Mock(),
+            serialize=lambda: {"id": 5},
+        )
+
+        with patch(
+            "modules.produccion.services.registro_propiedad_service.db.session.get",
+            return_value=registro,
+        ), patch(
+            "modules.produccion.services.registro_propiedad_service.AuditoriaService.registrar_cambios"
+        ) as registrar_cambios:
+            resultado = RegistrosPropiedadService.update(
+                5,
+                {"nombre_articulo": "Patente"},
+                user_id=3,
+            )
+
+        self.assertEqual(resultado, {"id": 5})
+        registro.mark_updated.assert_not_called()
+        registrar_cambios.assert_not_called()
 
     def test_obtener_snapshots_registro_propiedad_por_memoria_version(self):
         snapshot = SimpleNamespace(

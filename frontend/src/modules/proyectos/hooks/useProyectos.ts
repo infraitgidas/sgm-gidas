@@ -1,6 +1,7 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getProyectos,
+  getProyectosPage,
   upsertProyectos,
   deleteProyectos,
   getProyectoById,
@@ -13,6 +14,7 @@ import {
   type Proyecto,
   type InvestigadorVinculacionPayload,
   type ProyectosActivosFilter,
+  type ProyectoListParams,
 } from "@/modules/proyectos/services/proyectosServices";
 
 const QUERY_KEY = ["proyectos"];
@@ -217,4 +219,24 @@ export function useDesvincularBecarios() {
       });
     },
   });
+}
+
+export function useProyectosPage(params: ProyectoListParams) {
+  const query = useQuery({
+    queryKey: [...QUERY_KEY, "page", params],
+    queryFn: () => getProyectosPage(params),
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
+
+  return {
+    ...query,
+    list: query.data?.data ?? [],
+    meta: query.data?.meta ?? {
+      page: params.page,
+      per_page: params.perPage ?? 9,
+      total: 0,
+      total_pages: 0,
+    },
+  };
 }

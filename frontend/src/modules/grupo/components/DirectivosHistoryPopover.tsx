@@ -1,9 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, History, RefreshCw, X } from "lucide-react";
 import { Popover } from "radix-ui";
-import { useHistorialDirectivos } from "@/modules/grupo/hooks/useDirectivos";
+import { useCambiosDirectivos, usePeriodosDirectivos } from "@/modules/grupo/hooks/useDirectivos";
+import { useHistorialGrupo } from "@/modules/grupo/hooks/useUct";
+import { formatFechaHora } from "@/utils/dateTime";
 
 const PAGE_SIZE = 3;
+const FIELD_LABELS: Record<string, string> = {
+  nombre_unidad_academica: "Facultad Regional",
+  nombre_sigla_grupo: "Nombre y Sigla",
+  mail: "Correo electrónico",
+  objetivo_desarrollo: "Objetivos y desarrollo",
+};
 
 type Props = {
   grupoId: number;
@@ -12,19 +20,35 @@ type Props = {
 export default function DirectivosHistoryPopover({ grupoId }: Props) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [view, setView] = useState<"grupo" | "directivos" | "cambios">("grupo");
   const {
     data: periodos = [],
-    isLoading,
-    isError,
-    isFetching,
-    refetch,
-  } = useHistorialDirectivos(grupoId, open);
+    isLoading: isLoadingDirectivos,
+    isError: isErrorDirectivos,
+    isFetching: isFetchingDirectivos,
+    refetch: refetchDirectivos,
+  } = usePeriodosDirectivos(grupoId, open && view === "directivos");
+  const {
+    data: cambios = [],
+    isLoading: isLoadingGrupo,
+    isError: isErrorGrupo,
+    isFetching: isFetchingGrupo,
+    refetch: refetchGrupo,
+  } = useHistorialGrupo(grupoId, open && view === "grupo");
+  const {
+    data: cambiosDirectivos,
+    isLoading: isLoadingCambiosDirectivos,
+    isError: isErrorCambiosDirectivos,
+    isFetching: isFetchingCambiosDirectivos,
+    refetch: refetchCambiosDirectivos,
+  } = useCambiosDirectivos(grupoId, page, open && view === "cambios");
 
-  const totalPages = Math.max(1, Math.ceil(periodos.length / PAGE_SIZE));
-  const visibles = useMemo(
-    () => periodos.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [page, periodos]
-  );
+  const isLoading = view === "grupo" ? isLoadingGrupo : view === "directivos" ? isLoadingDirectivos : isLoadingCambiosDirectivos || isFetchingCambiosDirectivos;
+  const isError = view === "grupo" ? isErrorGrupo : view === "directivos" ? isErrorDirectivos : isErrorCambiosDirectivos;
+  const isFetching = view === "grupo" ? isFetchingGrupo : view === "directivos" ? isFetchingDirectivos : isFetchingCambiosDirectivos;
+  const items = view === "grupo" ? cambios : view === "directivos" ? periodos : cambiosDirectivos?.items ?? [];
+
+  const totalPages = Math.max(1, Math.ceil((view === "cambios" ? cambiosDirectivos?.total ?? 0 : items.length) / PAGE_SIZE));
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -32,7 +56,15 @@ export default function DirectivosHistoryPopover({ grupoId }: Props) {
 
   function handleOpenChange(nextOpen: boolean) {
     setOpen(nextOpen);
-    if (nextOpen) setPage(1);
+    if (nextOpen) {
+      setView("grupo");
+      setPage(1);
+    }
+  }
+
+  function selectView(nextView: "grupo" | "directivos" | "cambios") {
+    setView(nextView);
+    setPage(1);
   }
 
   return (
@@ -41,10 +73,10 @@ export default function DirectivosHistoryPopover({ grupoId }: Props) {
         <button
           type="button"
           className="inline-flex h-8 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
-          aria-label="Ver historial del equipo directivo"
+          aria-label="Ver historial del grupo"
         >
           <History className="h-4 w-4" aria-hidden="true" />
-          Historial Directivos
+          Historial Grupo
         </button>
       </Popover.Trigger>
 
@@ -54,15 +86,15 @@ export default function DirectivosHistoryPopover({ grupoId }: Props) {
           sideOffset={8}
           collisionPadding={16}
           className="z-50 w-[min(28rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white shadow-xl outline-none"
-          aria-label="Historial del equipo directivo"
+          aria-label="Historial del grupo"
         >
           <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-4 py-3">
             <div>
               <h2 className="text-sm font-semibold text-slate-900">
-                Historial del equipo directivo
+                Historial del grupo
               </h2>
               <p className="mt-0.5 text-xs text-slate-500">
-                Períodos registrados, del más reciente al más antiguo.
+                Cambios institucionales, cambios del equipo y períodos directivos.
               </p>
             </div>
             <Popover.Close asChild>
@@ -77,6 +109,33 @@ export default function DirectivosHistoryPopover({ grupoId }: Props) {
             </Popover.Close>
           </div>
 
+          <div className="grid grid-cols-3 gap-1 border-b border-slate-200 px-4 py-3" role="group" aria-label="Tipo de historial">
+            <button
+              type="button"
+              aria-pressed={view === "grupo"}
+              onClick={() => selectView("grupo")}
+              className={`rounded-md px-2 py-1.5 text-xs font-medium sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 ${view === "grupo" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+            >
+              Cambios del grupo
+            </button>
+            <button
+              type="button"
+              aria-pressed={view === "cambios"}
+              onClick={() => selectView("cambios")}
+              className={`rounded-md px-1 py-1.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 ${view === "cambios" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+            >
+              Cambios directivos
+            </button>
+            <button
+              type="button"
+              aria-pressed={view === "directivos"}
+              onClick={() => selectView("directivos")}
+              className={`rounded-md px-1 py-1.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 ${view === "directivos" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+            >
+              Períodos directivos
+            </button>
+          </div>
+
           <div className="min-h-40 px-4 py-3" aria-live="polite">
             {isLoading && <HistoryLoading />}
 
@@ -89,7 +148,7 @@ export default function DirectivosHistoryPopover({ grupoId }: Props) {
                   </p>
                   <button
                     type="button"
-                    onClick={() => refetch()}
+                    onClick={() => view === "grupo" ? refetchGrupo() : view === "directivos" ? refetchDirectivos() : refetchCambiosDirectivos()}
                     disabled={isFetching}
                     className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-slate-900 hover:underline disabled:opacity-50"
                   >
@@ -103,15 +162,32 @@ export default function DirectivosHistoryPopover({ grupoId }: Props) {
               </div>
             )}
 
-            {!isLoading && !isError && periodos.length === 0 && (
+            {!isLoading && !isError && items.length === 0 && (
               <div className="grid min-h-32 place-items-center text-center text-sm text-slate-500">
-                Todavía no hay períodos directivos registrados.
+                {view === "grupo"
+                  ? "Todavía no hay cambios del grupo registrados."
+                  : view === "directivos" ? "Todavía no hay períodos directivos registrados." : "Todavía no hay cambios de directivos registrados."}
               </div>
             )}
 
-            {!isLoading && !isError && visibles.length > 0 && (
+            {!isLoading && !isError && items.length > (view === "cambios" ? 0 : (page - 1) * PAGE_SIZE) && (
               <ol className="divide-y divide-slate-100">
-                {visibles.map((periodo) => (
+                {view === "grupo" ? cambios.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((cambio) => (
+                  <li key={cambio.id} className="py-3 first:pt-1 last:pb-1">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {FIELD_LABELS[cambio.campo] ?? cambio.campo.replace(/_/g, " ")}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600 break-words">
+                      <span className="font-medium">Anterior:</span> {cambio.valor_anterior || "-"}
+                    </p>
+                    <p className="mt-0.5 text-sm text-slate-600 break-words">
+                      <span className="font-medium">Nuevo:</span> {cambio.valor_nuevo || "-"}
+                    </p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {formatFechaHora(cambio.fecha_cambio)} · Por {cambio.usuario_nombre || "Usuario no disponible"}
+                    </p>
+                  </li>
+                )) : view === "directivos" ? periodos.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((periodo) => (
                   <li key={periodo.id} className="py-3 first:pt-1 last:pb-1">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -136,12 +212,34 @@ export default function DirectivosHistoryPopover({ grupoId }: Props) {
                         : "la actualidad"}
                     </p>
                   </li>
-                ))}
+                )) : cambiosDirectivos?.items.map((evento) => {
+                  const mandato = typeof evento.valor_nuevo === "object" && evento.valor_nuevo !== null ? evento.valor_nuevo : null;
+                  return (
+                    <li key={evento.id} className="py-3 first:pt-1 last:pb-1">
+                      <p className="text-sm font-semibold text-slate-900">
+                        {mandato ? `${mandato.accion === "asignado" ? "Asignación" : "Finalización"} de ${mandato.detalle.cargo}` : "Nombre del directivo"}
+                      </p>
+                      {mandato ? (
+                        <p className="mt-1 text-sm text-slate-600 break-words">
+                          {mandato.detalle.nombre_apellido} · Inicio: {formatDateOnly(mandato.detalle.fecha_inicio)}
+                          {mandato.detalle.fecha_fin ? ` · Fin: ${formatDateOnly(mandato.detalle.fecha_fin)}` : ""}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-sm text-slate-600 break-words">
+                          {evento.valor_anterior || "-"} → {typeof evento.valor_nuevo === "string" ? evento.valor_nuevo : "-"}
+                        </p>
+                      )}
+                      <p className="mt-2 text-xs text-slate-500">
+                        {formatFechaHora(evento.fecha_cambio)} · Por {evento.usuario_nombre || "Usuario no disponible"}
+                      </p>
+                    </li>
+                  );
+                })}
               </ol>
             )}
           </div>
 
-          {!isLoading && !isError && periodos.length > PAGE_SIZE && (
+          {!isLoading && !isError && totalPages > 1 && (
             <div className="flex h-11 items-center justify-between border-t border-slate-200 px-3">
               <span className="text-xs text-slate-500">
                 Página {page} de {totalPages}

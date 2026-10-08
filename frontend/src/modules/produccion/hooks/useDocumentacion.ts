@@ -11,6 +11,7 @@ export function useDocumentacion(
     data,
     isLoading,
     isError,
+    isFetching,
     refetch,
   } = useQuery<Documentacion[]>({
     queryKey: ["documentacion", activos],
@@ -23,6 +24,7 @@ export function useDocumentacion(
     total: data?.length ?? 0,
     isLoading,
     isError,
+    isFetching,
     refetch,
   };
 }

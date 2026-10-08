@@ -107,11 +107,15 @@ class GrupoInvestigacionUtn(db.Model, AuditMixin):
                     "fecha_inicio": p.fecha_inicio.isoformat()
                 }
                 for p in self.participaciones_directivos
-                if p.fecha_fin is None
+                if (
+                    p.fecha_fin is None
+                    and p.deleted_at is None
+                    and p.directivo is not None
+                    and p.directivo.deleted_at is None
+                    and p.cargo is not None
+                    and p.cargo.deleted_at is None
+                )
             ],
-
-            # No hace falta filtrar deleted_at manualmente
-            # el filtro global ya lo hace
             "cant_investigadores": len(self.investigadores),
             "cant_becarios": len(self.becarios),
             "cant_personal": len(self.personal),

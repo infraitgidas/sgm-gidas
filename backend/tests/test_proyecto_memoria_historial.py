@@ -1,4 +1,4 @@
-import unittest
+﻿import unittest
 from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -12,6 +12,8 @@ from modules.proyectos.services.proyecto_investigacion_service import ProyectoIn
 class ProyectoMemoriaHistorialTestCase(unittest.TestCase):
 
     def setUp(self):
+        self.enterContext(patch("modules.memorias.services.memoria_service.MemoriaService._validar_grupo", return_value=1))
+        self.enterContext(patch("modules.memorias.services.memoria_service.snapshot_contexto_institucional", return_value=None))
         self.add_patcher = patch("extension.db.session.add")
         self.commit_patcher = patch("extension.db.session.commit")
         self.rollback_patcher = patch("extension.db.session.rollback")
@@ -27,6 +29,7 @@ class ProyectoMemoriaHistorialTestCase(unittest.TestCase):
         self.addCleanup(self.rollback_patcher.stop)
         self.addCleanup(self.get_patcher.stop)
 
+    @patch("modules.proyectos.services.proyecto_investigacion_service.consultar_entidades_memoria", new=lambda model, version, **kwargs: model.query.filter().all())
     def test_snapshot_proyecto_para_memoria_version_persiste_foto(self):
         version = MemoriaVersion(
             id=15,
@@ -37,9 +40,10 @@ class ProyectoMemoriaHistorialTestCase(unittest.TestCase):
         )
         proyecto = SimpleNamespace(
             id=4,
-            codigo_proyecto=1001,
+            codigo_proyecto="LPSIEC1347",
             nombre_proyecto="Proyecto A",
             descripcion_proyecto="Descripcion",
+            logros_obtenidos="Modelo experimental validado",
             fecha_inicio=date(2026, 1, 1),
             fecha_fin=None,
             dificultades_proyecto="Ninguna",
@@ -70,6 +74,7 @@ class ProyectoMemoriaHistorialTestCase(unittest.TestCase):
 
         self.assertEqual(len(snapshots), 1)
         self.assertEqual(snapshots[0].proyecto_investigacion_id, 4)
+        self.assertEqual(snapshots[0].codigo_proyecto, "LPSIEC1347")
         self.assertEqual(snapshots[0].tipo_proyecto_nombre, "PID")
         self.assertEqual(snapshots[0].grupo_utn_nombre, "GIDAS")
         self.assertEqual(snapshots[0].created_by, 41)
@@ -77,6 +82,7 @@ class ProyectoMemoriaHistorialTestCase(unittest.TestCase):
 
     def test_change_status_a_cerrada_genera_snapshot_proyectos(self):
         memoria = Memoria(
+            grupo_utn_id=1,
             id=1,
             periodo_inicio=date(2026, 1, 1),
             periodo_fin=date(2026, 12, 31),
@@ -113,7 +119,7 @@ class ProyectoMemoriaHistorialTestCase(unittest.TestCase):
         ), patch(
             "modules.memorias.services.memoria_service.EquipamientoService.snapshot_para_memoria_version"
         ), patch(
-            "modules.memorias.services.memoria_service.ErogacionService.snapshot_para_memoria_version"
+            "modules.memorias.services.memoria_service.MovimientoFinancieroService.snapshot_para_memoria_version"
         ), patch(
             "modules.memorias.services.memoria_service.TransferenciaSocioProductivaService.snapshot_para_memoria_version"
         ), patch(

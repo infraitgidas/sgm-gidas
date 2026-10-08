@@ -1,666 +1,214 @@
-import { useNavigate, useLocation } from "react-router-dom";
-import { useState, useEffect, useMemo } from "react";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Button from "@/components/Button";
-import Tarjeta from "@/components/Tarjeta";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import SuccessToast from "@/components/SuccessToast";
 import MemoriaFilterBanner from "@/components/MemoriaFilterBanner";
-import {
-  getActividadesDocencia,
-  eliminarActividadDocencia,
-  type ActividadDocencia,
-} from "@/modules/produccion/services/actividadDocenciaServices";
-import { toTitleCase } from "@/utils/format";
+import SuccessToast from "@/components/SuccessToast";
+import Table, {
+  TableActionButton,
+  TableActions,
+  TableFilterChip,
+  TableRowActionButton,
+  TableSearch,
+  TableToolbar,
+} from "@/components/Table";
+import type { TableColumn, TableSortDirection } from "@/components/Table";
+import TableFilterSelect from "@/components/TableFilterSelect";
 import { useAuth } from "@/context/AuthContext";
-import {
-  applyMemoriaSectionFilter,
-  getMemoriaSectionFilter,
-} from "@/lib/memoriaSectionFilter";
+import { getErrorMessage } from "@/lib/httpError";
+import { getMemoriaSectionFilter } from "@/lib/memoriaSectionFilter";
 import { buildMemoriaDetailState } from "@/lib/memoriaNavigation";
+import {
+  eliminarActividadDocencia,
+  getActividadesDocenciaPage,
+  getHistorialActividadDocenciaById,
+  type ActividadDocencia,
+  type HistorialActividadDocenciaItem,
+} from "@/modules/produccion/services/actividadDocenciaServices";
+import { isVisibleActividadDocenciaHistoryItem } from "@/modules/produccion/utils/actividadDocenciaHistory";
+import { formatFecha } from "@/utils/dateTime";
+import { toTitleCase } from "@/utils/format";
 
-const ITEMS_PER_PAGE = 9;
+const HISTORY_PER_PAGE = 3;
+
+type DocenciaSort = "curso" | "investigador" | "institucion" | "rol" | "grado" | "fecha_inicio" | "estado";
+type DocenciaFilters = { curso?: string; institucion?: string; investigador?: string; grado?: string; rol?: string };
+
+const historyLabels: Record<string, string> = {
+  curso: "Curso",
+  institucion: "Institución",
+  fecha_inicio: "Fecha de inicio",
+  fecha_fin: "Fecha de finalización",
+  grado_academico_id: "Grado académico",
+  rol_actividad_id: "Rol en la actividad",
+};
+
+function getInvestigadorNombre(item: ActividadDocencia) {
+  return typeof item.investigador === "string" ? item.investigador : item.investigador?.nombre_apellido ?? "";
+}
+
+function getHistoryValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "object") {
+    const record = value as { nombre?: string; grado_academico?: string };
+    return record.nombre ?? record.grado_academico ?? "Dato actualizado";
+  }
+  return String(value);
+}
+
+function formatHistoryEntry(item: HistorialActividadDocenciaItem) {
+  return {
+    title: historyLabels[item.campo ?? ""] ?? "Cambio registrado",
+    description: `${getHistoryValue(item.valor_anterior)} → ${getHistoryValue(item.valor_nuevo)}`,
+  };
+}
 
 export default function DocenciaLanding() {
   const navigate = useNavigate();
   const location = useLocation();
-  const qc = useQueryClient();
+  const queryClient = useQueryClient();
+  const { canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
 
-  const { canCreateRecords, canDeleteRecords } = useAuth();
-
-  const puedeCrear = canCreateRecords();
-  const puedeEliminar = canDeleteRecords();
-
-  const [showSuccess, setShowSuccess] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState<"true" | "false" | "all">("true");
+  const [filters, setFilters] = useState<DocenciaFilters>({});
+  const [sort, setSort] = useState<DocenciaSort>("fecha_inicio");
+  const [direction, setDirection] = useState<TableSortDirection>("desc");
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [pendingDelete, setPendingDelete] = useState<ActividadDocencia | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
-
-  const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [showConfirm, setShowConfirm] = useState(false);
-
-  const [showFilters, setShowFilters] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-
-  const [filters, setFilters] = useState({
-    estado: "",
-    curso: "",
-    institucion: "",
-    investigador: "",
-    gradoAcademico: "",
-    rolActividad: "",
+  const memoriaFilter = useMemo(() => getMemoriaSectionFilter(location.state, "actividades-docencia"), [location.state]);
+  const activos = memoriaFilter ? "all" : activeFilter;
+  const params = { page, activos, q: search, sort, direction, filters, ids: memoriaFilter?.ids };
+  const actividades = useQuery({
+    queryKey: ["docencia", "table", params],
+    queryFn: () => getActividadesDocenciaPage(params),
+    staleTime: 60_000,
+  });
+  const rows = actividades.data?.data ?? [];
+  const scopedList = rows;
+  const options = (key: string) => (actividades.data?.meta.options[key] ?? [])
+    .map((option) => ({ ...option, label: toTitleCase(option.label) }));
+  const filterOptions = {
+    cursos: options("curso"), instituciones: options("institucion"),
+    investigadores: options("investigador"), grados: options("grado"), roles: options("rol"),
+  };
+  const totalPages = actividades.data?.meta.total_pages ?? 0;
+  const expandedItem = expandedRow === null ? undefined : scopedList.find((item) => item.id === expandedRow);
+  const history = useQuery({
+    queryKey: ["actividad-docencia-historial", expandedItem?.id],
+    queryFn: () => getHistorialActividadDocenciaById(expandedItem!.id),
+    enabled: Boolean(expandedItem),
+    staleTime: 5 * 60_000,
   });
 
-  const [tempFilters, setTempFilters] = useState(filters);
-  const memoriaFilter = useMemo(
-    () => getMemoriaSectionFilter(location.state, "actividades-docencia"),
-    [location.state]
-  );
-
-  const filtroActivos = useMemo<"true" | "false" | "all">(() => {
-    if (memoriaFilter) return "all";
-    if (filters.estado === "todos") return "all";
-    if (filters.estado === "inactivos") return "false";
-    return "true";
-  }, [filters.estado, memoriaFilter]);
-
-  const { data: list = [], isLoading, isError } = useQuery({
-    queryKey: ["docencia", "all", filtroActivos],
-    queryFn: () => getActividadesDocencia(undefined, filtroActivos),
-  });
-  const scopedList = useMemo(
-    () => applyMemoriaSectionFilter(list, memoriaFilter),
-    [list, memoriaFilter]
-  );
-
-  const getInvestigadorNombre = (d: ActividadDocencia) =>
-    typeof d.investigador === "string"
-      ? d.investigador
-      : d.investigador?.nombre_apellido ?? "";
-
-  const opcionesFiltros = useMemo(() => {
-    const cursos = new Set<string>();
-    const instituciones = new Set<string>();
-    const investigadores = new Set<string>();
-    const gradosAcademicos = new Set<string>();
-    const rolesActividad = new Set<string>();
-
-    scopedList.forEach((d) => {
-      if (d.curso) cursos.add(toTitleCase(d.curso));
-      if (d.institucion) instituciones.add(toTitleCase(d.institucion));
-      if (getInvestigadorNombre(d)) {
-        investigadores.add(toTitleCase(getInvestigadorNombre(d)));
-      }
-      if (d.grado_academico) gradosAcademicos.add(toTitleCase(d.grado_academico));
-      if (d.rol_actividad) rolesActividad.add(toTitleCase(d.rol_actividad));
-    });
-
-    return {
-      cursos: Array.from(cursos).sort(),
-      instituciones: Array.from(instituciones).sort(),
-      investigadores: Array.from(investigadores).sort(),
-      gradosAcademicos: Array.from(gradosAcademicos).sort(),
-      rolesActividad: Array.from(rolesActividad).sort(),
-    };
-  }, [scopedList]);
-
-  const docenciaFiltrada = useMemo(() => {
-    return scopedList.filter((d) => {
-      const query = searchQuery.toLowerCase().trim();
-
-      const matchesSearch =
-        !query ||
-        d.curso?.toLowerCase().includes(query) ||
-        d.institucion?.toLowerCase().includes(query) ||
-        getInvestigadorNombre(d).toLowerCase().includes(query) ||
-        d.grado_academico?.toLowerCase().includes(query) ||
-        d.rol_actividad?.toLowerCase().includes(query);
-
-      const matchCurso = !filters.curso || toTitleCase(d.curso) === filters.curso;
-
-      const matchInstitucion =
-        !filters.institucion ||
-        toTitleCase(d.institucion) === filters.institucion;
-
-      const matchInvestigador =
-        !filters.investigador ||
-        toTitleCase(getInvestigadorNombre(d)) === filters.investigador;
-
-      const matchGradoAcademico =
-        !filters.gradoAcademico ||
-        toTitleCase(d.grado_academico) === filters.gradoAcademico;
-
-      const matchRolActividad =
-        !filters.rolActividad ||
-        toTitleCase(d.rol_actividad) === filters.rolActividad;
-
-      return (
-        matchesSearch &&
-        matchCurso &&
-        matchInstitucion &&
-        matchInvestigador &&
-        matchGradoAcademico &&
-        matchRolActividad
-      );
-    });
-  }, [scopedList, filters, searchQuery]);
-
-  const filtrosActivosCount = Object.values(filters).filter(Boolean).length;
-
-  const [currentPage, setCurrentPage] = useState(1);
-
-  const totalPages = Math.ceil(docenciaFiltrada.length / ITEMS_PER_PAGE);
-
-  const paginatedItems = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return docenciaFiltrada.slice(start, start + ITEMS_PER_PAGE);
-  }, [docenciaFiltrada, currentPage]);
-
+  useEffect(() => { setPage(1); setExpandedRow(null); }, [activeFilter, direction, filters, memoriaFilter, search, sort]);
   useEffect(() => {
-    setCurrentPage(1);
-  }, [filtroActivos, searchQuery, filters]);
-
+    if (totalPages > 0 && page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
   useEffect(() => {
-    if (location.state?.successMessage) {
-      setSuccessMessage(location.state.successMessage);
-      setShowSuccess(true);
-      navigate(location.pathname, { replace: true });
-    }
-  }, [location.state, navigate, location.pathname]);
-
-  const setQuickEstado = (estado: "" | "todos" | "inactivos") => {
-    setFilters((prev) => ({
-      ...prev,
-      estado,
-    }));
-  };
-
-  const quickEstadoActual =
-    filters.estado === "todos"
-      ? "todos"
-      : filters.estado === "inactivos"
-        ? "inactivos"
-        : "activos";
-
-  const toggleSelect = (id: number, checked: boolean) => {
-    if (!puedeEliminar) return;
-
-    const item = scopedList.find((x) => x.id === id);
-
-    if (item?.deleted_at) {
-      setErrorMessage(
-        "No se puede eliminar una actividad en docencia que ya fue eliminada."
-      );
-      setShowError(true);
-      return;
-    }
-
-    setSelectedIds((prev) =>
-      checked ? [...prev, id] : prev.filter((x) => x !== id)
-    );
-  };
-
-  const cancelSelection = () => {
-    setSelectMode(false);
-    setSelectedIds([]);
-    setShowConfirm(false);
-  };
-
-  const selectedItems = scopedList.filter((d) => selectedIds.includes(d.id));
-  const selectedActiveItems = selectedItems.filter((d) => !d.deleted_at);
+    if (!location.state?.successMessage) return;
+    setSuccessMessage(location.state.successMessage);
+    navigate(location.pathname, { replace: true, state: { ...location.state, successMessage: undefined } });
+  }, [location.pathname, location.state, navigate]);
 
   const confirmDelete = async () => {
-    if (!puedeEliminar) return;
-
-    const invalidItems = selectedItems.filter((d) => d.deleted_at);
-
-    if (invalidItems.length > 0) {
-      setShowConfirm(false);
-      setErrorMessage(
-        invalidItems.length === 1
-          ? "La actividad seleccionada ya fue eliminada."
-          : "Una o mas actividades seleccionadas ya fueron eliminadas."
-      );
-      setShowError(true);
-      return;
-    }
-
+    if (!pendingDelete || pendingDelete.deleted_at || !canDeleteRecords()) return;
     try {
-      for (const item of selectedActiveItems) {
-        await eliminarActividadDocencia(item.id);
-      }
-
-      await qc.invalidateQueries({ queryKey: ["docencia"] });
-      cancelSelection();
-
-      setSuccessMessage(
-        selectedActiveItems.length === 1
-          ? "Actividad en docencia eliminada con exito."
-          : "Actividades en docencia eliminadas con exito."
-      );
-      setShowSuccess(true);
-    } catch {
-      setShowConfirm(false);
-      setErrorMessage(
-        "Ocurrio un error inesperado al eliminar la actividad en docencia."
-      );
-      setShowError(true);
+      await eliminarActividadDocencia(pendingDelete.id);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["docencia"] }),
+        queryClient.invalidateQueries({ queryKey: ["actividad-docencia", String(pendingDelete.id)] }),
+        queryClient.invalidateQueries({ queryKey: ["actividad-docencia-historial", pendingDelete.id] }),
+      ]);
+      setPendingDelete(null);
+      setExpandedRow(null);
+      setSuccessMessage("Actividad en docencia eliminada con éxito.");
+    } catch (error) {
+      setPendingDelete(null);
+      setErrorMessage(getErrorMessage(error, "Lo sentimos, no pudimos completar la operación. Intente nuevamente."));
     }
   };
 
-  return (
-    <section className="flex min-h-[calc(100vh-80px)] w-full flex-col px-4 py-4 text-sm md:px-6">
-      <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <h2 className="text-2xl font-semibold leading-none text-slate-800 md:text-3xl">
-            Actividades en Docencia
-          </h2>
-          <p className="mt-2 text-xs text-slate-500">
-            {docenciaFiltrada.length} de {scopedList.length} resultados
-          </p>
+  const columns = useMemo<TableColumn<ActividadDocencia>[]>(() => [
+    { id: "curso", header: "Curso", sortable: true, render: (item) => <span className="font-medium text-slate-900">{toTitleCase(item.curso) || "—"}</span> },
+    { id: "investigador", header: "Investigador", sortable: true, render: (item) => toTitleCase(getInvestigadorNombre(item)) || "—" },
+    { id: "institucion", header: "Institución", sortable: true, priority: "secondary", render: (item) => toTitleCase(item.institucion) || "—" },
+    { id: "rol", header: "Rol", sortable: true, priority: "secondary", render: (item) => toTitleCase(item.rol_actividad) || "—" },
+    { id: "grado", header: "Grado", sortable: true, priority: "tertiary", render: (item) => toTitleCase(item.grado_academico) || "—" },
+    { id: "fecha_inicio", header: "Inicio", sortable: true, priority: "tertiary", render: (item) => formatFecha(item.fecha_inicio) },
+    { id: "estado", header: "Estado", sortable: true, render: (item) => {
+      const active = !item.deleted_at;
+      return <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${active ? "text-emerald-700" : "text-rose-700"}`}><span aria-hidden="true" className={`h-2 w-2 rounded-full ${active ? "bg-emerald-500" : "bg-rose-500"}`} />{active ? "Activa" : "Inactiva"}</span>;
+    } },
+    { id: "acciones", header: "Acciones", align: "right", render: (item) => <TableActions>
+      <TableRowActionButton action="view" aria-label={`Ver detalle de ${item.curso}`} onClick={() => navigate(`/docenciaInvestigador/${item.id}`, { state: buildMemoriaDetailState(location) })} />
+      {!item.deleted_at && canEditRecords() && <TableRowActionButton action="edit" aria-label={`Editar ${item.curso}`} onClick={() => navigate(`/docenciaInvestigador/${item.id}/editar`)} />}
+      {!item.deleted_at && canDeleteRecords() && <TableRowActionButton action="delete" aria-label={`Eliminar ${item.curso}`} onClick={() => setPendingDelete(item)} />}
+    </TableActions> },
+  ], [canDeleteRecords, canEditRecords, location, navigate]);
+
+  const renderHistory = () => {
+    if (history.isLoading) return <LoadingSkeleton variant="compact" label="Cargando historial…" />;
+    if (history.isError) return <div role="alert" className="flex items-center gap-3 text-sm text-rose-700"><span>Lo sentimos, no pudimos recuperar el historial. Intente nuevamente.</span><TableActionButton onClick={() => history.refetch()}>Reintentar</TableActionButton></div>;
+    const entries = (history.data ?? []).filter(isVisibleActividadDocenciaHistoryItem);
+    if (!entries.length) return <p className="text-sm text-slate-500">No hay cambios registrados.</p>;
+    const pages = Math.ceil(entries.length / HISTORY_PER_PAGE);
+    const visible = entries.slice((historyPage - 1) * HISTORY_PER_PAGE, historyPage * HISTORY_PER_PAGE);
+    return <div><h3 className="mb-3 text-sm font-semibold text-slate-900">Historial de cambios</h3>
+      <ul className="space-y-2">{visible.map((entry) => {
+        const presentation = formatHistoryEntry(entry);
+        return <li key={entry.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm"><span className="block font-medium text-slate-800">{presentation.title}</span><span className="mt-1 block text-slate-600">{presentation.description}</span>{entry.usuario_nombre && <span className="mt-1 block text-xs text-slate-500">Por {entry.usuario_nombre}</span>}</li>;
+      })}</ul>
+      {pages > 1 && <nav aria-label="Paginación del historial" className="mt-3 flex gap-2"><TableActionButton disabled={historyPage === 1} onClick={() => setHistoryPage((value) => value - 1)}>Anterior</TableActionButton><span className="self-center text-xs text-slate-500">Página {historyPage} de {pages}</span><TableActionButton disabled={historyPage === pages} onClick={() => setHistoryPage((value) => value + 1)}>Siguiente</TableActionButton></nav>}
+    </div>;
+  };
+
+  const setFilter = (key: keyof DocenciaFilters, value?: string) => setFilters((current) => ({ ...current, [key]: value }));
+
+  return <section className="min-h-[calc(100vh-120px)] w-full px-4 py-4">
+    <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      <div><h2 className="text-2xl font-semibold md:text-3xl">Actividades en Docencia</h2><p className="mt-1 text-sm text-slate-500">Gestione actividades, responsables y su historial.</p></div>
+      {canCreateRecords() && <Button size="sm" onClick={() => navigate("/docenciaInvestigador/nuevo")}>Agregar nuevo</Button>}
+    </div>
+    {memoriaFilter && <div className="mb-4"><MemoriaFilterBanner filter={memoriaFilter} /></div>}
+    <Table
+      caption="Listado de actividades en docencia" columns={columns} rows={rows} getRowId={(item) => item.id}
+      onRowClick={(item) => navigate(`/docenciaInvestigador/${item.id}`, { state: buildMemoriaDetailState(location) })}
+      getRowTitle={(item) => `Ver detalle de ${item.curso}`} density="compact"
+      loading={actividades.isLoading} refreshing={actividades.isFetching && !actividades.isLoading}
+      error={actividades.isError} onRetry={() => actividades.refetch()}
+      emptyMessage="No hay actividades en docencia que coincidan con los filtros."
+      sortKey={sort} sortDirection={direction}
+      onSortChange={(key, nextDirection) => { setSort(key as DocenciaSort); setDirection(nextDirection); }}
+      expandedRowId={expandedRow} renderExpanded={renderHistory}
+      onToggleRow={(item) => { setExpandedRow((current) => current === item.id ? null : item.id); setHistoryPage(1); }}
+      getExpandLabel={(item, expanded) => `${expanded ? "Ocultar" : "Mostrar"} historial de ${item.curso}`}
+      page={page} totalPages={totalPages} totalRecords={actividades.data?.meta.total ?? 0}
+      onPageChange={(nextPage) => { setExpandedRow(null); setPage(nextPage); }}
+      toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
+        <TableSearch label="Buscar actividades en docencia" placeholder="Buscar por curso, institución o investigador" value={search} onChange={(event) => setSearch(event.target.value)} />
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de actividades en docencia">
+          <span className="shrink-0 text-xs font-medium text-slate-500">Estado</span>
+          <TableFilterChip className="shrink-0" active={activeFilter === "true"} onClick={() => setActiveFilter("true")}>Activas</TableFilterChip>
+          <TableFilterChip className="shrink-0" active={activeFilter === "all"} onClick={() => setActiveFilter("all")}>Todas</TableFilterChip>
+          <TableFilterChip className="shrink-0" active={activeFilter === "false"} onClick={() => setActiveFilter("false")}>Inactivas</TableFilterChip>
+          <TableFilterSelect label="Filtrar por curso" placeholder="Todos los cursos" value={filters.curso} onValueChange={(value) => setFilter("curso", value)} options={filterOptions.cursos} />
+          <TableFilterSelect label="Filtrar por institución" placeholder="Todas las instituciones" value={filters.institucion} onValueChange={(value) => setFilter("institucion", value)} options={filterOptions.instituciones} />
+          <TableFilterSelect label="Filtrar por investigador" placeholder="Todos los investigadores" value={filters.investigador} onValueChange={(value) => setFilter("investigador", value)} options={filterOptions.investigadores} />
+          <TableFilterSelect label="Filtrar por grado académico" placeholder="Todos los grados" value={filters.grado} onValueChange={(value) => setFilter("grado", value)} options={filterOptions.grados} />
+          <TableFilterSelect label="Filtrar por rol" placeholder="Todos los roles" value={filters.rol} onValueChange={(value) => setFilter("rol", value)} options={filterOptions.roles} />
         </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <button
-              type="button"
-              onClick={() => setQuickEstado("")}
-              className={`px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "activos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Activas
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickEstado("todos")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "todos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Todas
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickEstado("inactivos")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "inactivos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Inactivas
-            </button>
-          </div>
-
-          <div className="relative w-full sm:w-64">
-            <input
-              type="text"
-              placeholder="Buscar por curso, institucion, investigador..."
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-10 text-xs outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-200"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-            </div>
-          </div>
-
-          {!selectMode ? (
-            <div className="flex gap-2">
-              {puedeEliminar && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setSelectMode(true)}
-                >
-                  Seleccionar
-                </Button>
-              )}
-
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setTempFilters(filters);
-                  setShowFilters(true);
-                }}
-              >
-                Filtros
-                {filtrosActivosCount > 0 && (
-                  <span className="ml-1.5 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-white">
-                    {filtrosActivosCount}
-                  </span>
-                )}
-              </Button>
-
-              {puedeCrear && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => navigate("/docenciaInvestigador/nuevo")}
-                >
-                  Nuevo
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              {selectedIds.length > 0 && puedeEliminar && (
-                <Button size="sm" onClick={() => setShowConfirm(true)}>
-                  Eliminar
-                </Button>
-              )}
-
-              <Button variant="secondary" size="sm" onClick={cancelSelection}>
-                Cancelar
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {memoriaFilter && <MemoriaFilterBanner filter={memoriaFilter} />}
-
-      <div className="flex-1">
-        {isLoading ? (
-          <p className="py-10 text-center text-slate-500">Cargando...</p>
-        ) : isError ? (
-          <p className="py-10 text-center text-slate-500">Error al cargar.</p>
-        ) : docenciaFiltrada.length === 0 ? (
-          <p className="py-10 text-center text-slate-500">
-            No hay actividades registradas.
-          </p>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {paginatedItems.map((d) => (
-                <Tarjeta<ActividadDocencia>
-                  key={d.id}
-                  item={d}
-                  title={(x) => toTitleCase(x.curso) || "-"}
-                  subtitle={(x) => toTitleCase(getInvestigadorNombre(x)) || "-"}
-                  badge={(x) => (x.deleted_at ? "INACTIVA" : "ACTIVA")}
-                  selectable={puedeEliminar && selectMode}
-                  selectDisabled={!!d.deleted_at}
-                  selected={selectedIds.includes(d.id)}
-                  onSelectChange={(checked) => toggleSelect(d.id, checked)}
-                  onClick={() =>
-                    !selectMode &&
-                    navigate(`/docenciaInvestigador/${d.id}`, {
-                      state: buildMemoriaDetailState(location),
-                    })
-                  }
-                />
-              ))}
-            </div>
-
-            {totalPages > 1 && (
-              <div className="mt-8">
-                <div className="flex items-center justify-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={currentPage === 1}
-                    onClick={() => setCurrentPage((p) => p - 1)}
-                  >
-                    {"<"}
-                  </Button>
-
-                  {[...Array(totalPages)].map((_, i) => {
-                    const page = i + 1;
-                    return (
-                      <button
-                        key={page}
-                        onClick={() => setCurrentPage(page)}
-                        className={`rounded-lg px-3 py-1 text-sm ${
-                          currentPage === page
-                            ? "bg-slate-800 text-white"
-                            : "bg-slate-100 hover:bg-slate-200"
-                        }`}
-                      >
-                        {page}
-                      </button>
-                    );
-                  })}
-
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={currentPage === totalPages}
-                    onClick={() => setCurrentPage((p) => p + 1)}
-                  >
-                    {">"}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {showFilters && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
-            onClick={() => setShowFilters(false)}
-          />
-          <div className="fixed right-0 top-0 z-50 flex h-full w-[380px] flex-col overflow-y-auto bg-white p-6 shadow-2xl">
-            <h3 className="mb-6 text-xl font-semibold">Filtros Avanzados</h3>
-
-            <div className="flex-1 space-y-5 text-[11px]">
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Estado
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.estado}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      estado: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Activas (Default)</option>
-                  <option value="todos">Todas</option>
-                  <option value="inactivos">Inactivas</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Curso
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.curso}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      curso: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos los cursos</option>
-                  {opcionesFiltros.cursos.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Institucion
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.institucion}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      institucion: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todas las instituciones</option>
-                  {opcionesFiltros.instituciones.map((i) => (
-                    <option key={i} value={i}>
-                      {i}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Investigador
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.investigador}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      investigador: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos los investigadores</option>
-                  {opcionesFiltros.investigadores.map((i) => (
-                    <option key={i} value={i}>
-                      {i}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Grado Academico
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.gradoAcademico}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      gradoAcademico: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos los grados</option>
-                  {opcionesFiltros.gradosAcademicos.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Rol de Actividad
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.rolActividad}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      rolActividad: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos los roles</option>
-                  {opcionesFiltros.rolesActividad.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-between gap-2 border-t pt-6">
-              <Button
-                variant="secondary"
-                className="flex-1"
-                size="sm"
-                onClick={() =>
-                  setTempFilters({
-                    estado: "",
-                    curso: "",
-                    institucion: "",
-                    investigador: "",
-                    gradoAcademico: "",
-                    rolActividad: "",
-                  })
-                }
-              >
-                Limpiar
-              </Button>
-
-              <Button
-                className="flex-1"
-                size="sm"
-                onClick={() => {
-                  setFilters(tempFilters);
-                  setShowFilters(false);
-                }}
-              >
-                Aplicar
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
-
-      <ConfirmDialog
-        open={showConfirm}
-        title="Eliminar actividades en docencia"
-        message="¿Estas seguro de eliminar las siguientes actividades?"
-        items={selectedActiveItems.map((d) => toTitleCase(d.curso) || "-")}
-        onCancel={cancelSelection}
-        onConfirm={confirmDelete}
-      />
-
-      <SuccessToast
-        open={showSuccess}
-        message={successMessage}
-        onClose={() => setShowSuccess(false)}
-      />
-
-      <SuccessToast
-        open={showError}
-        message={errorMessage}
-        onClose={() => setShowError(false)}
-        variant="error"
-      />
-    </section>
-  );
+      </div></TableToolbar>}
+    />
+    <ConfirmDialog open={Boolean(pendingDelete)} title="Eliminar actividad en docencia" message={`¿Está seguro de eliminar ${pendingDelete?.curso ?? "esta actividad"}?`} onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete} loadingText="Eliminando..." />
+    <SuccessToast open={Boolean(successMessage)} message={successMessage} onClose={() => setSuccessMessage("")} />
+    <SuccessToast open={Boolean(errorMessage)} message={errorMessage} variant="error" onClose={() => setErrorMessage("")} />
+  </section>;
 }

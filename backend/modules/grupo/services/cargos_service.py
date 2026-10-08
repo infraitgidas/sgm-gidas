@@ -1,3 +1,4 @@
+from modules.shared.services.catalog_name_validation import validar_nombre_descriptivo
 from sqlalchemy import func
 from extension import db
 from modules.shared.exceptions import ValidationError as ValueError
@@ -46,6 +47,7 @@ class CargoService:
             raise ValueError("El nombre es obligatorio")
 
         nombre = " ".join(nombre.strip().split())
+        validar_nombre_descriptivo(nombre)
         if not nombre:
             raise ValueError("El nombre es obligatorio")
 

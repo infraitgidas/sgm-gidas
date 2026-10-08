@@ -1,12 +1,15 @@
-import { useState, useEffect } from "react";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { errorEnlace, MAX_ENLACE } from "@/modules/produccion/utils/trabajoEnlace";
+import { applyFieldErrors } from "@/lib/httpError";
+import { hasLetter } from "../../../lib/textValidation";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import Button from "@/components/Button";
 import Calendar from "@/components/Calendar";
-import PersonalProyectoField from "@/components/PersonalProyectoField";
+import IntegrantesAutoresField from "@/modules/produccion/components/IntegrantesAutoresField";
 import Field from "@/components/Field";
-import ConfirmDialog from "@/components/ConfirmDialog";
 import SuccessToast from "@/components/SuccessToast";
 
 import { getErrorMessage } from "@/lib/httpError";
@@ -16,15 +19,20 @@ import {
   createTrabajoRevista,
   updateTrabajoRevista,
   getTrabajoRevistaById,
-  vincularInvestigadoresRevista,
-  desvincularInvestigadoresRevista,
   type TrabajoRevista,
   type TrabajoRevistaPayload,
 } from "@/modules/produccion/services/trabajosRevistasServices";
 
-import { useTiposReunion } from "@/modules/produccion/hooks/useTiposReunion";
-import { useInvestigadores } from "@/modules/personal/hooks/useInvestigadores";
+import { useTiposRevista } from "@/modules/produccion/hooks/useTiposRevista";
+import AutoresQueryFeedback from "@/modules/produccion/components/AutoresQueryFeedback";
+import { useIntegrantesAutores } from "@/modules/produccion/hooks/useIntegrantesAutores";
+import { mismasAutorias, type IntegranteAutor } from "@/modules/produccion/services/trabajoAutoresServices";
+import { useAuth } from "@/context/AuthContext";
 import { useUctGuard } from "@/modules/grupo/hooks/useUctGuard";
+import { toCivilDateString } from "@/utils/dateTime";
+import { useFormDraft } from "@/modules/shared/hooks/useFormDraft";
+import DraftRecoveryNotice from "@/modules/shared/components/DraftRecoveryNotice";
+import DraftLeaveControls from "@/modules/shared/components/DraftLeaveControls";
 
 export default function TrabajosRevistasForm() {
   const { id } = useParams<{ id: string }>();
@@ -33,16 +41,21 @@ export default function TrabajosRevistasForm() {
   const isEdit = Boolean(id);
 
   const { uct, uctGuard } = useUctGuard();
-  const { tipos = [] } = useTiposReunion();
-  const { data: investigadores = [] } = useInvestigadores();
+  const { tipos = [] } = useTiposRevista();
+  const { canCreateRecords, canEditRecords, user } = useAuth();
+  const puedeGuardar = isEdit ? canEditRecords() : canCreateRecords();
+  const autoresQuery = useIntegrantesAutores();
+  const integrantes = autoresQuery.data ?? [];
+  const autoresNoDisponibles = autoresQuery.data === undefined;
 
-  const { data: initialData, isLoading } = useQuery({
-    queryKey: ["trabajo-revista", id],
+  const { data: initialData, isLoading, refetch } = useQuery({
+    queryKey: ["trabajo-revista", Number(id)],
     queryFn: () =>
       id ? getTrabajoRevistaById(Number(id)) : Promise.resolve(null),
     enabled: isEdit,
   });
 
+  const [enlace, setEnlace] = useState("");
   const [titulo, setTitulo] = useState("");
   const [nombreRevista, setNombreRevista] = useState("");
   const [editorial, setEditorial] = useState("");
@@ -50,31 +63,37 @@ export default function TrabajosRevistasForm() {
   const [pais, setPais] = useState("");
   const [fecha, setFecha] = useState<Date | null>(null);
   const [tipoId, setTipoId] = useState<number | null>(null);
-  const [investigadoresIds, setInvestigadoresIds] = useState<number[]>([]);
+  const [autores, setAutores] = useState<IntegranteAutor[]>([]);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [successMessage, setSuccessMessage] = useState("");
-
-  const [investigadorAEliminar, setInvestigadorAEliminar] =
-    useState<{ id: number; nombre: string } | null>(null);
-
+  const datosCargadosId = useRef<number | null>(null);
   useEffect(() => {
-    if (!initialData) return;
+    if (!initialData || datosCargadosId.current === initialData.id) return;
+    datosCargadosId.current = initialData.id;
 
+    setEnlace(initialData.enlace ?? "");
     setTitulo(initialData.titulo_trabajo ?? "");
     setNombreRevista(initialData.nombre_revista ?? "");
     setEditorial(initialData.editorial ?? "");
     setIssn(initialData.issn ?? "");
     setPais(initialData.pais ?? "");
-    setFecha(initialData.fecha ? new Date(`${initialData.fecha}T00:00:00`) : null);
-    setTipoId(initialData.tipo_reunion?.id ?? null);
-    setInvestigadoresIds(
-      initialData.investigadores?.map((i: { id: number }) => i.id) ?? []
-    );
+    setFecha(initialData.fecha_publicacion ? new Date(`${initialData.fecha_publicacion}T00:00:00`) : null);
+    setTipoId(initialData.tipo_revista?.id ?? null);
+    setAutores(initialData.autores ?? []);
   }, [initialData]);
+
+  const { availableDraft, sourceChanged, restoreDraft, discardDraft, clearDraft, saveStatus, blocker, requestLeave, keepAndLeave, discardAndLeave } = useFormDraft({
+    userId: user?.id,
+    module: "produccion-revistas",
+    recordId: id,
+    value: { enlace, titulo, nombreRevista, editorial, issn, pais, fecha: toCivilDateString(fecha), tipoId, autores },
+    ready: !isEdit || (!isLoading && Boolean(initialData)),
+    autosave: false,
+    hasContent: (draft) => Boolean(draft.enlace || draft.titulo || draft.nombreRevista || draft.editorial || draft.issn || draft.pais || draft.fecha || draft.tipoId || draft.autores.length),
+    onRestore: (draft) => { setEnlace(draft.enlace); setTitulo(draft.titulo); setNombreRevista(draft.nombreRevista); setEditorial(draft.editorial); setIssn(draft.issn); setPais(draft.pais); setFecha(draft.fecha ? new Date(`${draft.fecha}T00:00:00`) : null); setTipoId(draft.tipoId); setAutores(draft.autores); },
+  });
 
   const clearError = (field: string) => {
     setErrors((prev) => {
@@ -87,10 +106,12 @@ export default function TrabajosRevistasForm() {
   const validate = () => {
     const newErrors: Record<string, string> = {};
 
-    if (!titulo.trim()) newErrors.titulo = "Debe ingresar titulo";
+    if (!titulo.trim()) newErrors.titulo = "Debe ingresar título";
 
     if (!nombreRevista.trim()) {
       newErrors.nombreRevista = "Debe ingresar nombre de revista";
+    } else if (!hasLetter(nombreRevista)) {
+      newErrors.nombreRevista = "El nombre de la revista debe contener letras";
     }
 
     if (!editorial.trim()) {
@@ -102,21 +123,23 @@ export default function TrabajosRevistasForm() {
     }
 
     if (!pais.trim()) {
-      newErrors.pais = "Debe ingresar pais";
+      newErrors.pais = "Debe ingresar país";
     }
 
     if (!tipoId) {
-      newErrors.tipoId = "Debe seleccionar tipo";
+      newErrors.tipoId = "Debe seleccionar un tipo de revista";
     }
 
     if (!fecha) {
-      newErrors.fecha = "Debe seleccionar fecha";
+      newErrors.fecha = "Debe seleccionar la fecha de publicación";
     }
 
-    if (investigadoresIds.length === 0) {
-      newErrors.investigadores = "Debe agregar al menos un investigador";
+    if (autores.length === 0) {
+      newErrors.autores = "Debe agregar al menos un autor";
     }
 
+    const enlaceError = errorEnlace(enlace);
+    if (enlaceError) newErrors.enlace = enlaceError;
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -130,34 +153,11 @@ export default function TrabajosRevistasForm() {
   };
 
   const mutation = useMutation({
-    mutationFn: async (
-      payload: Partial<TrabajoRevistaPayload> & { _skipUpdate?: boolean }
-    ): Promise<TrabajoRevista | null> => {
-      const currentInvestigadoresIds =
-        initialData?.investigadores?.map((i: { id: number }) => i.id) ?? [];
-      const nuevosInvestigadoresIds = isEdit
-        ? investigadoresIds.filter(
-            (investigadorId) => !currentInvestigadoresIds.includes(investigadorId)
-          )
-        : investigadoresIds;
-
-      let trabajo = initialData ?? null;
-
-      if (!isEdit) {
-        trabajo = await createTrabajoRevista(payload as TrabajoRevistaPayload);
-      } else if (!payload._skipUpdate) {
-        trabajo = await updateTrabajoRevista(Number(id), payload);
-      }
-
-      const trabajoId = trabajo?.id;
-
-      if (trabajoId && nuevosInvestigadoresIds.length > 0) {
-        await vincularInvestigadoresRevista(trabajoId, nuevosInvestigadoresIds);
-      }
-
-      return trabajo;
+    mutationFn: async (payload: Partial<TrabajoRevistaPayload>): Promise<TrabajoRevista> => {
+      return isEdit ? updateTrabajoRevista(Number(id), payload) : createTrabajoRevista(payload as TrabajoRevistaPayload);
     },
     onSuccess: async (saved) => {
+      clearDraft();
       const trabajoId = saved?.id ?? Number(id);
 
       await qc.invalidateQueries({ queryKey: ["trabajos-revistas"] });
@@ -168,110 +168,73 @@ export default function TrabajosRevistasForm() {
         replace: true,
         state: {
           successMessage: isEdit
-            ? "Trabajo actualizado con exito."
-            : "Trabajo creado con exito.",
+            ? "Trabajo actualizado con éxito."
+            : "Trabajo creado con éxito.",
         },
       });
     },
     onError: (error) => {
+      if (applyFieldErrors(error, setErrors, ["enlace","titulo","nombreRevista","editorial","issn","pais","tipoId","fecha","autores"])) return;
       const backendMessage = getErrorMessage(
         error,
-        "Lo sentimos, no pudimos guardar los cambios. Verifique los datos e intente nuevamente."
+        isEdit
+          ? "Lo sentimos, no pudimos actualizar el trabajo en revista. Revise los datos e intente nuevamente."
+          : "Lo sentimos, no pudimos crear el trabajo en revista. Revise los datos e intente nuevamente."
       );
-      const lowerMessage = backendMessage.toLowerCase();
-
-      if (lowerMessage.includes("titulo")) {
-        setErrors((prev) => ({ ...prev, titulo: backendMessage }));
-      } else if (lowerMessage.includes("revista")) {
-        setErrors((prev) => ({ ...prev, nombreRevista: backendMessage }));
-      } else if (lowerMessage.includes("editorial")) {
-        setErrors((prev) => ({ ...prev, editorial: backendMessage }));
-      } else if (lowerMessage.includes("issn")) {
-        setErrors((prev) => ({ ...prev, issn: backendMessage }));
-      } else if (lowerMessage.includes("pais")) {
-        setErrors((prev) => ({ ...prev, pais: backendMessage }));
-      } else if (lowerMessage.includes("tipo")) {
-        setErrors((prev) => ({ ...prev, tipoId: backendMessage }));
-      } else if (lowerMessage.includes("fecha")) {
-        setErrors((prev) => ({ ...prev, fecha: backendMessage }));
-      }
-
       setErrorMessage(backendMessage);
       setShowError(true);
     },
   });
 
-  const desvincularMutation = useMutation({
-    mutationFn: async (investigadorId: number) =>
-      desvincularInvestigadoresRevista(Number(id), [investigadorId]),
-    onSuccess: async (_, investigadorId) => {
-      setInvestigadoresIds((prev) => prev.filter((i) => i !== investigadorId));
-      setInvestigadorAEliminar(null);
-
-      await qc.invalidateQueries({ queryKey: ["trabajo-revista", Number(id)] });
-      await qc.invalidateQueries({ queryKey: ["trabajo-revista-historial", Number(id)] });
-
-      setSuccessMessage("Investigador desvinculado con exito.");
-      setShowSuccess(true);
-    },
-    onError: (error) => {
-      setInvestigadorAEliminar(null);
-      setErrorMessage(
-        getErrorMessage(
-          error,
-          "Lo sentimos, no pudimos completar la operacion. Intente nuevamente."
-        )
-      );
-      setShowError(true);
-    },
-  });
+  const guardadoBloqueado = mutation.isPending || autoresNoDisponibles || !puedeGuardar || (isEdit && (!initialData || initialData.activo === false || !!initialData.deleted_at)) || !uct;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (guardadoBloqueado) return;
 
     if (!uct) return;
     if (!validate()) return;
 
     const payload = {
+      enlace: enlace.trim() || null,
+      autores: autores.map(({ id, rol }) => ({ id, rol })),
       titulo_trabajo: toTitleCase(titulo.trim()),
       nombre_revista: toTitleCase(nombreRevista.trim()),
       editorial: toTitleCase(editorial.trim()),
       issn: issn.trim(),
       pais: toTitleCase(pais.trim()),
-      fecha: formatDateStr(fecha)!,
-      tipo_reunion_id: tipoId!,
+      fecha_publicacion: formatDateStr(fecha)!,
+      tipo_revista_id: tipoId!,
       grupo_utn_id: uct.id,
     };
 
     if (!isEdit) {
-      await mutation.mutateAsync(payload);
+      await mutation.mutateAsync(payload).catch(() => undefined);
       return;
     }
 
     const initialPayload = {
+      enlace: initialData?.enlace ?? null,
+      autores: initialData?.autores ?? [],
       titulo_trabajo: initialData?.titulo_trabajo ?? "",
       nombre_revista: initialData?.nombre_revista ?? "",
       editorial: initialData?.editorial ?? "",
       issn: initialData?.issn ?? "",
       pais: initialData?.pais ?? "",
-      fecha: initialData?.fecha ?? null,
-      tipo_reunion_id: initialData?.tipo_reunion?.id ?? null,
+      fecha_publicacion: initialData?.fecha_publicacion ?? null,
+      tipo_revista_id: initialData?.tipo_revista?.id ?? null,
       grupo_utn_id: uct.id,
     };
 
     const changedPayload = Object.fromEntries(
       Object.entries(payload).filter(([key, value]) => {
+        if (key === "autores") return !mismasAutorias(payload.autores, initialPayload.autores);
         return initialPayload[key as keyof typeof initialPayload] !== value;
       })
     );
 
-    const currentInvestigadoresIds =
-      initialData?.investigadores?.map((i: { id: number }) => i.id) ?? [];
-    const nuevosInvestigadoresIds = investigadoresIds.filter(
-      (investigadorId) => !currentInvestigadoresIds.includes(investigadorId)
-    );
-
-    if (Object.keys(changedPayload).length === 0 && nuevosInvestigadoresIds.length === 0) {
+    if (Object.keys(changedPayload).length === 0) {
+      clearDraft();
       navigate(`/trabajos-revistas/${id}`, {
         replace: true,
         state: {
@@ -281,14 +244,16 @@ export default function TrabajosRevistasForm() {
       return;
     }
 
-    await mutation.mutateAsync({
-      ...changedPayload,
-      _skipUpdate: Object.keys(changedPayload).length === 0,
-    });
+    await mutation.mutateAsync(changedPayload).catch(() => undefined);
   };
 
   if (isEdit && isLoading) {
-    return <p className="text-slate-500">Cargando...</p>;
+    return <LoadingSkeleton variant="form" label="Cargando..." />;
+  }
+
+  if (isEdit && !initialData) {
+    return <div role="alert" className="space-y-3"><p>Lo sentimos, no pudimos recuperar la información. Intente nuevamente.</p>
+      <Button type="button" onClick={() => { void refetch(); }}>Reintentar</Button></div>;
   }
 
   const inputClass = (field: string) =>
@@ -300,17 +265,20 @@ export default function TrabajosRevistasForm() {
         {isEdit ? "Editar trabajo en revista" : "Nuevo trabajo en revista"}
       </h2>
 
+      {availableDraft && <DraftRecoveryNotice savedAt={availableDraft.saved_at} sourceChanged={sourceChanged} onRestore={restoreDraft} onDiscard={discardDraft} />}
+      <DraftLeaveControls blocker={blocker} saveStatus={saveStatus} keepAndLeave={keepAndLeave} discardAndLeave={discardAndLeave} />
+
       <form
         noValidate
         onSubmit={submit}
         className="mt-6 space-y-6 rounded-2xl border border-slate-200 bg-white p-6"
       >
-        <Field label="Titulo del trabajo">
+        <Field required label="Título del trabajo" name="titulo" error={errors.titulo}>
           <>
             <input
               className={inputClass("titulo")}
               value={titulo}
-              placeholder="Ej: Modelo de optimizacion aplicado a sistemas distribuidos"
+              placeholder="Ej: Modelo de optimización aplicado a sistemas distribuidos"
               onChange={(e) => {
                 setTitulo(e.target.value);
                 if (e.target.value.trim()) clearError("titulo");
@@ -325,7 +293,7 @@ export default function TrabajosRevistasForm() {
           </>
         </Field>
 
-        <Field label="Nombre de la revista">
+        <Field required label="Nombre de la revista" name="nombreRevista" error={errors.nombreRevista}>
           <>
             <input
               className={inputClass("nombreRevista")}
@@ -347,7 +315,7 @@ export default function TrabajosRevistasForm() {
           </>
         </Field>
 
-        <Field label="Editorial">
+        <Field required label="Editorial" name="editorial" error={errors.editorial}>
           <>
             <input
               className={inputClass("editorial")}
@@ -367,7 +335,7 @@ export default function TrabajosRevistasForm() {
           </>
         </Field>
 
-        <Field label="ISSN">
+        <Field required label="ISSN" name="issn" error={errors.issn}>
           <>
             <input
               className={inputClass("issn")}
@@ -384,7 +352,7 @@ export default function TrabajosRevistasForm() {
           </>
         </Field>
 
-        <Field label="Pais">
+        <Field required label="País" name="pais" error={errors.pais}>
           <>
             <input
               className={inputClass("pais")}
@@ -404,7 +372,7 @@ export default function TrabajosRevistasForm() {
           </>
         </Field>
 
-        <Field label="Tipo">
+        <Field required label="Tipo de revista" name="tipoId" error={errors.tipoId}>
           <>
             <select
               className={`${inputClass("tipoId")} ${
@@ -418,7 +386,7 @@ export default function TrabajosRevistasForm() {
               }}
             >
               <option value="" disabled>
-                Seleccionar tipo
+                Seleccionar tipo de revista
               </option>
               {tipos.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -432,33 +400,22 @@ export default function TrabajosRevistasForm() {
           </>
         </Field>
 
-        <Field label="Investigadores">
+        <Field label="Enlace al trabajo o DOI (opcional)" name="enlace" error={errors.enlace}>
+          <input type="url" className={inputClass("enlace")} value={enlace}
+            maxLength={MAX_ENLACE} placeholder="https://doi.org/10.1234/ejemplo"
+            onChange={e => { setEnlace(e.target.value); clearError("enlace"); }} />
+        </Field>
+
+        <Field required label="Autores" name="autores" error={errors.autores}>
           <>
-            <PersonalProyectoField
-              value={investigadoresIds}
-              options={investigadores}
-              onChange={(ids) => {
-                setInvestigadoresIds(ids);
-                if (ids.length > 0) clearError("investigadores");
-              }}
-              isEdit={isEdit}
-              onRemoveConfirm={(personaId) => {
-                const inv = investigadores.find((i) => i.id === personaId);
-                if (inv) {
-                  setInvestigadorAEliminar({
-                    id: inv.id,
-                    nombre: inv.nombre_apellido,
-                  });
-                }
-              }}
-            />
-            {errors.investigadores && (
-              <p className="mt-1 text-sm text-red-500">{errors.investigadores}</p>
-            )}
+            <AutoresQueryFeedback query={autoresQuery} />
+            <IntegrantesAutoresField value={autores} options={integrantes}
+              disabled={guardadoBloqueado}
+              onChange={value => { setAutores(value); if (value.length) clearError("autores"); }} />
           </>
         </Field>
 
-        <Field label="Fecha">
+        <Field required label="Fecha de publicación" name="fecha" error={errors.fecha}>
           <Calendar
             value={fecha}
             onChange={(date) => {
@@ -466,7 +423,7 @@ export default function TrabajosRevistasForm() {
               if (date) clearError("fecha");
             }}
             className={inputClass("fecha")}
-            helperText={errors.fecha ?? "DD/MM/AAAA"}
+            helperText="DD/MM/AAAA"
           />
         </Field>
 
@@ -475,12 +432,12 @@ export default function TrabajosRevistasForm() {
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => navigate(-1)}
+            onClick={() => requestLeave(() => navigate(-1))}
           >
             Volver
           </Button>
 
-          <Button type="submit" size="sm" disabled={mutation.isPending}>
+          <Button type="submit" size="sm" disabled={mutation.isPending || autoresNoDisponibles || !puedeGuardar || (isEdit && (!initialData || initialData.activo === false || !!initialData.deleted_at))} loading={mutation.isPending} loadingText="Guardando...">
             {mutation.isPending
               ? isEdit
                 ? "Actualizando..."
@@ -491,23 +448,6 @@ export default function TrabajosRevistasForm() {
           </Button>
         </div>
       </form>
-
-      <ConfirmDialog
-        open={!!investigadorAEliminar}
-        title="Desvincular investigador"
-        message={`¿Desea desvincular a ${investigadorAEliminar?.nombre}?`}
-        items={[]}
-        onCancel={() => setInvestigadorAEliminar(null)}
-        onConfirm={() =>
-          desvincularMutation.mutate(investigadorAEliminar!.id)
-        }
-      />
-
-      <SuccessToast
-        open={showSuccess}
-        message={successMessage}
-        onClose={() => setShowSuccess(false)}
-      />
 
       <SuccessToast
         open={showError}

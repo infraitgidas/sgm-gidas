@@ -1,606 +1,245 @@
-import { useLocation, useNavigate } from "react-router-dom";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import Button from "@/components/Button";
-import Tarjeta from "@/components/Tarjeta";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import SuccessToast from "@/components/SuccessToast";
 import MemoriaFilterBanner from "@/components/MemoriaFilterBanner";
+import SuccessToast from "@/components/SuccessToast";
+import Table, {
+  TableActionButton,
+  TableActions,
+  TableFilterChip,
+  TableRowActionButton,
+  TableSearch,
+  TableToolbar,
+} from "@/components/Table";
+import type { TableColumn } from "@/components/Table";
+import TableFilterSelect from "@/components/TableFilterSelect";
+import { useAuth } from "@/context/AuthContext";
 import { getErrorMessage } from "@/lib/httpError";
-
-import { useTrabajosReunion } from "@/modules/produccion/hooks/useTrabajosReunion";
+import { applyMemoriaSectionFilter, getMemoriaSectionFilter } from "@/lib/memoriaSectionFilter";
+import { buildMemoriaDetailState } from "@/lib/memoriaNavigation";
 import { useTiposReunion } from "@/modules/produccion/hooks/useTiposReunion";
-import { useInvestigadores } from "@/modules/personal/hooks/useInvestigadores";
-
+import { useTrabajosReunion } from "@/modules/produccion/hooks/useTrabajosReunion";
+import { autorClave, autorEtiqueta } from "@/modules/produccion/services/trabajoAutoresServices";
 import {
   deleteTrabajoReunion,
+  getHistorialTrabajoReunionById,
+  type HistorialTrabajoReunionItem,
   type TrabajoReunion,
 } from "@/modules/produccion/services/trabajosReunionServices";
-import { useAuth } from "@/context/AuthContext";
-import { toTitleCase } from "@/utils/format";
 import {
-  applyMemoriaSectionFilter,
-  getMemoriaSectionFilter,
-} from "@/lib/memoriaSectionFilter";
-import { buildMemoriaDetailState } from "@/lib/memoriaNavigation";
+  formatTrabajoReunionContractValue,
+  formatTrabajoReunionHistoryEntry,
+  presentTrabajoReunionHistoryItems,
+} from "@/modules/produccion/utils/trabajoReunionHistory";
+import { getCivilYear } from "@/utils/dateTime";
+import { toTitleCase } from "@/utils/format";
 
 const ITEMS_PER_PAGE = 9;
+const HISTORY_PER_PAGE = 3;
 
 const formatFecha = (fecha?: string | null) => {
-  if (!fecha) return "-";
-
-  const [y, m, d] = fecha.split("-");
-  if (!y || !m || !d) return fecha;
-
-  return `${d}/${m}/${y}`;
+  if (!fecha) return "—";
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fecha);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : fecha;
 };
 
 export default function TrabajosReunionLanding() {
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const location = useLocation();
-  const { canCreateRecords, canDeleteRecords } = useAuth();
-
-  const puedeCrear = canCreateRecords();
-  const puedeEliminar = canDeleteRecords();
+  const queryClient = useQueryClient();
+  const { canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
 
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
-
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [showConfirm, setShowConfirm] = useState(false);
-
-  const [showFilters, setShowFilters] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<TrabajoReunion | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
-
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
   const [filters, setFilters] = useState({
     estado: "",
     tipo: "",
     procedencia: "",
-    investigador: "",
+    autor: "",
     anio: "",
   });
 
-  const [tempFilters, setTempFilters] = useState(filters);
   const memoriaFilter = useMemo(
     () => getMemoriaSectionFilter(location.state, "trabajos-reunion-cientifica"),
     [location.state]
   );
-
   const filtroActivos = useMemo<"true" | "false" | "all">(() => {
-    if (memoriaFilter) return "all";
-    if (filters.estado === "todos") return "all";
+    if (memoriaFilter || filters.estado === "todos") return "all";
     if (filters.estado === "inactivos") return "false";
     return "true";
   }, [filters.estado, memoriaFilter]);
 
-  const { list = [], isLoading, isError } = useTrabajosReunion(filtroActivos, "asc");
-  const scopedList = useMemo(
-    () => applyMemoriaSectionFilter(list, memoriaFilter),
-    [list, memoriaFilter]
-  );
+  const trabajos = useTrabajosReunion(filtroActivos, "asc");
   const { tipos = [] } = useTiposReunion();
-  const { data: investigadores = [] } = useInvestigadores();
-
-  const trabajosFiltrados = useMemo(() => {
-    return scopedList.filter((t) => {
-      const query = searchQuery.toLowerCase().trim();
-
-      const matchSearch =
-        !query ||
-        String(t.titulo_trabajo ?? "").toLowerCase().includes(query) ||
-        String(t.nombre_reunion ?? "").toLowerCase().includes(query) ||
-        String(t.procedencia ?? "").toLowerCase().includes(query) ||
-        String(t.tipo_reunion?.nombre ?? "").toLowerCase().includes(query) ||
-        t.investigadores?.some((i) =>
-          String(i.nombre_apellido ?? "").toLowerCase().includes(query)
-        );
-
-      const matchTipo = !filters.tipo || t.tipo_reunion?.id === Number(filters.tipo);
-
-      const matchProcedencia =
-        !filters.procedencia ||
-        String(t.procedencia ?? "")
-          .toLowerCase()
-          .includes(filters.procedencia.toLowerCase());
-
-      const matchInvestigador =
-        !filters.investigador ||
-        t.investigadores?.some((i) => i.id === Number(filters.investigador));
-
-      const matchAnio =
-        !filters.anio ||
-        new Date(t.fecha_inicio).getFullYear() === Number(filters.anio);
-
-      return (
-        matchSearch &&
-        matchTipo &&
-        matchProcedencia &&
-        matchInvestigador &&
-        matchAnio
-      );
-    });
-  }, [scopedList, filters, searchQuery]);
-
-  const totalPages = Math.max(1, Math.ceil(trabajosFiltrados.length / ITEMS_PER_PAGE));
-  const trabajosPaginados = trabajosFiltrados.slice(
-    (page - 1) * ITEMS_PER_PAGE,
-    page * ITEMS_PER_PAGE
+  const scopedList = useMemo(
+    () => applyMemoriaSectionFilter(trabajos.list, memoriaFilter),
+    [trabajos.list, memoriaFilter]
   );
 
-  const filtrosActivosCount = Object.values(filters).filter(Boolean).length;
+  const filterOptions = useMemo(() => {
+    const procedencias = new Set<string>();
+    const autores = new Map<string, TrabajoReunion["autores"][number]>();
+    const anios = new Set<number>();
 
-  useEffect(() => {
-    if (location.state?.successMessage) {
-      setSuccessMessage(location.state.successMessage);
-      setShowSuccess(true);
-      navigate(location.pathname, { replace: true });
-    }
-  }, [location.state, navigate, location.pathname]);
+    scopedList.forEach((trabajo) => {
+      const procedencia = formatTrabajoReunionContractValue(trabajo.procedencia);
+      if (procedencia) procedencias.add(toTitleCase(procedencia));
+      trabajo.autores.forEach((autor) => autores.set(autorClave(autor), autor));
+      const anio = getCivilYear(trabajo.fecha_presentacion);
+      if (anio) anios.add(anio);
+    });
+
+    return {
+      procedencias: Array.from(procedencias).sort((a, b) => a.localeCompare(b, "es")).map((value) => ({ value, label: value })),
+      autores: Array.from(autores.values()).sort((a, b) => autorEtiqueta(a).localeCompare(autorEtiqueta(b), "es")).map((autor) => ({ value: autorClave(autor), label: autorEtiqueta(autor) })),
+      anios: Array.from(anios).sort((a, b) => b - a).map((value) => ({ value: String(value), label: String(value) })),
+    };
+  }, [scopedList]);
+
+  const filteredList = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase("es");
+    return scopedList.filter((trabajo) => {
+      const tipo = formatTrabajoReunionContractValue(trabajo.tipo_reunion);
+      const procedencia = formatTrabajoReunionContractValue(trabajo.procedencia);
+      const searchable = [trabajo.titulo_trabajo, trabajo.nombre_reunion, procedencia, tipo, ...trabajo.autores.map(autorEtiqueta)];
+      const matchesSearch = !query || searchable.some((value) => value.toLocaleLowerCase("es").includes(query));
+      const matchesTipo = !filters.tipo || String(trabajo.tipo_reunion?.id ?? "") === filters.tipo;
+      const matchesProcedencia = !filters.procedencia || toTitleCase(procedencia) === filters.procedencia;
+      const matchesAutor = !filters.autor || trabajo.autores.some((autor) => autorClave(autor) === filters.autor);
+      const matchesAnio = !filters.anio || getCivilYear(trabajo.fecha_presentacion) === Number(filters.anio);
+      return matchesSearch && matchesTipo && matchesProcedencia && matchesAutor && matchesAnio;
+    });
+  }, [filters, scopedList, searchQuery]);
+
+  const totalPages = Math.ceil(filteredList.length / ITEMS_PER_PAGE);
+  const paginatedItems = useMemo(() => {
+    const start = (page - 1) * ITEMS_PER_PAGE;
+    return filteredList.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredList, page]);
+  const expandedItem = expandedRow === null ? undefined : scopedList.find((trabajo) => trabajo.id === expandedRow);
+  const history = useQuery({
+    queryKey: ["trabajo-reunion-historial", expandedItem?.id],
+    queryFn: () => getHistorialTrabajoReunionById(expandedItem!.id),
+    enabled: Boolean(expandedItem),
+    staleTime: 5 * 60_000,
+  });
+  const tipoNames = useMemo(() => Object.fromEntries(tipos.map((tipo) => [tipo.id, tipo.nombre])), [tipos]);
 
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, filters]);
+    setExpandedRow(null);
+  }, [filters, searchQuery]);
 
   useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages);
-    }
+    if (page > Math.max(totalPages, 1)) setPage(Math.max(totalPages, 1));
   }, [page, totalPages]);
 
-  const setQuickEstado = (estado: "" | "todos" | "inactivos") => {
-    setFilters((prev) => ({
-      ...prev,
-      estado,
-    }));
+  useEffect(() => {
+    if (!location.state?.successMessage) return;
+    setSuccessMessage(location.state.successMessage);
+    setShowSuccess(true);
+    navigate(location.pathname, { replace: true });
+  }, [location.pathname, location.state, navigate]);
+
+  const quickEstadoActual = filters.estado === "todos" ? "todos" : filters.estado === "inactivos" ? "inactivos" : "activos";
+
+  const confirmDelete = async () => {
+    if (!pendingDelete || pendingDelete.deleted_at || !canDeleteRecords()) return;
+    try {
+      await deleteTrabajoReunion(pendingDelete.id);
+      await queryClient.invalidateQueries({ queryKey: ["trabajos-reunion"] });
+      setPendingDelete(null);
+      setSuccessMessage("Trabajo eliminado con éxito.");
+      setShowSuccess(true);
+    } catch (error) {
+      setPendingDelete(null);
+      setErrorMessage(getErrorMessage(error, "Lo sentimos, no pudimos completar la operación. Intente nuevamente."));
+      setShowError(true);
+    }
   };
 
-  const quickEstadoActual =
-    filters.estado === "todos"
-      ? "todos"
-      : filters.estado === "inactivos"
-        ? "inactivos"
-        : "activos";
-
-  const toggleSelect = (id: number, checked: boolean) => {
-    if (!puedeEliminar) return;
-
-    const item = scopedList.find((x) => x.id === id);
-
-    if (item?.deleted_at) {
-      setErrorMessage(
-        "No se puede eliminar un trabajo en reunion cientifica que ya fue eliminado."
-      );
-      setShowError(true);
-      return;
+  const renderHistory = () => {
+    if (history.isLoading) return <LoadingSkeleton variant="compact" label="Cargando historial…" />;
+    if (history.isError) {
+      return <div role="alert" className="flex items-center gap-3 text-sm text-rose-700"><span>Lo sentimos, no pudimos recuperar el historial. Intente nuevamente.</span><TableActionButton onClick={() => history.refetch()}>Reintentar</TableActionButton></div>;
     }
-
-    setSelectedIds((prev) =>
-      checked ? [...prev, id] : prev.filter((x) => x !== id)
+    const entries = presentTrabajoReunionHistoryItems((history.data ?? []) as HistorialTrabajoReunionItem[]);
+    if (!entries.length) return <p className="text-sm text-slate-500">No hay cambios registrados.</p>;
+    const pages = Math.ceil(entries.length / HISTORY_PER_PAGE);
+    const visible = entries.slice((historyPage - 1) * HISTORY_PER_PAGE, historyPage * HISTORY_PER_PAGE);
+    return (
+      <div>
+        <h3 className="mb-3 text-sm font-semibold text-slate-900">Historial de cambios</h3>
+        <ul className="space-y-2">
+          {visible.map((entry) => {
+            const presentation = formatTrabajoReunionHistoryEntry(entry, tipoNames);
+            return <li key={entry.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm"><span className="block font-medium text-slate-800">{presentation.title}</span><span className="mt-1 block text-slate-600">{presentation.description}</span>{entry.usuario_nombre && <span className="mt-1 block text-xs text-slate-500">Por {entry.usuario_nombre}</span>}</li>;
+          })}
+        </ul>
+        {pages > 1 && <nav aria-label="Paginación del historial" className="mt-3 flex gap-2"><TableActionButton disabled={historyPage === 1} onClick={() => setHistoryPage((value) => value - 1)}>Anterior</TableActionButton><span className="self-center text-xs text-slate-500">Página {historyPage} de {pages}</span><TableActionButton disabled={historyPage === pages} onClick={() => setHistoryPage((value) => value + 1)}>Siguiente</TableActionButton></nav>}
+      </div>
     );
   };
 
-  const cancelSelection = () => {
-    setSelectMode(false);
-    setSelectedIds([]);
-    setShowConfirm(false);
-  };
+  const columns: TableColumn<TrabajoReunion>[] = [
+    { id: "titulo", header: "Trabajo", render: (trabajo) => <div><span className="block font-medium text-slate-900">{formatTrabajoReunionContractValue(trabajo.titulo_trabajo) || "—"}</span><span className="mt-0.5 block text-xs text-slate-500">{trabajo.autores.length ? trabajo.autores.map(autorEtiqueta).join(", ") : "Sin autores informados"}</span></div> },
+    { id: "reunion", header: "Reunión", priority: "secondary", render: (trabajo) => <div><span className="block text-slate-800">{toTitleCase(formatTrabajoReunionContractValue(trabajo.nombre_reunion)) || "—"}</span><span className="mt-0.5 block text-xs text-slate-500">{toTitleCase(formatTrabajoReunionContractValue(trabajo.procedencia)) || "Sin procedencia"}</span></div> },
+    { id: "tipo", header: "Tipo", priority: "tertiary", render: (trabajo) => toTitleCase(formatTrabajoReunionContractValue(trabajo.tipo_reunion)) || "—" },
+    { id: "fecha", header: "Fecha de presentación", priority: "tertiary", render: (trabajo) => formatFecha(trabajo.fecha_presentacion) },
+    { id: "estado", header: "Estado", render: (trabajo) => { const activo = !trabajo.deleted_at && trabajo.activo !== false; return <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${activo ? "text-emerald-700" : "text-rose-700"}`}><span aria-hidden="true" className={`h-2 w-2 rounded-full ${activo ? "bg-emerald-500" : "bg-rose-500"}`} />{activo ? "Activo" : "Inactivo"}</span>; } },
+    { id: "acciones", header: "Acciones", align: "right", render: (trabajo) => { const activo = !trabajo.deleted_at && trabajo.activo !== false; const titulo = formatTrabajoReunionContractValue(trabajo.titulo_trabajo) || "trabajo"; return <TableActions><TableRowActionButton action="view" aria-label={`Ver detalle de ${titulo}`} onClick={() => navigate(`/trabajos-reunion/${trabajo.id}`, { state: buildMemoriaDetailState(location) })} />{activo && canEditRecords() && <TableRowActionButton action="edit" aria-label={`Editar ${titulo}`} onClick={() => navigate(`/trabajos-reunion/${trabajo.id}/editar`)} />}{activo && canDeleteRecords() && <TableRowActionButton action="delete" aria-label={`Eliminar ${titulo}`} onClick={() => setPendingDelete(trabajo)} />}</TableActions>; } },
+  ];
 
-  const selectedItems = scopedList.filter((t) => selectedIds.includes(t.id));
-  const selectedActiveItems = selectedItems.filter((t) => !t.deleted_at);
-
-  const confirmDelete = async () => {
-    const invalidItems = selectedItems.filter((t) => t.deleted_at);
-
-    if (invalidItems.length > 0) {
-      setShowConfirm(false);
-      setErrorMessage(
-        invalidItems.length === 1
-          ? "El trabajo seleccionado ya fue eliminado."
-          : "Uno o mas trabajos seleccionados ya fueron eliminados."
-      );
-      setShowError(true);
-      return;
-    }
-
-    try {
-      for (const item of selectedActiveItems) {
-        await deleteTrabajoReunion(item.id);
-      }
-
-      await qc.invalidateQueries({
-        queryKey: ["trabajos-reunion"],
-      });
-
-      cancelSelection();
-
-      setSuccessMessage(
-        selectedActiveItems.length === 1
-          ? "Trabajo eliminado con exito."
-          : "Trabajos eliminados con exito."
-      );
-      setShowSuccess(true);
-    } catch (error) {
-      setShowConfirm(false);
-      setErrorMessage(
-        getErrorMessage(
-          error,
-          "Lo sentimos, no pudimos completar la operacion. Intente nuevamente."
-        )
-      );
-
-      setShowError(true);
-    }
-  };
+  const setFilter = (field: keyof typeof filters, value?: string) => setFilters((current) => ({ ...current, [field]: value ?? "" }));
 
   return (
-    <section className="flex min-h-[calc(100vh-80px)] w-full flex-col px-4 py-4 text-sm md:px-6">
-      <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <h2 className="text-2xl font-semibold leading-none text-slate-800 md:text-3xl">
-            Trabajos presentados en Congresos
-          </h2>
-          <p className="mt-2 text-xs text-slate-500">
-            {trabajosFiltrados.length} de {scopedList.length} resultados
-          </p>
+    <>
+      <section className="min-h-[calc(100vh-120px)] w-full px-4 py-4">
+        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div><h2 className="text-2xl font-semibold md:text-3xl">Trabajos presentados en Congresos</h2><p className="mt-1 text-sm text-slate-500">Gestione los trabajos, sus reuniones, autores y estados.</p></div>
+          {canCreateRecords() && <Button size="sm" onClick={() => navigate("/trabajos-reunion/nuevo")}>Agregar nuevo</Button>}
         </div>
+        {memoriaFilter && <div className="mb-4"><MemoriaFilterBanner filter={memoriaFilter} /></div>}
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <button
-              type="button"
-              onClick={() => setQuickEstado("")}
-              className={`px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "activos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Activos
-            </button>
+        <Table
+          caption="Listado de trabajos presentados en congresos"
+          columns={columns}
+          rows={paginatedItems}
+          getRowId={(trabajo) => trabajo.id}
+          density="compact"
+          loading={trabajos.isLoading}
+          refreshing={trabajos.isFetching && !trabajos.isLoading}
+          error={trabajos.isError}
+          onRetry={() => trabajos.refetch()}
+          emptyMessage="No hay trabajos en reuniones que coincidan con los filtros."
+          onRowClick={(trabajo) => navigate(`/trabajos-reunion/${trabajo.id}`, { state: buildMemoriaDetailState(location) })}
+          getRowTitle={(trabajo) => `Ver detalle de ${formatTrabajoReunionContractValue(trabajo.titulo_trabajo) || "trabajo"}`}
+          expandedRowId={expandedRow}
+          renderExpanded={renderHistory}
+          onToggleRow={(trabajo) => { setExpandedRow((current) => current === trabajo.id ? null : trabajo.id); setHistoryPage(1); }}
+          getExpandLabel={(trabajo, expanded) => `${expanded ? "Ocultar" : "Mostrar"} historial de ${formatTrabajoReunionContractValue(trabajo.titulo_trabajo) || "trabajo"}`}
+          page={page}
+          totalPages={totalPages}
+          totalRecords={filteredList.length}
+          onPageChange={(nextPage) => { setExpandedRow(null); setPage(nextPage); }}
+          toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center"><TableSearch label="Buscar trabajos en reuniones" placeholder="Buscar por trabajo, reunión o autor" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} /><div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de trabajos en reuniones"><span className="shrink-0 text-xs font-medium text-slate-500">Estado</span><TableFilterChip className="shrink-0" active={quickEstadoActual === "activos"} onClick={() => setFilter("estado", "")}>Activos</TableFilterChip><TableFilterChip className="shrink-0" active={quickEstadoActual === "todos"} onClick={() => setFilter("estado", "todos")}>Todos</TableFilterChip><TableFilterChip className="shrink-0" active={quickEstadoActual === "inactivos"} onClick={() => setFilter("estado", "inactivos")}>Inactivos</TableFilterChip><TableFilterSelect label="Filtrar por tipo de reunión" placeholder="Todos los tipos" value={filters.tipo || undefined} onValueChange={(value) => setFilter("tipo", value)} options={tipos.map((tipo) => ({ value: String(tipo.id), label: toTitleCase(tipo.nombre) }))} /><TableFilterSelect label="Filtrar por procedencia" placeholder="Todas las procedencias" value={filters.procedencia || undefined} onValueChange={(value) => setFilter("procedencia", value)} options={filterOptions.procedencias} /><TableFilterSelect label="Filtrar por autor" placeholder="Todos los autores" value={filters.autor || undefined} onValueChange={(value) => setFilter("autor", value)} options={filterOptions.autores} /><TableFilterSelect label="Filtrar por año" placeholder="Todos los años" value={filters.anio || undefined} onValueChange={(value) => setFilter("anio", value)} options={filterOptions.anios} /></div></div></TableToolbar>}
+        />
 
-            <button
-              type="button"
-              onClick={() => setQuickEstado("todos")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "todos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Todos
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickEstado("inactivos")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "inactivos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Inactivos
-            </button>
-          </div>
-
-          <div className="relative w-full sm:w-64">
-            <input
-              type="text"
-              placeholder="Buscar por titulo, congreso, investigador..."
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-10 text-xs outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-200"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-            </div>
-          </div>
-
-          {!selectMode ? (
-            <div className="flex gap-2">
-              {puedeEliminar && (
-                <Button variant="secondary" size="sm" onClick={() => setSelectMode(true)}>
-                  Seleccionar
-                </Button>
-              )}
-
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setTempFilters(filters);
-                  setShowFilters(true);
-                }}
-              >
-                Filtros
-                {filtrosActivosCount > 0 && (
-                  <span className="ml-1.5 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-white">
-                    {filtrosActivosCount}
-                  </span>
-                )}
-              </Button>
-
-              {puedeCrear && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => navigate("/trabajos-reunion/nuevo")}
-                >
-                  Nuevo
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              {selectedIds.length > 0 && puedeEliminar && (
-                <Button size="sm" onClick={() => setShowConfirm(true)}>
-                  Eliminar
-                </Button>
-              )}
-
-              <Button variant="secondary" size="sm" onClick={cancelSelection}>
-                Cancelar
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {memoriaFilter && <MemoriaFilterBanner filter={memoriaFilter} />}
-
-      <div className="flex-1">
-        {isLoading ? (
-          <p className="py-10 text-center text-slate-500">Cargando...</p>
-        ) : isError ? (
-          <p className="py-10 text-center text-slate-500">Error al cargar.</p>
-        ) : trabajosFiltrados.length === 0 ? (
-          <p className="py-10 text-center text-slate-500">
-            No hay trabajos presentados registrados.
-          </p>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {trabajosPaginados.map((t: TrabajoReunion) => (
-                <Tarjeta<TrabajoReunion>
-                  key={t.id}
-                  item={t}
-                  title={(x) => x.titulo_trabajo || "-"}
-                  subtitle={(x) =>
-                    `${x.nombre_reunion || "-"} · ${formatFecha(x.fecha_inicio)}`
-                  }
-                  badge={(x) => (x.deleted_at ? "INACTIVO" : "ACTIVO")}
-                  selectable={puedeEliminar && selectMode}
-                  selectDisabled={!!t.deleted_at}
-                  selected={selectedIds.includes(t.id)}
-                  onSelectChange={(checked) => toggleSelect(t.id, checked)}
-                  onClick={() =>
-                    !selectMode &&
-                    navigate(`/trabajos-reunion/${t.id}`, {
-                      state: buildMemoriaDetailState(location),
-                    })
-                  }
-                />
-              ))}
-            </div>
-
-            {totalPages > 1 && (
-              <div className="mt-6 flex items-center justify-between">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                  disabled={page === 1}
-                >
-                  Anterior
-                </Button>
-
-                <span className="text-sm text-slate-500">
-                  Pagina {page} de {totalPages}
-                </span>
-
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-                  disabled={page === totalPages}
-                >
-                  Siguiente
-                </Button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      <ConfirmDialog
-        open={showConfirm}
-        title="Eliminar trabajos"
-        message="¿Eliminar los siguientes trabajos?"
-        items={selectedActiveItems.map((t) => t.titulo_trabajo || "-")}
-        onCancel={cancelSelection}
-        onConfirm={confirmDelete}
-      />
-
-      <SuccessToast
-        open={showSuccess}
-        message={successMessage}
-        onClose={() => setShowSuccess(false)}
-      />
-
-      <SuccessToast
-        open={showError}
-        message={errorMessage}
-        onClose={() => setShowError(false)}
-        variant="error"
-      />
-
-      {showFilters && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
-            onClick={() => setShowFilters(false)}
-          />
-
-          <div className="fixed right-0 top-0 z-50 flex h-full w-[380px] flex-col overflow-y-auto bg-white p-6 shadow-2xl">
-            <h3 className="mb-6 text-xl font-semibold">Filtros avanzados</h3>
-
-            <div className="flex-1 space-y-5 text-[11px]">
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Estado
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.estado}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      estado: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Activos (Default)</option>
-                  <option value="todos">Todos</option>
-                  <option value="inactivos">Inactivos</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Tipo de reunion
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.tipo}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      tipo: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos los tipos</option>
-                  {tipos.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {toTitleCase(t.nombre)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Procedencia
-                </label>
-                <input
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.procedencia}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      procedencia: e.target.value,
-                    })
-                  }
-                  placeholder="Ej: Argentina"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Investigador
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.investigador}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      investigador: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos los investigadores</option>
-                  {investigadores.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.nombre_apellido}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Año
-                </label>
-                <input
-                  type="number"
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.anio}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      anio: e.target.value,
-                    })
-                  }
-                  placeholder="Ej: 2025"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-between gap-2 border-t pt-6">
-              <Button
-                variant="secondary"
-                className="flex-1"
-                size="sm"
-                onClick={() =>
-                  setTempFilters({
-                    estado: "",
-                    tipo: "",
-                    procedencia: "",
-                    investigador: "",
-                    anio: "",
-                  })
-                }
-              >
-                Limpiar
-              </Button>
-
-              <Button
-                className="flex-1"
-                size="sm"
-                onClick={() => {
-                  setFilters(tempFilters);
-                  setShowFilters(false);
-                }}
-              >
-                Aplicar
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
-    </section>
+        <ConfirmDialog open={Boolean(pendingDelete)} title="Eliminar trabajo en reunión" message={`¿Está seguro de eliminar ${formatTrabajoReunionContractValue(pendingDelete?.titulo_trabajo) || "este trabajo"}?`} onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete} loadingText="Eliminando..." />
+      </section>
+      <SuccessToast open={showSuccess} message={successMessage} onClose={() => setShowSuccess(false)} />
+      <SuccessToast open={showError} message={errorMessage} onClose={() => setShowError(false)} variant="error" />
+    </>
   );
 }

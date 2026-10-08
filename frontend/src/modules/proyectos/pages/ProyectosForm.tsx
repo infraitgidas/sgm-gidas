@@ -1,38 +1,68 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { applyFieldErrors, focusFieldErrors } from "@/lib/httpError";
+import { hasLetter } from "../../../lib/textValidation";
+import { LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import Button from "@/components/Button";
+import DraftLeaveControls from "@/modules/shared/components/DraftLeaveControls";
 import Calendar from "@/components/Calendar";
 import Field from "@/components/Field";
-import PersonalProyectoField from "@/components/PersonalProyectoField";
+import PersonalProyectoField from "@/modules/proyectos/components/PersonalProyectoField";
 import SuccessToast from "@/components/SuccessToast";
 import { useBecarios } from "@/modules/personal/hooks/useBecarios";
 import { useFuentesFinanciamiento } from "@/modules/catalogos/hooks/useFuenteFinanciamiento";
-import { useInvestigadores } from "@/modules/personal/hooks/useInvestigadores";
+import { getInvestigadores } from "@/modules/personal/services/investigadorServices";
 import { useTiposProyecto } from "@/modules/proyectos/hooks/useTiposProyecto";
 import { useUct } from "@/modules/grupo/hooks/useUct";
 import { getErrorMessage } from "@/lib/httpError";
 import {
-  desvincularBecarios,
-  desvincularInvestigadores,
   getProyectoById,
   type Proyecto,
   type ProyectoPayload,
   upsertProyectos,
-  vincularBecarios,
-  vincularInvestigadores,
 } from "@/modules/proyectos/services/proyectosServices";
+import {
+  PROYECTO_CODIGO_MAX_LENGTH,
+  validateCodigoProyecto,
+  validateDuracionProyecto,
+} from "@/modules/proyectos/utils/proyectoValidation";
+import { parseCivilDate, toCivilDateString } from "@/utils/dateTime";
+import { useAuth } from "@/context/AuthContext";
+import DraftRecoveryNotice from "@/modules/shared/components/DraftRecoveryNotice";
+import { useFormDraft } from "@/modules/shared/hooks/useFormDraft";
+
+type ProyectoDraft = {
+  nombreProyecto: string;
+  codigoProyecto: string;
+  descripcionProyecto: string;
+  logrosObtenidos: string;
+  dificultadesProyecto: string;
+  montoDestinado: string;
+  fechaInicio: string | null;
+  fechaFin: string | null;
+  tipoProyectoId: number | null;
+  fuenteId: number | null;
+  investigadoresIds: number[];
+  coordinadorId: number | null;
+  becariosIds: number[];
+};
 
 export default function ProyectosForm() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { user } = useAuth();
   const isEdit = Boolean(id);
 
   const tiposQuery = useTiposProyecto();
   const fuentesQuery = useFuentesFinanciamiento();
-  const { data: investigadores = [] } = useInvestigadores();
+  const investigadoresQuery = useQuery({
+    queryKey: ["proyecto-candidatos"], queryFn: getInvestigadores, refetchOnMount: "always",
+  });
+  const investigadores = investigadoresQuery.data ?? [];
   const { data: becarios = [] } = useBecarios();
   const { uct } = useUct();
 
@@ -49,6 +79,7 @@ export default function ProyectosForm() {
   const [nombreProyecto, setNombreProyecto] = useState("");
   const [codigoProyecto, setCodigoProyecto] = useState("");
   const [descripcionProyecto, setDescripcionProyecto] = useState("");
+  const [logrosObtenidos, setLogrosObtenidos] = useState("");
   const [dificultadesProyecto, setDificultadesProyecto] = useState("");
   const [montoDestinado, setMontoDestinado] = useState("");
 
@@ -64,8 +95,10 @@ export default function ProyectosForm() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [formInitialized, setFormInitialized] = useState(!isEdit);
+  const [coordinatorPage, setCoordinatorPage] = useState(1);
 
-  const proyectoCerrado = initialData?.cerrado === true;
+  const proyectoCerrado = initialData?.cerrado === true || initialData?.activo === false || !!initialData?.deleted_at;
 
   useEffect(() => {
     if (!initialData) return;
@@ -73,6 +106,7 @@ export default function ProyectosForm() {
     setNombreProyecto(initialData.nombreProyecto ?? "");
     setCodigoProyecto(initialData.codigoProyecto ?? "");
     setDescripcionProyecto(initialData.descripcionProyecto ?? "");
+    setLogrosObtenidos(initialData.logrosObtenidos ?? "");
     setDificultadesProyecto(initialData.dificultadesProyecto ?? "");
     setMontoDestinado(
       initialData.montoDestinado !== undefined &&
@@ -82,12 +116,10 @@ export default function ProyectosForm() {
     );
 
     setFechaInicio(
-      initialData.fechaInicio ? new Date(initialData.fechaInicio) : null
+      parseCivilDate(initialData.fechaInicio)
     );
     setFechaFin(
-      initialData.fechaFinalizacion
-        ? new Date(initialData.fechaFinalizacion)
-        : null
+      parseCivilDate(initialData.fechaFinalizacion)
     );
 
     setTipoProyectoId(initialData.tipoProyectoId ?? null);
@@ -104,6 +136,7 @@ export default function ProyectosForm() {
     setCoordinadorId(coordinadorInicial);
 
     setBecariosIds(initialData.becarios?.map((becario) => becario.id) ?? []);
+    setFormInitialized(true);
   }, [initialData]);
 
   useEffect(() => {
@@ -112,11 +145,65 @@ export default function ProyectosForm() {
     }
   }, [coordinadorId, investigadoresIds]);
 
+  const draftValue = useMemo<ProyectoDraft>(() => ({
+    nombreProyecto,
+    codigoProyecto,
+    descripcionProyecto,
+    logrosObtenidos,
+    dificultadesProyecto,
+    montoDestinado,
+    fechaInicio: toCivilDateString(fechaInicio),
+    fechaFin: toCivilDateString(fechaFin),
+    tipoProyectoId,
+    fuenteId,
+    investigadoresIds,
+    coordinadorId,
+    becariosIds,
+  }), [
+    becariosIds, codigoProyecto, coordinadorId, descripcionProyecto,
+    logrosObtenidos,
+    dificultadesProyecto, fechaFin, fechaInicio, fuenteId, investigadoresIds,
+    montoDestinado, nombreProyecto, tipoProyectoId,
+  ]);
+
+  const { availableDraft, sourceChanged, restoreDraft, discardDraft, clearDraft, saveStatus, blocker, requestLeave, keepAndLeave, discardAndLeave } = useFormDraft({
+    userId: user?.id,
+    module: "proyectos",
+    recordId: id,
+    value: draftValue,
+    ready: formInitialized,
+    autosave: false,
+    hasContent: (draft) => Boolean(
+      draft.nombreProyecto || draft.codigoProyecto || draft.descripcionProyecto ||
+      draft.logrosObtenidos || draft.dificultadesProyecto || draft.montoDestinado || draft.fechaInicio ||
+      draft.fechaFin || draft.tipoProyectoId || draft.fuenteId ||
+      draft.investigadoresIds.length || draft.becariosIds.length
+    ),
+    onRestore: (draft) => {
+      setNombreProyecto(draft.nombreProyecto);
+      setCodigoProyecto(draft.codigoProyecto);
+      setDescripcionProyecto(draft.descripcionProyecto);
+      setLogrosObtenidos(draft.logrosObtenidos ?? "");
+      setDificultadesProyecto(draft.dificultadesProyecto);
+      setMontoDestinado(draft.montoDestinado);
+      setFechaInicio(parseCivilDate(draft.fechaInicio));
+      setFechaFin(parseCivilDate(draft.fechaFin));
+      setTipoProyectoId(draft.tipoProyectoId);
+      setFuenteId(draft.fuenteId);
+      setInvestigadoresIds(draft.investigadoresIds);
+      setCoordinadorId(draft.coordinadorId);
+      setBecariosIds(draft.becariosIds);
+    },
+  });
+
   const investigadoresSeleccionados = useMemo(() => {
-    return investigadores.filter((investigador) =>
+    const disponibles = [...investigadores, ...(initialData?.investigadores ?? [])
+      .filter(i => !investigadores.some(c => c.id === i.id))];
+    return disponibles.filter((investigador) =>
       investigadoresIds.includes(investigador.id)
     );
-  }, [investigadores, investigadoresIds]);
+  }, [investigadores, investigadoresIds, initialData]);
+  const currentCoordinatorPage = Math.min(coordinatorPage, Math.max(1, Math.ceil(investigadoresSeleccionados.length / 5)));
 
   const investigadoresInicialesIds = useMemo(
     () => initialData?.investigadores?.map((investigador) => investigador.id) ?? [],
@@ -136,105 +223,10 @@ export default function ProyectosForm() {
     [initialData]
   );
 
-  type ProyectoFormMutationPayload = ProyectoPayload & {
-    _skipUpsert?: boolean;
-  };
-
   const mutation = useMutation({
-    mutationFn: async (payload: ProyectoFormMutationPayload) => {
-      const shouldSkipUpsert = payload._skipUpsert === true;
-      const proyectoId = shouldSkipUpsert
-        ? Number(payload.id)
-        : Number((await upsertProyectos(payload)).id);
-      const fechaInicioVinculacion =
-        payload.fechaInicio ?? initialData?.fechaInicio;
-
-      if (!fechaInicioVinculacion || !Number.isFinite(proyectoId)) {
-        throw new Error("No se pudo determinar el proyecto o su fecha de inicio.");
-      }
-
-      const cambioCoordinador = isEdit && coordinadorInicialId !== coordinadorId;
-      const investigadoresConRolCambiado = cambioCoordinador
-        ? [coordinadorInicialId, coordinadorId].filter(
-            (value): value is number =>
-              value !== null &&
-              investigadoresInicialesIds.includes(value) &&
-              investigadoresIds.includes(value)
-          )
-        : [];
-
-      const investigadoresAAgregar = Array.from(new Set(isEdit
-        ? [
-            ...investigadoresIds.filter(
-            (idInvestigador) =>
-              !investigadoresInicialesIds.includes(idInvestigador)
-            ),
-            ...investigadoresConRolCambiado,
-          ]
-        : investigadoresIds));
-
-      const investigadoresADesvincular = isEdit
-        ? Array.from(new Set([
-            ...investigadoresInicialesIds.filter(
-              (idInvestigador) => !investigadoresIds.includes(idInvestigador)
-            ),
-            ...investigadoresConRolCambiado,
-          ]))
-        : [];
-
-      const becariosAAgregar = isEdit
-        ? becariosIds.filter(
-            (idBecario) => !becariosInicialesIds.includes(idBecario)
-          )
-        : becariosIds;
-
-      const becariosADesvincular = isEdit
-        ? becariosInicialesIds.filter(
-            (idBecario) => !becariosIds.includes(idBecario)
-          )
-        : [];
-
-      const fechaDesvinculacion = new Date().toISOString().split("T")[0];
-
-      if (investigadoresADesvincular.length > 0) {
-        await desvincularInvestigadores(
-          proyectoId,
-          fechaDesvinculacion,
-          investigadoresADesvincular
-        );
-      }
-
-      if (becariosADesvincular.length > 0) {
-        await desvincularBecarios(
-          proyectoId,
-          fechaDesvinculacion,
-          becariosADesvincular
-        );
-      }
-
-      if (investigadoresAAgregar.length > 0) {
-        await vincularInvestigadores(
-          proyectoId,
-          investigadoresAAgregar.map((idInvestigador) => ({
-            id_investigador: idInvestigador,
-            fecha_inicio: fechaInicioVinculacion,
-            fecha_fin: null,
-            es_coordinador: coordinadorId === idInvestigador,
-          }))
-        );
-      }
-
-      if (becariosAAgregar.length > 0) {
-        await vincularBecarios(
-          proyectoId,
-          becariosAAgregar,
-          fechaInicioVinculacion
-        );
-      }
-
-      return { id: proyectoId };
-    },
+    mutationFn: (payload: ProyectoPayload) => upsertProyectos(payload),
     onSuccess: () => {
+      clearDraft();
       qc.invalidateQueries({ queryKey: ["proyectos"] });
       qc.invalidateQueries({ queryKey: ["proyecto", id] });
       qc.invalidateQueries({ queryKey: ["proyecto-historial", id] });
@@ -243,7 +235,7 @@ export default function ProyectosForm() {
         navigate(`/proyectos/${id}`, {
           replace: true,
           state: {
-            successMessage: "Proyecto actualizado con exito.",
+            successMessage: "Proyecto actualizado con éxito.",
           },
         });
         return;
@@ -251,14 +243,15 @@ export default function ProyectosForm() {
 
       navigate("/proyectos", {
         state: {
-          successMessage: "Proyecto creado con exito.",
+          successMessage: "Proyecto creado con éxito.",
         },
       });
     },
     onError: (error) => {
+      if (applyFieldErrors(error, setErrors, ["codigoProyecto","nombreProyecto","tipoProyectoId","fechaInicio","montoDestinado","coordinadorId","investigadoresIds","descripcionProyecto","dificultadesProyecto","logrosObtenidos","fuenteId","becariosIds","fechaFin"])) return;
       const defaultMessage = isEdit
-        ? "No se pudo actualizar el proyecto."
-        : "No se pudo crear el proyecto.";
+        ? "Lo sentimos, no pudimos actualizar el proyecto. Revise los datos e intente nuevamente."
+        : "Lo sentimos, no pudimos crear el proyecto. Revise los datos e intente nuevamente.";
 
       setErrorMessage(getErrorMessage(error, defaultMessage));
 
@@ -277,12 +270,19 @@ export default function ProyectosForm() {
   const validate = () => {
     const newErrors: Record<string, string> = {};
 
-    if (!codigoProyecto.trim()) {
-      newErrors.codigoProyecto = "Debe ingresar codigo de proyecto";
+    const codigoProyectoError = validateCodigoProyecto(codigoProyecto);
+    if (codigoProyectoError) {
+      newErrors.codigoProyecto = codigoProyectoError;
+    }
+
+    if (logrosObtenidos.length > 20000) {
+      newErrors.logrosObtenidos = "Ingrese un texto de hasta 20000 caracteres.";
     }
 
     if (!nombreProyecto.trim()) {
       newErrors.nombreProyecto = "Debe ingresar nombre del proyecto";
+    } else if (!hasLetter(nombreProyecto)) {
+      newErrors.nombreProyecto = "El nombre del proyecto debe contener letras";
     }
 
     if (!tipoProyectoId) {
@@ -292,6 +292,10 @@ export default function ProyectosForm() {
     if (!fechaInicio) {
       newErrors.fechaInicio = "Debe seleccionar fecha de inicio";
     }
+    if (!isEdit || toCivilDateString(fechaInicio) !== initialData?.fechaInicio || toCivilDateString(fechaFin) !== (initialData?.fechaFinalizacion ?? null)) {
+      const durationError = validateDuracionProyecto(fechaInicio, fechaFin);
+      if (durationError) newErrors.fechaFin = durationError;
+    }
 
     if (
       montoDestinado.trim() !== "" &&
@@ -300,6 +304,15 @@ export default function ProyectosForm() {
       newErrors.montoDestinado = "El monto debe ser un numero mayor o igual a cero";
     }
 
+    if (investigadoresIds.some(id => !Number.isInteger(id) || id <= 0)) {
+      newErrors.investigadoresIds = "Complete o quite las selecciones vacías.";
+    }
+    if (becariosIds.some(id => !Number.isInteger(id) || id <= 0)) {
+      newErrors.becariosIds = "Complete o quite las selecciones vacías.";
+    }
+    if (investigadoresQuery.isLoading || investigadoresQuery.isError) {
+      newErrors.investigadoresIds = "Espere la carga de investigadores o intente nuevamente.";
+    }
     if (investigadoresIds.length > 0 && coordinadorId === null) {
       newErrors.coordinadorId =
         "Debe seleccionar un coordinador entre los investigadores elegidos";
@@ -314,11 +327,17 @@ export default function ProyectosForm() {
     }
 
     setErrors(newErrors);
+    if (Object.keys(newErrors).length) {
+      focusFieldErrors(newErrors);
+      setErrorMessage("No pudimos guardar el proyecto. Complete o corrija los campos indicados e intente nuevamente.");
+      setShowError(true);
+    }
     return Object.keys(newErrors).length === 0;
   };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (mutation.isPending) return;
 
     if (proyectoCerrado) return;
     if (!validate()) return;
@@ -326,31 +345,33 @@ export default function ProyectosForm() {
     const payload = {
       id: id ?? undefined,
       nombreProyecto,
-      codigoProyecto: Number(codigoProyecto),
+      codigoProyecto: codigoProyecto.trim(),
       descripcionProyecto,
+      logrosObtenidos,
       dificultadesProyecto,
       montoDestinado:
         montoDestinado.trim() !== ""
           ? Number(montoDestinado)
           : undefined,
       grupoUtnId: uct?.id ?? undefined,
-      fechaInicio: fechaInicio?.toISOString().split("T")[0],
+      fechaInicio: toCivilDateString(fechaInicio) ?? undefined,
       fechaFinalizacion: fechaFin
-        ? fechaFin.toISOString().split("T")[0]
+        ? toCivilDateString(fechaFin)
         : undefined,
       tipoProyectoId,
       fuenteFinanciamientoId: fuenteId ?? undefined,
     };
 
     if (!isEdit) {
-      mutation.mutate(payload);
+      mutation.mutate({ ...payload, investigadoresIds, becariosIds, coordinadorId });
       return;
     }
 
     const initialPayload = {
       nombreProyecto: initialData?.nombreProyecto ?? "",
-      codigoProyecto: Number(initialData?.codigoProyecto ?? 0),
+      codigoProyecto: initialData?.codigoProyecto ?? "",
       descripcionProyecto: initialData?.descripcionProyecto ?? "",
+      logrosObtenidos: initialData?.logrosObtenidos ?? "",
       dificultadesProyecto: initialData?.dificultadesProyecto ?? "",
       montoDestinado:
         initialData?.montoDestinado !== undefined &&
@@ -393,6 +414,7 @@ export default function ProyectosForm() {
       !hayBecariosDesvinculados &&
       !cambioCoordinador
     ) {
+      clearDraft();
       navigate(`/proyectos/${id}`, {
         replace: true,
         state: {
@@ -403,17 +425,17 @@ export default function ProyectosForm() {
     }
 
     mutation.mutate(
-      Object.keys(changedPayload).length === 0
-        ? {
-            id,
-            _skipUpsert: true,
-          }
-        : { ...changedPayload, id }
+      {
+        ...changedPayload, id,
+        ...(hayNuevosInvestigadores || hayInvestigadoresDesvinculados ? { investigadoresIds } : {}),
+        ...(hayNuevosBecarios || hayBecariosDesvinculados ? { becariosIds } : {}),
+        ...(cambioCoordinador ? { coordinadorId } : {}),
+      }
     );
   };
 
   if (isEdit && isLoading) {
-    return <p>Cargando proyecto...</p>;
+    return <LoadingSkeleton variant="form" label="Cargando proyecto..." />;
   }
 
   const inputClass = (field: string) =>
@@ -427,38 +449,59 @@ export default function ProyectosForm() {
 
       {proyectoCerrado && (
         <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Este proyecto se encuentra cerrado. Para modificar investigadores,
+          Este proyecto se encuentra {initialData?.cerrado ? "cerrado" : "inactivo"}. Para modificar investigadores,
           becarios o volver a editarlo, primero debes reabrirlo desde el
           detalle.
         </div>
       )}
+
+      {availableDraft && (
+        <DraftRecoveryNotice
+          savedAt={availableDraft.saved_at}
+          sourceChanged={sourceChanged}
+          onRestore={restoreDraft}
+          onDiscard={discardDraft}
+        />
+      )}
+      <DraftLeaveControls blocker={blocker} saveStatus={saveStatus} keepAndLeave={keepAndLeave} discardAndLeave={discardAndLeave} />
 
       <form
         noValidate
         onSubmit={submit}
         className="mt-6 space-y-6 rounded-2xl border border-slate-200 bg-white p-6"
       >
-        <Field label="Codigo del proyecto">
+        <Field required label="Código del proyecto" name="codigoProyecto" error={errors.codigoProyecto}>
           <>
             <input
+              id="codigo-proyecto"
               className={inputClass("codigoProyecto")}
               value={codigoProyecto}
               onChange={(e) => {
                 setCodigoProyecto(e.target.value);
-                if (e.target.value.trim()) clearError("codigoProyecto");
+                clearError("codigoProyecto");
               }}
-              placeholder="Ej: 1234"
+              placeholder="Ej: LPSIEC1347"
+              maxLength={PROYECTO_CODIGO_MAX_LENGTH}
+              aria-label="Código del proyecto"
+              aria-invalid={Boolean(errors.codigoProyecto)}
+              aria-describedby={
+                errors.codigoProyecto ? "codigo-proyecto-error" : undefined
+              }
               disabled={proyectoCerrado}
             />
             {errors.codigoProyecto && (
-              <p className="mt-1 text-sm text-red-500">
+              <p
+                id="codigo-proyecto-error"
+                role="alert"
+                className="mt-1 text-sm text-red-500"
+              >
                 {errors.codigoProyecto}
               </p>
             )}
           </>
         </Field>
 
-        <Field label="Nombre del proyecto">
+        <Field required label="Nombre del proyecto" name="nombreProyecto" error={errors.nombreProyecto}>
           <>
             <input
               className={inputClass("nombreProyecto")}
@@ -478,18 +521,30 @@ export default function ProyectosForm() {
           </>
         </Field>
 
-        <Field label="Descripcion del proyecto">
+        <Field label="Descripción del proyecto" name="descripcionProyecto" error={errors.descripcionProyecto}>
           <textarea
             className="input min-h-[100px]"
             value={descripcionProyecto}
             onChange={(e) => setDescripcionProyecto(e.target.value)}
-            placeholder="Describe detalladamente los objetivos, metodologia y alcance del proyecto."
+            placeholder="Describe detalladamente los objetivos, metodología y alcance del proyecto."
             required
             disabled={proyectoCerrado}
           />
         </Field>
 
-        <Field label="Dificultades del proyecto">
+        <Field label="Logros obtenidos" name="logrosObtenidos" error={errors.logrosObtenidos}>
+          <textarea
+            className="input min-h-[100px]"
+            value={logrosObtenidos}
+            onChange={(e) => setLogrosObtenidos(e.target.value)}
+            maxLength={20000}
+            placeholder="Describa los resultados y avances obtenidos por el proyecto."
+            disabled={proyectoCerrado}
+          />
+          <p className="mt-1 text-xs text-slate-500">Este contenido se incorpora a la memoria al cerrar su versión.</p>
+        </Field>
+
+        <Field label="Dificultades del proyecto" name="dificultadesProyecto" error={errors.dificultadesProyecto}>
           <textarea
             className="input min-h-[100px]"
             value={dificultadesProyecto}
@@ -500,7 +555,7 @@ export default function ProyectosForm() {
         </Field>
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <Field label="Tipo de proyecto">
+          <Field required label="Tipo de proyecto" name="tipoProyectoId" error={errors.tipoProyectoId}>
             <>
               <select
                 className={inputClass("tipoProyectoId")}
@@ -529,7 +584,7 @@ export default function ProyectosForm() {
             </>
           </Field>
 
-          <Field label="Fuente de financiamiento">
+          <Field label="Fuente de financiamiento" name="fuenteId" error={errors.fuenteId}>
             <select
               className="input"
               value={fuenteId ?? ""}
@@ -549,7 +604,7 @@ export default function ProyectosForm() {
         </div>
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <Field label="Monto destinado">
+          <Field label="Monto destinado" name="montoDestinado" error={errors.montoDestinado}>
             <>
               <input
                 type="number"
@@ -573,14 +628,29 @@ export default function ProyectosForm() {
           </Field>
         </div>
 
-        <Field label="Investigadores">
-          <div className="space-y-4">
+        <Field label="Investigadores" name="investigadoresIds" error={errors.investigadoresIds}>
+          <div className="space-y-4" data-error-field="coordinadorId" tabIndex={-1}>
+            {investigadoresQuery.isLoading && <LoadingSkeleton variant="compact" label="Cargando investigadores..." />}
+            {investigadoresQuery.isError && <div role="alert">
+              <p>Lo sentimos, no pudimos recuperar los investigadores. Intente nuevamente.</p>
+              <Button type="button" variant="secondary" onClick={() => void investigadoresQuery.refetch()} loading={investigadoresQuery.isFetching} loadingText="Reintentando...">Reintentar</Button>
+            </div>}
+            {!investigadoresQuery.isLoading && !investigadoresQuery.isError && investigadores.length === 0 &&
+              <p role="status">No hay investigadores activos disponibles. Registre o reactive un investigador para asignar un coordinador.</p>}
+            {investigadoresSeleccionados.length === 0 && investigadores.length > 0 &&
+              <p>Agregue un investigador al proyecto para seleccionar su coordinador.</p>}
             <PersonalProyectoField
+              label="investigadores"
               value={investigadoresIds}
-              options={investigadores}
+              options={[
+                ...investigadores,
+                ...(initialData?.investigadores ?? []).filter(i => !investigadores.some(c => c.id === i.id)),
+              ]}
+              disabled={proyectoCerrado || investigadoresQuery.isLoading || investigadoresQuery.isError}
               onChange={(ids) => {
                 if (proyectoCerrado) return;
                 setInvestigadoresIds(ids);
+                clearError("investigadoresIds");
                 clearError("coordinadorId");
               }}
             />
@@ -588,11 +658,11 @@ export default function ProyectosForm() {
             {investigadoresSeleccionados.length > 0 && (
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="mb-3 text-sm font-medium text-slate-800">
-                  Seleccionar coordinador
+                  Seleccionar coordinador<span className="ml-1 text-rose-500" aria-hidden="true">*</span>
                 </p>
 
                 <div className="space-y-2">
-                  {investigadoresSeleccionados.map((investigador) => (
+                  {investigadoresSeleccionados.slice((currentCoordinatorPage - 1) * 5, currentCoordinatorPage * 5).map((investigador) => (
                     <label
                       key={investigador.id}
                       className={`flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 ${
@@ -610,14 +680,20 @@ export default function ProyectosForm() {
                           setCoordinadorId(investigador.id);
                           clearError("coordinadorId");
                         }}
-                        disabled={proyectoCerrado}
+                        disabled={proyectoCerrado || (!investigadores.some(c => c.id === investigador.id) && coordinadorId !== investigador.id)}
                       />
                       <span className="text-sm text-slate-700">
-                        {investigador.nombre_apellido}
+                        {investigador.nombre_apellido}{!investigadores.some(c => c.id === investigador.id) ? " (inactivo, asignación conservada)" : ""}
                       </span>
                     </label>
                   ))}
                 </div>
+
+                {investigadoresSeleccionados.length > 5 && <nav aria-label="Páginas de candidatos a coordinador" className="mt-3 flex items-center gap-2 text-sm">
+                  <Button type="button" variant="secondary" size="sm" disabled={currentCoordinatorPage === 1} onClick={() => setCoordinatorPage(currentCoordinatorPage - 1)}>Anterior</Button>
+                  <span role="status">Página {currentCoordinatorPage} de {Math.ceil(investigadoresSeleccionados.length / 5)}</span>
+                  <Button type="button" variant="secondary" size="sm" disabled={currentCoordinatorPage === Math.ceil(investigadoresSeleccionados.length / 5)} onClick={() => setCoordinatorPage(currentCoordinatorPage + 1)}>Siguiente</Button>
+                </nav>}
 
                 <p className="mt-3 text-xs text-slate-500">
                   Solo un investigador puede quedar marcado como coordinador.
@@ -633,10 +709,14 @@ export default function ProyectosForm() {
           </div>
         </Field>
 
-        <Field label="Becarios">
+        <Field label="Becarios" name="becariosIds" error={errors.becariosIds}>
           <PersonalProyectoField
+            label="becarios"
             value={becariosIds}
-            options={becarios}
+            options={[
+              ...becarios,
+              ...(initialData?.becarios ?? []).filter((becario) => !becarios.some((candidate) => candidate.id === becario.id)),
+            ]}
             onChange={(ids) => {
               if (proyectoCerrado) return;
               setBecariosIds(ids);
@@ -645,30 +725,32 @@ export default function ProyectosForm() {
         </Field>
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <Field label="Fecha inicio">
+          <Field required label="Fecha inicio" name="fechaInicio" error={errors.fechaInicio}>
             <Calendar
               value={fechaInicio}
               onChange={(date) => {
-                if (proyectoCerrado) return;
+                if (proyectoCerrado || initialData?.fechaFinProrrogada) return;
                 setFechaInicio(date);
                 if (date) clearError("fechaInicio");
               }}
               className={inputClass("fechaInicio")}
-              helperText={errors.fechaInicio ?? "DD/MM/AAAA"}
+              helperText="DD/MM/AAAA"
             />
           </Field>
 
-          <Field label="Fecha fin">
+          <Field required label={initialData?.fechaFinProrrogada ? "Fecha fin vigente" : "Fecha fin inicial"} name="fechaFin" error={errors.fechaFin}>
             <Calendar
               value={fechaFin}
               onChange={(date) => {
-                if (proyectoCerrado) return;
+                if (proyectoCerrado || initialData?.fechaFinProrrogada) return;
                 setFechaFin(date);
+                if (date) clearError("fechaFin");
               }}
               minDate={fechaInicio ?? undefined}
               className="input"
             />
           </Field>
+          {initialData?.fechaFinProrrogada && <p className="text-sm text-slate-500">Las fechas de un proyecto prorrogado no se pueden editar.</p>}
         </div>
 
         <div className="flex justify-between pt-6">
@@ -676,13 +758,14 @@ export default function ProyectosForm() {
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => navigate(-1)}
+            onClick={() => requestLeave(() => navigate(-1))}
           >
             Volver
           </Button>
 
           {!proyectoCerrado && (
-            <Button type="submit" size="sm" disabled={mutation.isPending}>
+            <Button type="submit" size="sm" disabled={mutation.isPending} aria-busy={mutation.isPending} loading={mutation.isPending} loadingText="Guardando...">
+              {mutation.isPending && <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />}
               {mutation.isPending
                 ? "Guardando..."
                 : isEdit

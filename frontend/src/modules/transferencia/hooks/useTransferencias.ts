@@ -15,13 +15,13 @@ import { getTiposContrato, type TipoContratoItem } from "@/modules/transferencia
 // ─── Queries ─────────────────────────────────────────────────
 
 export function useTransferencias(activos: "true" | "false" | "all" = "true") {
-  const { data = [], isLoading, isError, refetch } = useQuery<Transferencia[]>({
+  const { data = [], isLoading, isFetching, isError, refetch } = useQuery<Transferencia[]>({
     queryKey: ["transferencias", activos],
     queryFn: () => getTransferencias(activos),
     staleTime: 60_000,
   });
 
-  return { list: data, isLoading, isError, refetch };
+  return { list: data, isLoading, isFetching, isError, refetch };
 }
 
 export function useTransferencia(id: number | undefined) {
@@ -33,13 +33,13 @@ export function useTransferencia(id: number | undefined) {
 }
 
 export function useTiposContrato() {
-    const { data = [], isLoading, isError } = useQuery<TipoContratoItem[]>({
+    const { data = [], isLoading, isError, refetch } = useQuery<TipoContratoItem[]>({
         queryKey: ["tipos-contrato"],
         queryFn: getTiposContrato,
         staleTime: 5 * 60_000,
     });
 
-    return { tipos: data, isLoading, isError };
+    return { tipos: data, isLoading, isError, refetch };
 }
 
 // ─── Mutations ───────────────────────────────────────────────

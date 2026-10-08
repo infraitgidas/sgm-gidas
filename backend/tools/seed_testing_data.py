@@ -11,7 +11,7 @@ from modules.catalogos.models.categoria_utn import CategoriaUtn
 from modules.catalogos.models.fuente_financiamiento import FuenteFinanciamiento
 from modules.grupo.models.grupo import GrupoInvestigacionUtn
 from modules.grupo.models.directivos import Cargo, Directivo, DirectivoGrupo
-from modules.grupo.models.visita_grupo import VisitaAcademica
+from modules.grupo.models.visita_grupo import TipoVisita, VisitaAcademica
 from modules.memorias.models.memorias import EstadoMemoria, Memoria, MemoriaVersion
 from modules.auth.models.persona import Persona
 from modules.personal.models.personal import (
@@ -32,6 +32,7 @@ from modules.proyectos.models.proyecto_investigacion import (
     TipoProyecto,
 )
 from modules.personal.models.tipo_personal import TipoPersonal
+from modules.personal.models.identidad import IdentidadPersonal
 from modules.produccion.models.actividad_docencia import ActividadDocencia
 from modules.produccion.models.articulo_divulgacion import ArticuloDivulgacion
 from modules.produccion.models.documentacion_autores import (
@@ -43,11 +44,11 @@ from modules.produccion.models.registro_patente import (
     TipoRegistroPropiedad,
 )
 from modules.produccion.models.trabajo_reunion import TipoReunion, TrabajoReunionCientifica
-from modules.produccion.models.trabajo_revista import TrabajosRevistasReferato
+from modules.produccion.models.trabajo_revista import TipoRevista, TrabajosRevistasReferato
 from modules.proyectos.models.participacion_relevante import ParticipacionRelevante
 from modules.recursos.models.becas import Beca
 from modules.recursos.models.equipamiento import Equipamiento
-from modules.recursos.models.erogacion import Erogacion, TipoErogacion
+from modules.recursos.models.movimiento_financiero import CategoriaErogacion, MovimientoFinanciero
 from modules.transferencia.models.transferencia_socio import (
     TipoContrato,
     TransferenciaSocioProductiva,
@@ -57,6 +58,17 @@ from modules.auth.models.usuario import RolUsuario, Usuario
 
 TEST_PASSWORD = "Testing123!"
 MANUAL_VARIANT_COUNT = 12
+
+
+def _ensure_testing_identity(entity, dni_number):
+    """Completa identidades ficticias de forma repetible."""
+    if entity.identidad:
+        return
+    dni = str(dni_number)
+    base = f"20{dni}"
+    remainder = 11 - sum(int(digit) * weight for digit, weight in zip(base, (5, 4, 3, 2, 7, 6, 5, 4, 3, 2))) % 11
+    check = 0 if remainder == 11 else 9 if remainder == 10 else remainder
+    entity.identidad = IdentidadPersonal(dni=dni, cuil=f"20-{dni}-{check}")
 
 
 def _assert_testing_environment():
@@ -82,7 +94,7 @@ def _get_or_create(model, defaults=None, **filters):
 
 def _seed_roles():
     roles = {}
-    for nombre in ["ADMIN", "GESTOR", "LECTOR"]:
+    for nombre in ["ADMIN", "GESTOR", "LECTURA"]:
         rol, _ = _get_or_create(RolUsuario, nombre=nombre)
         roles[nombre] = rol
     return roles
@@ -123,6 +135,8 @@ def _seed_catalogs():
     tipo_profesional, _ = _get_or_create(TipoPersonal, nombre="Profesional")
     tipo_proyecto, _ = _get_or_create(TipoProyecto, nombre="I+D")
     fuente, _ = _get_or_create(FuenteFinanciamiento, nombre="UTN")
+    tipo_visita_academica, _ = _get_or_create(TipoVisita, nombre="Académica")
+    tipo_visita_intercambio, _ = _get_or_create(TipoVisita, nombre="Intercambio")
     return {
         "categoria": categoria,
         "dedicacion": dedicacion,
@@ -132,13 +146,17 @@ def _seed_catalogs():
         "tipo_profesional": tipo_profesional,
         "tipo_proyecto": tipo_proyecto,
         "fuente": fuente,
+        "tipo_visita_academica": tipo_visita_academica,
+        "tipo_visita_intercambio": tipo_visita_intercambio,
     }
 
 
 def _seed_group():
-    grupo = GrupoInvestigacionUtn.query.filter_by(
-        nombre_sigla_grupo="GIDAS TEST"
-    ).first()
+    # La aplicación muestra una única UCT activa. Usar esa misma UCT evita
+    # generar movimientos buscables que no aparecen en su historial financiero.
+    grupo = GrupoInvestigacionUtn.query.filter(
+        GrupoInvestigacionUtn.deleted_at.is_(None)
+    ).order_by(GrupoInvestigacionUtn.id.asc()).first()
     if grupo:
         return grupo
 
@@ -167,6 +185,7 @@ def _seed_people(grupo, catalogs, admin_user_id):
             "created_by": admin_user_id,
         },
     )
+    _ensure_testing_identity(investigador, 90000001)
     if not investigador.historial_horas:
         db.session.add(
             InvestigadorHorasHistorial(
@@ -188,6 +207,7 @@ def _seed_people(grupo, catalogs, admin_user_id):
             "created_by": admin_user_id,
         },
     )
+    _ensure_testing_identity(becario, 90000002)
     if not becario.historial_horas:
         db.session.add(
             BecarioHorasHistorial(
@@ -209,6 +229,7 @@ def _seed_people(grupo, catalogs, admin_user_id):
             "created_by": admin_user_id,
         },
     )
+    _ensure_testing_identity(personal, 90000003)
     if not personal.historial_horas:
         db.session.add(
             PersonalHorasHistorial(
@@ -245,6 +266,7 @@ def _seed_manual_people(grupo, catalogs, admin_user_id):
                     "created_by": admin_user_id,
                 },
             )
+            _ensure_testing_identity(person, 90001000 + index * 4 + (0 if prefix.startswith("Tecnico") else 1))
             if not person.historial_horas:
                 db.session.add(
                     PersonalHorasHistorial(
@@ -266,6 +288,7 @@ def _seed_manual_people(grupo, catalogs, admin_user_id):
                 "created_by": admin_user_id,
             },
         )
+        _ensure_testing_identity(becario, 90001000 + index * 4 + 2)
         if not becario.historial_horas:
             db.session.add(
                 BecarioHorasHistorial(
@@ -289,6 +312,7 @@ def _seed_manual_people(grupo, catalogs, admin_user_id):
                 "created_by": admin_user_id,
             },
         )
+        _ensure_testing_identity(investigador, 90001000 + index * 4 + 3)
         if not investigador.historial_horas:
             db.session.add(
                 InvestigadorHorasHistorial(
@@ -302,11 +326,11 @@ def _seed_manual_people(grupo, catalogs, admin_user_id):
 
 def _seed_project(grupo, catalogs, investigador, becario, admin_user_id):
     proyecto = ProyectoInvestigacion.query.filter_by(
-        codigo_proyecto=2026001
+        codigo_proyecto="2026001"
     ).first()
     if not proyecto:
         proyecto = ProyectoInvestigacion(
-            codigo_proyecto=2026001,
+            codigo_proyecto="2026001",
             nombre_proyecto="Plataforma de gestion academica de prueba",
             descripcion_proyecto="Proyecto ficticio para operar el entorno testing.",
             fecha_inicio=date(2024, 1, 1),
@@ -380,9 +404,9 @@ def _seed_memoria(admin_user_id):
 
 
 def _seed_search_coverage(grupo, catalogs, investigador, admin_user_id):
-    tipo_erogacion, _ = _get_or_create(
-        TipoErogacion,
-        nombre="Insumos de laboratorio TEST",
+    categoria_erogacion, _ = _get_or_create(
+        CategoriaErogacion, codigo="CORRIENTE",
+        defaults={"nombre": "Corriente"},
     )
     tipo_registro, _ = _get_or_create(
         TipoRegistroPropiedad,
@@ -393,6 +417,8 @@ def _seed_search_coverage(grupo, catalogs, investigador, admin_user_id):
         nombre="Convenio de asistencia TEST",
     )
     tipo_reunion, _ = _get_or_create(TipoReunion, nombre="Jornada academica TEST")
+    tipo_revista, _ = _get_or_create(TipoRevista, nombre="Nacional")
+    _get_or_create(TipoRevista, nombre="Internacional")
 
     _get_or_create(
         Beca,
@@ -443,15 +469,29 @@ def _seed_search_coverage(grupo, catalogs, investigador, admin_user_id):
         documento.autores.append(autor)
 
     _get_or_create(
-        Erogacion,
-        numero_erogacion=990001,
+        MovimientoFinanciero,
+        numero_movimiento=990001,
         grupo_utn_id=grupo.id,
         defaults={
-            "egresos": 25000.0,
-            "ingresos": 0.0,
+            "tipo_movimiento": "INGRESO",
+            "monto": "50000.00",
+            "moneda": "ARS",
             "fecha": date(2024, 6, 15),
-            "tipo_erogacion_id": tipo_erogacion.id,
             "fuente_financiamiento_id": catalogs["fuente"].id,
+            "created_by": admin_user_id,
+        },
+    )
+    _get_or_create(
+        MovimientoFinanciero,
+        numero_movimiento=990002,
+        grupo_utn_id=grupo.id,
+        defaults={
+            "tipo_movimiento": "EGRESO",
+            "monto": "25000.00",
+            "moneda": "ARS",
+            "fecha": date(2024, 6, 15),
+            "fuente_financiamiento_id": catalogs["fuente"].id,
+            "categoria_erogacion_id": categoria_erogacion.id,
             "created_by": admin_user_id,
         },
     )
@@ -461,6 +501,7 @@ def _seed_search_coverage(grupo, catalogs, investigador, admin_user_id):
         defaults={
             "forma_participacion": "Expositor ficticio",
             "fecha": date(2024, 7, 10),
+            "investigador_id": investigador.id,
             "created_by": admin_user_id,
         },
     )
@@ -495,7 +536,7 @@ def _seed_search_coverage(grupo, catalogs, investigador, admin_user_id):
         defaults={
             "nombre_reunion": "Jornada Ficticia",
             "procedencia": "Universidad de Prueba",
-            "fecha_inicio": date(2024, 9, 1),
+            "fecha_presentacion": date(2024, 9, 1),
             "tipo_reunion_id": tipo_reunion.id,
             "grupo_utn_id": grupo.id,
             "created_by": admin_user_id,
@@ -509,9 +550,9 @@ def _seed_search_coverage(grupo, catalogs, investigador, admin_user_id):
             "editorial": "Editorial de Prueba",
             "issn": "0000-0000",
             "pais": "Argentina",
-            "fecha": date(2024, 9, 15),
+            "fecha_publicacion": date(2024, 9, 15),
             "grupo_utn_id": grupo.id,
-            "tipo_reunion_id": tipo_reunion.id,
+            "tipo_revista_id": tipo_revista.id,
             "created_by": admin_user_id,
         },
     )
@@ -520,7 +561,7 @@ def _seed_search_coverage(grupo, catalogs, investigador, admin_user_id):
         nombre_apellido="Directiva Ficticia TEST",
         defaults={"created_by": admin_user_id},
     )
-    cargo, _ = _get_or_create(Cargo, nombre="Director TEST")
+    cargo, _ = _get_or_create(Cargo, nombre="Director")
     _get_or_create(
         DirectivoGrupo,
         id_directivo=directivo.id,
@@ -547,7 +588,7 @@ def _seed_search_coverage(grupo, catalogs, investigador, admin_user_id):
         defaults={
             "fecha": date(2024, 10, 15),
             "procedencia": "Instituto de Prueba",
-            "tipo_visita_id": tipo_reunion.id,
+            "tipo_visita_id": catalogs["tipo_visita_intercambio"].id,
             "grupo_utn_id": grupo.id,
             "created_by": admin_user_id,
         },
@@ -556,13 +597,10 @@ def _seed_search_coverage(grupo, catalogs, investigador, admin_user_id):
 
 def _seed_manual_testing_dataset(grupo, catalogs, investigador, admin_user_id):
     """Crea variantes deterministas para probar filtros y paginacion manual."""
-    tipos_erogacion = [
-        _get_or_create(TipoErogacion, nombre=nombre)[0]
-        for nombre in [
-            "Insumos TEST",
-            "Servicios TEST",
-            "Viaticos TEST",
-        ]
+    categorias_erogacion = [
+        _get_or_create(CategoriaErogacion, codigo=codigo,
+                       defaults={"nombre": nombre})[0]
+        for codigo, nombre in [("CORRIENTE", "Corriente"), ("CAPITAL", "Capital")]
     ]
     tipos_registro = [
         _get_or_create(TipoRegistroPropiedad, nombre=nombre)[0]
@@ -587,6 +625,14 @@ def _seed_manual_testing_dataset(grupo, catalogs, investigador, admin_user_id):
             "Jornada TEST",
             "Seminario TEST",
         ]
+    ]
+    tipos_visita = [
+        catalogs["tipo_visita_academica"],
+        catalogs["tipo_visita_intercambio"],
+    ]
+    tipos_revista = [
+        _get_or_create(TipoRevista, nombre=nombre)[0]
+        for nombre in ["Nacional", "Internacional"]
     ]
 
     instituciones = [
@@ -654,16 +700,19 @@ def _seed_manual_testing_dataset(grupo, catalogs, investigador, admin_user_id):
         if autor not in documento.autores:
             documento.autores.append(autor)
 
+        tipo_movimiento = "INGRESO" if index % 2 == 0 else "EGRESO"
         _get_or_create(
-            Erogacion,
-            numero_erogacion=991000 + index,
+            MovimientoFinanciero,
+            numero_movimiento=991000 + index,
             grupo_utn_id=grupo.id,
             defaults={
-                "egresos": 10000.0 + index * 2500.0 if index % 2 else 0.0,
-                "ingresos": 15000.0 + index * 3000.0 if index % 2 == 0 else 0.0,
+                "tipo_movimiento": tipo_movimiento,
+                "monto": str(15000 + index * 3000 if index % 2 == 0 else 10000 + index * 2500),
+                "monto_equivalente_ars": str(15000 + index * 3000 if index % 2 == 0 else 10000 + index * 2500),
+                "moneda": "ARS",
                 "fecha": date(year, month, 15),
-                "tipo_erogacion_id": tipos_erogacion[tipo_index].id,
                 "fuente_financiamiento_id": catalogs["fuente"].id,
+                "categoria_erogacion_id": categorias_erogacion[tipo_index % 2].id if tipo_movimiento == "EGRESO" else None,
                 "created_by": admin_user_id,
             },
         )
@@ -673,6 +722,7 @@ def _seed_manual_testing_dataset(grupo, catalogs, investigador, admin_user_id):
             defaults={
                 "forma_participacion": ["Expositor", "Organizador", "Asistente"][tipo_index],
                 "fecha": date(year, month, 16),
+                "investigador_id": investigador.id,
                 "created_by": admin_user_id,
             },
         )
@@ -707,7 +757,7 @@ def _seed_manual_testing_dataset(grupo, catalogs, investigador, admin_user_id):
             defaults={
                 "nombre_reunion": f"{tipos_reunion[tipo_index].nombre} {year}",
                 "procedencia": instituciones[tipo_index],
-                "fecha_inicio": date(year, month, 18),
+                "fecha_presentacion": date(year, month, 18),
                 "tipo_reunion_id": tipos_reunion[tipo_index].id,
                 "grupo_utn_id": grupo.id,
                 "created_by": admin_user_id,
@@ -721,9 +771,9 @@ def _seed_manual_testing_dataset(grupo, catalogs, investigador, admin_user_id):
                 "editorial": f"Editorial {tipo_index + 1}",
                 "issn": f"{1000 + index:04d}-{2000 + index:04d}",
                 "pais": paises[tipo_index],
-                "fecha": date(year, month, 19),
+                "fecha_publicacion": date(year, month, 19),
                 "grupo_utn_id": grupo.id,
-                "tipo_reunion_id": tipos_reunion[tipo_index].id,
+                "tipo_revista_id": tipos_revista[tipo_index % 2].id,
                 "created_by": admin_user_id,
             },
         )
@@ -743,7 +793,7 @@ def _seed_manual_testing_dataset(grupo, catalogs, investigador, admin_user_id):
             defaults={
                 "fecha": date(year, month, 21),
                 "procedencia": instituciones[tipo_index],
-                "tipo_visita_id": tipos_reunion[tipo_index].id,
+                "tipo_visita_id": tipos_visita[tipo_index % len(tipos_visita)].id,
                 "grupo_utn_id": grupo.id,
                 "created_by": admin_user_id,
             },
@@ -772,17 +822,31 @@ def seed_testing_data():
         "lector.testing@example.com",
         "Lector Testing",
         99000003,
-        roles["LECTOR"],
+        roles["LECTURA"],
     )
 
     catalogs = _seed_catalogs()
     grupo = _seed_group()
-    investigador, becario, _personal = _seed_people(grupo, catalogs, admin.id)
+    investigador, becario, personal = _seed_people(grupo, catalogs, admin.id)
     _seed_manual_people(grupo, catalogs, admin.id)
     _seed_project(grupo, catalogs, investigador, becario, admin.id)
     _seed_memoria(admin.id)
     _seed_search_coverage(grupo, catalogs, investigador, admin.id)
     _seed_manual_testing_dataset(grupo, catalogs, investigador, admin.id)
+
+    # ISS-12: dataset mixto e idempotente para ambos tipos de trabajos.
+    from modules.produccion.models.trabajo_autor import TrabajoReunionAutor, TrabajoRevistaAutor
+    from modules.produccion.services.trabajo_autores_service import sincronizar_autores
+
+    db.session.flush()
+    autores = [("investigador", investigador), ("becario", becario)]
+    for modelo, asociacion, entidad in (
+        (TrabajoReunionCientifica, TrabajoReunionAutor, "trabajo_reunion_cientifica"),
+        (TrabajosRevistasReferato, TrabajoRevistaAutor, "trabajo_revista_referato"),
+    ):
+        for trabajo in modelo.query.filter_by(grupo_utn_id=grupo.id, deleted_at=None).all():
+            if not trabajo.autorias:
+                sincronizar_autores(trabajo, autores, asociacion, entidad, admin.id)
 
     db.session.commit()
 

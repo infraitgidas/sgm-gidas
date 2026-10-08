@@ -18,6 +18,15 @@ export type Uct = {
   }[];
 };
 
+export type HistorialGrupoItem = {
+  id: number;
+  campo: string;
+  valor_anterior: string | null;
+  valor_nuevo: string | null;
+  fecha_cambio: string;
+  usuario_nombre: string | null;
+};
+
 type UctApiResponse = {
   id: number;
   nombre_unidad_academica: string;
@@ -52,6 +61,10 @@ export async function getUct() {
   } catch {
     return null;
   }
+}
+
+export function getHistorialGrupo(grupoId: number) {
+  return http<HistorialGrupoItem[]>(`/grupo-utn/${grupoId}/historial`);
 }
 
 export async function upsertUct(payload: Partial<Uct>, exists: boolean) {

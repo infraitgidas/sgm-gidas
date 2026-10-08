@@ -9,45 +9,39 @@ const useMock = () => isMockMode();
 
 export interface Adoptante {
     id: number;
+    grupo_utn_id?: number | null;
     nombre: string;
 }
 
-export type AdoptantePayload = Omit<Adoptante, "id">;
+export type AdoptantePayload = Pick<Adoptante, "nombre">;
+
+export type HistorialAdoptanteItem = {
+    id: number;
+    campo: string;
+    fecha_cambio: string | null;
+    usuario_nombre: string | null;
+    valor_anterior: unknown;
+    valor_nuevo: unknown;
+};
 
 // ─── Mock helpers ────────────────────────────────────────────
 
-const MOCK_KEY = "gidas_adoptantes_mock";
+let mockItems: Adoptante[] | null = null;
 
 const delay = (ms = 300) => new Promise((r) => setTimeout(r, ms));
 
 function readMock(): Adoptante[] {
-    const raw = localStorage.getItem(MOCK_KEY);
-    if (!raw) return [];
-
-    try {
-        const parsed: unknown = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return [];
-
-        return parsed.filter(
-            (item): item is Adoptante =>
-                Boolean(item) &&
-                typeof item === "object" &&
-                typeof (item as { id?: unknown }).id === "number" &&
-                typeof (item as { nombre?: unknown }).nombre === "string"
-        );
-    } catch {
-        return [];
-    }
+    return mockItems ? [...mockItems] : [];
 }
 
 function writeMock(items: Adoptante[]) {
-    localStorage.setItem(MOCK_KEY, JSON.stringify(items));
+    mockItems = [...items];
 }
 
 let _mockIdCounter = 100;
 
 function ensureSeed() {
-    if (localStorage.getItem(MOCK_KEY) !== null) {
+    if (mockItems !== null) {
         const current = readMock();
         _mockIdCounter = Math.max(100, ...current.map((item) => item.id));
         return;
@@ -82,6 +76,13 @@ export async function getAdoptanteById(
         return readMock().find((a) => a.id === id) ?? null;
     }
     return http<Adoptante>(`/adoptantes/${id}`);
+}
+
+/** Historial de campos propios del adoptante, separado de los vínculos de transferencia. */
+export async function getHistorialAdoptanteById(id: number): Promise<HistorialAdoptanteItem[]> {
+    if (useMock()) return [];
+    const response = await http<HistorialAdoptanteItem[] | { data?: HistorialAdoptanteItem[] }>(`/adoptantes/${id}/historial`);
+    return Array.isArray(response) ? response : response.data ?? [];
 }
 
 /** Crear un adoptante. */

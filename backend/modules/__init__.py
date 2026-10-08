@@ -18,7 +18,9 @@ def get_blueprints():
         programa_incentivos_bp,
     )
     from modules.grupo.routes.visita_rutas import visita_academica_bp
+    from modules.grupo.routes.tipo_visita_rutas import tipo_visita_bp
     from modules.memorias.routes.memorias_rutas import memoria_bp
+    from modules.informes.routes.informe_rutas import informe_bp
     from modules.personal.routes.becario_rutas import becario_bp
     from modules.personal.routes.investigador_rutas import investigador_bp
     from modules.personal.routes.personal_completo_ruta import personal_completo_bp
@@ -46,6 +48,7 @@ def get_blueprints():
         tipo_registro_propiedad_bp,
     )
     from modules.produccion.routes.tipo_reunion_rutas import tipo_reunion_bp
+    from modules.produccion.routes.tipo_revista_rutas import tipo_revista_bp
     from modules.produccion.routes.trabajo_reunion_rutas import (
         trabajo_reunion_cientifica_bp,
     )
@@ -61,10 +64,10 @@ def get_blueprints():
     from modules.proyectos.routes.tipo_proyecto_rutas import tipo_proyecto_bp
     from modules.recursos.routes.becas_rutas import beca_bp
     from modules.recursos.routes.equipamiento_rutas import equipamiento_bp
-    from modules.recursos.routes.erogacion_rutas import erogacion_bp
-    from modules.recursos.routes.tipo_erogacion_rutas import tipo_erogacion_bp
+    from modules.recursos.routes.movimiento_financiero_rutas import movimiento_financiero_bp
     from modules.search.routes.search_rutas import search_bp
     from modules.shared.routes.status import health_bp
+    from modules.shared.routes.form_draft_routes import form_draft_bp
     from modules.transferencia.routes.adoptante_rutas import adoptante_bp
     from modules.transferencia.routes.tipo_contrato_rutas import tipo_contrato_bp
     from modules.transferencia.routes.transferencia_socio_rutas import (
@@ -73,6 +76,7 @@ def get_blueprints():
 
     return [
         health_bp,
+        form_draft_bp,
         actividad_docencia_bp,
         articulo_divulgacion_bp,
         adoptante_bp,
@@ -87,7 +91,7 @@ def get_blueprints():
         directivo_bp,
         documentacion_bibliografica_bp,
         equipamiento_bp,
-        erogacion_bp,
+        movimiento_financiero_bp,
         fuente_financiamiento_bp,
         grupo_utn_bp,
         grado_academico_bp,
@@ -103,7 +107,6 @@ def get_blueprints():
         search_bp,
         tipo_contrato_bp,
         tipo_dedicacion_bp,
-        tipo_erogacion_bp,
         tipo_formacion_becario_bp,
         tipo_personal_bp,
         tipo_registro_propiedad_bp,
@@ -112,8 +115,11 @@ def get_blueprints():
         trabajos_revistas_referato_bp,
         transferencia_socio_productiva_bp,
         visita_academica_bp,
+        tipo_visita_bp,
         tipo_reunion_bp,
+        tipo_revista_bp,
         memoria_bp,
+        informe_bp,
     ]
 
 

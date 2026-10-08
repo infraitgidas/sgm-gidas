@@ -1,612 +1,100 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useEffect, useState, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-
 import Button from "@/components/Button";
-import Tarjeta from "@/components/Tarjeta";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import SuccessToast from "@/components/SuccessToast";
 import MemoriaFilterBanner from "@/components/MemoriaFilterBanner";
-
-import { useTransferencias } from "@/modules/transferencia/hooks/useTransferencias";
-import {
-  deleteTransferencia,
-  type Transferencia,
-} from "@/modules/transferencia/services/transferenciasServices";
-import { getErrorMessage } from "@/lib/httpError";
+import SuccessToast from "@/components/SuccessToast";
+import Table, { TableActionButton, TableActions, TableFilterChip, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
+import type { TableColumn } from "@/components/Table";
+import TableFilterSelect from "@/components/TableFilterSelect";
 import { useAuth } from "@/context/AuthContext";
-import {
-  applyMemoriaSectionFilter,
-  getMemoriaSectionFilter,
-} from "@/lib/memoriaSectionFilter";
-import { buildMemoriaDetailState } from "@/lib/memoriaNavigation";
+import { getErrorMessage } from "@/lib/httpError";
+import { getMemoriaSectionFilter } from "@/lib/memoriaSectionFilter";
+import { buildMemoriaDetailState, stripSuccessMessageState } from "@/lib/memoriaNavigation";
+import { deleteTransferencia, getTransferenciasPage, getHistorialTransferenciaById, type Transferencia } from "@/modules/transferencia/services/transferenciasServices";
+import { formatFechaHora } from "@/utils/dateTime";
+import { formatTransferenciaHistory, presentTransferenciaHistory } from "@/modules/transferencia/utils/transferenciaHistory";
 
-const ITEMS_PER_PAGE = 9;
+const HISTORY_SIZE = 3;
+const isActive = (item: Transferencia) => item.activo && !item.deletedAt;
 
 export default function TransferenciasHome() {
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const location = useLocation();
-  const { canCreateRecords, canDeleteRecords } = useAuth();
-
-  const puedeCrear = canCreateRecords();
-  const puedeEliminar = canDeleteRecords();
-
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [showConfirm, setShowConfirm] = useState(false);
-
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [successMessage, setSuccessMessage] = useState("");
-
-  const [showError, setShowError] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-
-  const [showFilters, setShowFilters] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-
-  const [filters, setFilters] = useState({
-    estado: "",
-    demandante: "",
-    grupo: "",
-    tipoContrato: "",
-    anio: "",
+  const qc = useQueryClient();
+  const { canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState({ estado: "", tipo: "", grupo: "", anio: "" });
+  const [page, setPage] = useState(1);
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [direction, setDirection] = useState<"asc" | "desc">("asc");
+  const [pendingDelete, setPendingDelete] = useState<Transferencia | null>(null);
+  const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
+  const memoriaFilter = useMemo(() => getMemoriaSectionFilter(location.state, "transferencias"), [location.state]);
+  const estado: "true" | "false" | "all" = memoriaFilter || filters.estado === "todos" ? "all" : filters.estado === "inactivos" ? "false" : "true";
+  const params = { page, activos: estado, q: search, direction, filters, ids: memoriaFilter?.ids };
+  const result = useQuery({
+    queryKey: ["transferencias", "table", params],
+    queryFn: () => getTransferenciasPage(params),
+    staleTime: 60_000,
   });
-
-  const [tempFilters, setTempFilters] = useState(filters);
-  const memoriaFilter = useMemo(
-    () => getMemoriaSectionFilter(location.state, "transferencias"),
-    [location.state]
-  );
-
-  const filtroActivos = useMemo<"true" | "false" | "all">(() => {
-    if (memoriaFilter) return "all";
-    if (filters.estado === "todas") return "all";
-    if (filters.estado === "inactivas") return "false";
-    return "true";
-  }, [filters.estado, memoriaFilter]);
-
-  const { list = [], isLoading, isError } = useTransferencias(filtroActivos);
-  const scopedList = useMemo(
-    () => applyMemoriaSectionFilter(list, memoriaFilter),
-    [list, memoriaFilter]
-  );
-
+  const query = { ...result, list: result.data?.data ?? [] };
+  const scoped = query.list;
+  const facet = (key: string) => result.data?.meta.options[key] ?? [];
+  const options = { tipos: facet("tipo"), grupos: facet("grupo"),
+    anios: [...facet("anio")].sort((a, b) => Number(b.value) - Number(a.value)) };
+  const totalPages = result.data?.meta.total_pages ?? 0;
+  const rows = query.list;
+  const expandedItem = scoped.find(item => item.id === expanded);
+  const history = useQuery({ queryKey: ["transferencia-historial", expandedItem?.id], queryFn: () => getHistorialTransferenciaById(expandedItem!.id), enabled: Boolean(expandedItem) });
+  useEffect(() => { setPage(1); setExpanded(null); }, [search, filters, direction, memoriaFilter]);
   useEffect(() => {
-    if (location.state?.successMessage) {
-      setSuccessMessage(location.state.successMessage);
-      setShowSuccess(true);
-      navigate(location.pathname, { replace: true });
-    }
-  }, [location.state, navigate, location.pathname]);
-
-  const isTransferenciaDeleted = (item: Transferencia) =>
-    item.activo === false || Boolean(item.deletedAt);
-
-  const transferenciasFiltradas = useMemo(() => {
-    const query = searchQuery.toLowerCase().trim();
-
-    return scopedList.filter((item) => {
-      const matchSearch =
-        !query ||
-        String(item.denominacion ?? "").toLowerCase().includes(query) ||
-        String(item.descripcionActividad ?? "").toLowerCase().includes(query) ||
-        String(item.demandante ?? "").toLowerCase().includes(query) ||
-        String(item.tipoContrato ?? "").toLowerCase().includes(query) ||
-        String(item.grupo ?? "").toLowerCase().includes(query);
-
-      const matchDemandante =
-        !filters.demandante ||
-        String(item.demandante ?? "")
-          .toLowerCase()
-          .includes(filters.demandante.toLowerCase());
-
-      const matchGrupo =
-        !filters.grupo ||
-        String(item.grupo ?? "").toLowerCase().includes(filters.grupo.toLowerCase());
-
-      const matchTipoContrato =
-        !filters.tipoContrato ||
-        String(item.tipoContrato ?? "")
-          .toLowerCase()
-          .includes(filters.tipoContrato.toLowerCase());
-
-      const fechaBase = item.fechaInicio || item.fechaFin || "";
-      const matchAnio =
-        !filters.anio ||
-        (fechaBase && new Date(fechaBase).getFullYear().toString() === filters.anio);
-
-      return (
-        matchSearch &&
-        matchDemandante &&
-        matchGrupo &&
-        matchTipoContrato &&
-        matchAnio
-      );
-    });
-  }, [scopedList, searchQuery, filters]);
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(transferenciasFiltradas.length / ITEMS_PER_PAGE)
-  );
-
-  const paginatedItems = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return transferenciasFiltradas.slice(start, start + ITEMS_PER_PAGE);
-  }, [transferenciasFiltradas, currentPage]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [filters, searchQuery]);
-
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
-
-  const aniosDisponibles = useMemo(() => {
-    const years = scopedList
-      .map((item) => item.fechaInicio || item.fechaFin)
-      .filter(Boolean)
-      .map((fecha) => new Date(fecha as string).getFullYear())
-      .filter((year) => !Number.isNaN(year));
-
-    return [...new Set(years)].sort((a, b) => b - a);
-  }, [scopedList]);
-
-  const filtrosActivosCount = Object.values(filters).filter(Boolean).length;
-
-  const setQuickEstado = (estado: "" | "todas" | "inactivas") => {
-    setFilters((prev) => ({ ...prev, estado }));
-  };
-
-  const quickEstadoActual =
-    filters.estado === "todas"
-      ? "todas"
-      : filters.estado === "inactivas"
-        ? "inactivas"
-        : "activas";
-
-  const toggleSelect = (id: number, checked: boolean) => {
-    if (!puedeEliminar) return;
-
-    const transferencia = scopedList.find((item) => item.id === id);
-
-    if (transferencia && isTransferenciaDeleted(transferencia)) {
-      setErrorMessage("No se puede eliminar una transferencia que ya fue eliminada.");
-      setShowError(true);
-      return;
-    }
-
-    setSelectedIds((prev) =>
-      checked ? [...prev, id] : prev.filter((value) => value !== id)
-    );
-  };
-
-  const cancelSelection = () => {
-    setSelectMode(false);
-    setSelectedIds([]);
-    setShowConfirm(false);
-  };
-
-  const selectedTransfers = scopedList.filter((item) => selectedIds.includes(item.id));
-  const selectedActiveTransfers = selectedTransfers.filter(
-    (item) => !isTransferenciaDeleted(item)
-  );
+    if (result.data && page > Math.max(1, totalPages)) setPage(Math.max(1, totalPages));
+  }, [page, totalPages, result.data]);
+  useEffect(() => { if (location.state?.successMessage) { setSuccess(location.state.successMessage); navigate(location.pathname, { replace: true, state: stripSuccessMessageState(location.state) }); } }, [location.pathname, location.state, navigate]);
 
   const confirmDelete = async () => {
-    const invalidItems = selectedTransfers.filter((item) =>
-      isTransferenciaDeleted(item)
-    );
-
-    if (invalidItems.length > 0) {
-      setShowConfirm(false);
-      setErrorMessage(
-        invalidItems.length === 1
-          ? "La transferencia seleccionada ya fue eliminada."
-          : "Una o mas transferencias seleccionadas ya fueron eliminadas."
-      );
-      setShowError(true);
-      return;
-    }
-
+    if (!pendingDelete || !isActive(pendingDelete) || !canDeleteRecords()) return;
     try {
-      for (const item of selectedActiveTransfers) {
-        await deleteTransferencia(item.id);
-      }
-
+      await deleteTransferencia(pendingDelete.id);
       await qc.invalidateQueries({ queryKey: ["transferencias"] });
-      cancelSelection();
-
-      setSuccessMessage(
-        selectedActiveTransfers.length === 1
-          ? "Transferencia eliminada con exito."
-          : "Transferencias eliminadas con exito."
-      );
-      setShowSuccess(true);
-    } catch (error) {
-      setShowConfirm(false);
-
-      setErrorMessage(
-        getErrorMessage(
-          error,
-          "Lo sentimos, no pudimos completar la operacion. Intente nuevamente."
-        )
-      );
-
-      setShowError(true);
+      setPendingDelete(null);
+      setSuccess("Transferencia eliminada con éxito.");
+    } catch (cause) {
+      setPendingDelete(null);
+      setError(getErrorMessage(cause, "Lo sentimos, no pudimos completar la operación. Intente nuevamente."));
     }
   };
-
-  const formatTitle = (value?: string) =>
-    value
-      ?.toLowerCase()
-      .split(" ")
-      .map((word) => (word ? word.charAt(0).toUpperCase() + word.slice(1) : ""))
-      .join(" ") || "";
-
-  return (
-    <section className="flex min-h-[calc(100vh-80px)] w-full flex-col px-4 py-4 text-sm md:px-6">
-      <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <h2 className="text-2xl font-semibold leading-none text-slate-800 md:text-3xl">
-            Vinculacion socio-productiva
-          </h2>
-          <p className="mt-2 text-xs text-slate-500">
-            {transferenciasFiltradas.length} de {scopedList.length} resultados
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <button
-              type="button"
-              onClick={() => setQuickEstado("")}
-              className={`px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "activas"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Activas
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickEstado("todas")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "todas"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Todas
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickEstado("inactivas")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "inactivas"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Inactivas
-            </button>
-          </div>
-
-          <div className="relative w-full sm:w-64">
-            <input
-              type="text"
-              placeholder="Buscar por denominacion, actividad o demandante..."
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-10 text-xs outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-200"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-            </div>
-          </div>
-
-          {!selectMode ? (
-            <>
-              {puedeEliminar && (
-                <Button variant="secondary" size="sm" onClick={() => setSelectMode(true)}>
-                  Seleccionar
-                </Button>
-              )}
-
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setTempFilters(filters);
-                  setShowFilters(true);
-                }}
-              >
-                Filtros
-                {filtrosActivosCount > 0 && (
-                  <span className="ml-1.5 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-white">
-                    {filtrosActivosCount}
-                  </span>
-                )}
-              </Button>
-
-              {puedeCrear && (
-                <Button variant="primary" size="sm" onClick={() => navigate("/transferencias/nuevo")}>
-                  Nuevo
-                </Button>
-              )}
-            </>
-          ) : (
-            <>
-              {selectedIds.length > 0 && puedeEliminar && (
-                <Button size="sm" onClick={() => setShowConfirm(true)}>
-                  Eliminar
-                </Button>
-              )}
-
-              <Button variant="secondary" size="sm" onClick={cancelSelection}>
-                Cancelar
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {memoriaFilter && <MemoriaFilterBanner filter={memoriaFilter} />}
-
-      <div className="flex flex-1 flex-col">
-        {isLoading ? (
-          <p className="py-10 text-center text-slate-500">Cargando...</p>
-        ) : isError ? (
-          <p className="py-10 text-center text-slate-500">
-            Lo sentimos, no pudimos recuperar la informacion. Intente nuevamente.
-          </p>
-        ) : transferenciasFiltradas.length === 0 ? (
-          <p className="py-10 text-center text-slate-500">
-            No hay transferencias registradas.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {paginatedItems.map((item) => (
-              <Tarjeta
-                key={item.id}
-                item={item}
-                title={(x) =>
-                  formatTitle(x.denominacion) || formatTitle(x.descripcionActividad)
-                }
-                subtitle={(x) =>
-                  x.monto !== null && x.monto !== undefined
-                    ? `$${x.monto.toLocaleString("es-AR")}`
-                    : "Sin monto"
-                }
-                badge={(x) => (isTransferenciaDeleted(x) ? "INACTIVA" : "ACTIVA")}
-                selectable={puedeEliminar && selectMode}
-                selectDisabled={isTransferenciaDeleted(item)}
-                selected={selectedIds.includes(item.id)}
-                onSelectChange={(checked) => toggleSelect(item.id, checked)}
-                onClick={() =>
-                  !selectMode &&
-                  navigate(`/transferencias/${item.id}`, {
-                    state: buildMemoriaDetailState(location),
-                  })
-                }
-              />
-            ))}
-          </div>
-        )}
-
-        {totalPages > 1 && (
-          <div className="mt-auto pt-8">
-            <div className="flex items-center justify-between">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-              >
-                Anterior
-              </Button>
-
-              <span className="text-sm text-slate-500">
-                Pagina {currentPage} de {totalPages}
-              </span>
-
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
-              >
-                Siguiente
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <ConfirmDialog
-        open={showConfirm}
-        title="Eliminar transferencias"
-        message="Eliminar las siguientes transferencias?"
-        items={selectedActiveTransfers.map(
-          (item) => item.denominacion || item.descripcionActividad || "-"
-        )}
-        onCancel={cancelSelection}
-        onConfirm={confirmDelete}
-      />
-
-      <SuccessToast
-        open={showSuccess}
-        message={successMessage || "Eliminado con exito."}
-        onClose={() => setShowSuccess(false)}
-      />
-
-      <SuccessToast
-        open={showError}
-        message={errorMessage}
-        onClose={() => setShowError(false)}
-        variant="error"
-      />
-
-      {showFilters && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
-            onClick={() => setShowFilters(false)}
-          />
-
-          <div className="fixed top-0 right-0 z-50 flex h-full w-[380px] flex-col overflow-y-auto bg-white p-6 shadow-2xl">
-            <h3 className="mb-6 text-xl font-semibold">Filtros avanzados</h3>
-
-            <div className="flex-1 space-y-5 text-[11px]">
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Estado
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.estado}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      estado: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Activas (Default)</option>
-                  <option value="todas">Todas</option>
-                  <option value="inactivas">Inactivas</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Demandante
-                </label>
-                <input
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.demandante}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      demandante: e.target.value,
-                    })
-                  }
-                  placeholder="Ej: Empresa X"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Grupo UTN
-                </label>
-                <input
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.grupo}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      grupo: e.target.value,
-                    })
-                  }
-                  placeholder="Ej: GIDAS"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Tipo de contrato
-                </label>
-                <input
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.tipoContrato}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      tipoContrato: e.target.value,
-                    })
-                  }
-                  placeholder="Ej: Convenio"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Ano
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.anio}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      anio: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos</option>
-                  {aniosDisponibles.map((anio) => (
-                    <option key={anio} value={anio}>
-                      {anio}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-between gap-2 border-t pt-6">
-              <Button
-                variant="secondary"
-                className="flex-1"
-                size="sm"
-                onClick={() =>
-                  setTempFilters({
-                    estado: "",
-                    demandante: "",
-                    grupo: "",
-                    tipoContrato: "",
-                    anio: "",
-                  })
-                }
-              >
-                Limpiar
-              </Button>
-
-              <Button
-                className="flex-1"
-                size="sm"
-                onClick={() => {
-                  setFilters(tempFilters);
-                  setShowFilters(false);
-                }}
-              >
-                Aplicar
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
+  const columns: TableColumn<Transferencia>[] = [
+    { id: "numero", header: "Número", render: item => `#${item.numeroTransferencia}` },
+    { id: "denominacion", header: "Transferencia", sortable: true, render: item => <div><span className="block font-medium text-slate-900">{item.denominacion || "—"}</span><span className="text-xs text-slate-500">{item.demandante || "—"}</span></div> },
+    { id: "tipo", header: "Tipo de contrato", priority: "secondary", render: item => item.tipoContrato || "—" },
+    { id: "grupo", header: "Grupo UTN", priority: "tertiary", render: item => item.grupo || "—" },
+    { id: "estado", header: "Estado", render: item => <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${isActive(item) ? "text-emerald-700" : "text-rose-700"}`}><span aria-hidden="true" className={`h-2 w-2 rounded-full ${isActive(item) ? "bg-emerald-500" : "bg-rose-500"}`} />{isActive(item) ? "Activo" : "Inactivo"}</span> },
+    { id: "acciones", header: "Acciones", align: "right", render: item => <TableActions><TableRowActionButton action="view" aria-label={`Ver transferencia ${item.numeroTransferencia}`} onClick={() => navigate(`/transferencias/${item.id}`, { state: buildMemoriaDetailState(location) })} />{isActive(item) && canEditRecords() && <TableRowActionButton action="edit" aria-label={`Editar transferencia ${item.numeroTransferencia}`} onClick={() => navigate(`/transferencias/${item.id}/editar`)} />}{isActive(item) && canDeleteRecords() && <TableRowActionButton action="delete" aria-label={`Eliminar transferencia ${item.numeroTransferencia}`} onClick={() => setPendingDelete(item)} />}</TableActions> },
+  ];
+  const renderHistory = () => {
+    if (history.isLoading) return <LoadingSkeleton variant="compact" label="Cargando historial…" />;
+    if (history.isError) return <p role="alert" className="text-sm text-rose-700">Lo sentimos, no pudimos recuperar el historial. <TableActionButton onClick={() => history.refetch()}>Reintentar</TableActionButton></p>;
+    const items = presentTransferenciaHistory(history.data ?? []);
+    if (!items.length) return <p className="text-sm text-slate-500">No hay cambios registrados.</p>;
+    const pages = Math.ceil(items.length / HISTORY_SIZE);
+    return <div><h3 className="mb-3 text-sm font-semibold">Historial de cambios</h3><ul className="space-y-2">{items.slice((historyPage - 1) * HISTORY_SIZE, historyPage * HISTORY_SIZE).map(item => { const presentation = formatTransferenciaHistory(item); return <li key={item.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm"><span className="font-medium">{presentation.title}</span><span className="block text-slate-600">{presentation.description}</span><span className="block text-xs text-slate-500">{formatFechaHora(item.fecha_cambio)} · {item.usuario_nombre || "Usuario no informado"}</span></li>; })}</ul>{pages > 1 && <nav aria-label="Paginación del historial" className="mt-3 flex items-center gap-2"><TableActionButton disabled={historyPage === 1} onClick={() => setHistoryPage(value => value - 1)}>Anterior</TableActionButton><span>Página {historyPage} de {pages}</span><TableActionButton disabled={historyPage === pages} onClick={() => setHistoryPage(value => value + 1)}>Siguiente</TableActionButton></nav>}</div>;
+  };
+  const setFilter = (key: keyof typeof filters, value?: string) => setFilters(current => ({ ...current, [key]: value ?? "" }));
+  return <>
+    <section className="min-h-[calc(100vh-120px)] w-full px-4 py-4">
+      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><div><h2 className="text-2xl font-semibold md:text-3xl">Vinculación socio-productiva</h2><p className="mt-1 text-sm text-slate-500">Gestione transferencias, adoptantes y estados.</p></div>{canCreateRecords() && <Button size="sm" onClick={() => navigate("/transferencias/nuevo")}>Agregar nuevo</Button>}</div>
+      {memoriaFilter && <div className="mb-4"><MemoriaFilterBanner filter={memoriaFilter} /></div>}
+      {query.isError && query.list.length > 0 && <p role="alert" className="mb-3 text-sm text-rose-700">Lo sentimos, no pudimos actualizar la información. <button type="button" className="underline" onClick={() => query.refetch()}>Reintentar</button></p>}
+      <Table caption="Listado de transferencias" columns={columns} rows={rows} getRowId={item => item.id} density="compact" loading={query.isLoading} refreshing={query.isFetching && !query.isLoading} error={query.isError && query.list.length === 0} onRetry={query.refetch} emptyMessage="No hay transferencias que coincidan con los filtros." onRowClick={item => navigate(`/transferencias/${item.id}`, { state: buildMemoriaDetailState(location) })} getRowTitle={item => `Ver transferencia ${item.numeroTransferencia}`} sortKey="denominacion" sortDirection={direction} onSortChange={(_, next) => setDirection(next)} expandedRowId={expanded} renderExpanded={renderHistory} onToggleRow={item => { setExpanded(value => value === item.id ? null : item.id); setHistoryPage(1); }} getExpandLabel={(item, open) => `${open ? "Ocultar" : "Mostrar"} historial de transferencia ${item.numeroTransferencia}`} page={page} totalPages={totalPages} totalRecords={result.data?.meta.total ?? 0} onPageChange={value => { setPage(value); setExpanded(null); }} toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center"><TableSearch label="Buscar transferencias" placeholder="Buscar por número, transferencia o adoptante" value={search} onChange={event => setSearch(event.target.value)} /><div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de transferencias"><span className="shrink-0 text-xs font-medium text-slate-500">Estado</span><TableFilterChip className="shrink-0" active={!filters.estado} onClick={() => setFilter("estado", "")}>Activas</TableFilterChip><TableFilterChip className="shrink-0" active={filters.estado === "todos"} onClick={() => setFilter("estado", "todos")}>Todas</TableFilterChip><TableFilterChip className="shrink-0" active={filters.estado === "inactivos"} onClick={() => setFilter("estado", "inactivos")}>Inactivas</TableFilterChip><TableFilterSelect label="Filtrar por tipo de contrato" placeholder="Todos los tipos" value={filters.tipo || undefined} onValueChange={value => setFilter("tipo", value)} options={options.tipos} /><TableFilterSelect label="Filtrar por grupo" placeholder="Todos los grupos" value={filters.grupo || undefined} onValueChange={value => setFilter("grupo", value)} options={options.grupos} /><TableFilterSelect label="Filtrar por año" placeholder="Todos los años" value={filters.anio || undefined} onValueChange={value => setFilter("anio", value)} options={options.anios} /></div></div></TableToolbar>} />
+      <ConfirmDialog open={Boolean(pendingDelete)} title="Eliminar transferencia" message={`¿Está seguro de eliminar ${pendingDelete?.denominacion || "esta transferencia"}?`} onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete} loadingText="Eliminando..." />
     </section>
-  );
+    <SuccessToast open={Boolean(success)} message={success} onClose={() => setSuccess("")} />
+    <SuccessToast open={Boolean(error)} message={error} onClose={() => setError("")} variant="error" />
+  </>;
 }

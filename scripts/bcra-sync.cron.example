@@ -1,0 +1,3 @@
+# Instalar en el host con el directorio real del proyecto en lugar de /srv/gidas.
+CRON_TZ=America/Argentina/Buenos_Aires
+0 18 * * * /bin/sh /srv/gidas/scripts/run-bcra-sync.sh

@@ -1,6 +1,7 @@
-from datetime import datetime, date
+from datetime import datetime
 
 from extension import db
+from modules.shared.services.date_time import serialize_temporal
 
 
 class AuditoriaCampo(db.Model):
@@ -41,8 +42,7 @@ class AuditoriaCampo(db.Model):
         for column in self.__table__.columns:
             value = getattr(self, column.name)
 
-            if isinstance(value, (datetime, date)):
-                value = value.isoformat()
+            value = serialize_temporal(value)
 
             data[column.name] = value
 

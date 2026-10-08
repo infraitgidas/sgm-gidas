@@ -2,6 +2,12 @@
 
 Fecha de revision: 2026-08-21
 
+> Esta matriz conserva el estado historico de RBAC de agosto de 2026. Las
+> columnas que dicen `global` o `parcial` no describen el alcance vigente por
+> UCT. Para las reglas actuales de pertenencia, filtros y snapshots, consultar
+> [Aislamiento de datos por UCT](SECURITY_MULTITENANCY_UCT.md). La revision
+> completa de esta matriz queda pendiente cuando se implemente el selector.
+
 ## Criterio
 
 Esta matriz registra autorizacion efectiva en backend. Los botones o rutas del

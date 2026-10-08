@@ -181,13 +181,13 @@ def exportar_excel(memoria_id, memoria_version_id):
 
 # MODIFICACION
 @memoria_bp.route("", methods=["POST"])
-@requiere_rol("ADMIN")
+@requiere_rol("ADMIN", "GESTOR")
 def create():
     return MemoriaController.create()
 
 
 @memoria_bp.route("/<int:memoria_id>", methods=["PUT"])
-@requiere_rol("ADMIN")
+@requiere_rol("ADMIN", "GESTOR")
 def update(memoria_id):
     return MemoriaController.update(memoria_id)
 
@@ -199,12 +199,18 @@ def delete(memoria_id):
 
 
 @memoria_bp.route("/<int:memoria_id>/estado", methods=["PUT"])
-@requiere_rol("ADMIN")
+@requiere_rol("ADMIN", "GESTOR")
 def change_status(memoria_id):
     return MemoriaController.change_status(memoria_id)
 
 
 @memoria_bp.route("/<int:memoria_id>/reabrir", methods=["PUT"])
-@requiere_rol("ADMIN")
+@requiere_rol("ADMIN", "GESTOR")
 def reopen(memoria_id):
     return MemoriaController.reopen(memoria_id)
+
+
+@memoria_bp.route("/<int:memoria_id>/historial", methods=["GET"])
+@requiere_rol("ADMIN", "GESTOR", "LECTURA")
+def get_historial(memoria_id):
+    return MemoriaController.get_historial(memoria_id)

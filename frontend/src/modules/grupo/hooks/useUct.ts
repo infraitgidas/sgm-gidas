@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   deleteUct,
   getUct,
+  getHistorialGrupo,
   upsertUct,
+  type HistorialGrupoItem,
   type Uct,
 } from "@/modules/grupo/services/uctServices";
 
@@ -51,4 +53,12 @@ export function useUct() {
     remove: deleteMutation.mutateAsync,
     removing: deleteMutation.isPending,
   };
+}
+
+export function useHistorialGrupo(grupoId?: number, enabled = false) {
+  return useQuery<HistorialGrupoItem[]>({
+    queryKey: ["grupo-utn-historial", grupoId],
+    queryFn: () => getHistorialGrupo(grupoId as number),
+    enabled: !!grupoId && enabled,
+  });
 }

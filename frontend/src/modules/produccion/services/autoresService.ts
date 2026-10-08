@@ -2,6 +2,7 @@ import { http } from "@/lib/http";
 
 export interface Autor {
   id: number;
+  grupo_utn_id?: number | null;
   nombre_apellido: string;
 }
 

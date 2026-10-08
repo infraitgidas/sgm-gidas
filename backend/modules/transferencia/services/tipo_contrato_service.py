@@ -1,3 +1,4 @@
+from modules.shared.services.catalog_name_validation import validar_nombre_descriptivo
 from modules.transferencia.models.transferencia_socio import TipoContrato
 from modules.shared.services.catalogo_auditoria_service import CatalogoAuditoriaService
 from extension import db
@@ -36,6 +37,7 @@ class TipoContratoService:
             raise ValueError("El nombre debe ser texto")
 
         nombre = nombre.strip()
+        validar_nombre_descriptivo(nombre)
 
         if not nombre:
             raise ValueError("El nombre no puede estar vacio")
@@ -67,16 +69,26 @@ class TipoContratoService:
     # -------------------------------------------------
 
     @staticmethod
-    def get_all(activos="true"):
+    def _list_query(activos="true", orden="asc"):
         query = TipoContrato.query
         if activos == "true":
             query = query.filter(TipoContrato.deleted_at.is_(None))
         elif activos == "false":
             query = query.filter(TipoContrato.deleted_at.isnot(None))
-        return [
-            t.serialize()
-            for t in query.order_by(TipoContrato.nombre.asc()).all()
-        ]
+        nombre = TipoContrato.nombre.desc() if orden == "desc" else TipoContrato.nombre.asc()
+        id_ = TipoContrato.id.desc() if orden == "desc" else TipoContrato.id.asc()
+        return query.order_by(nombre, id_)
+
+    @staticmethod
+    def get_all(activos="true"):
+        return [t.serialize() for t in TipoContratoService._list_query(activos).all()]
+
+    @staticmethod
+    def get_page(page, per_page, activos="true", orden="asc"):
+        query = TipoContratoService._list_query(activos, orden)
+        total = query.count()
+        rows = query.offset((page - 1) * per_page).limit(per_page).all()
+        return [t.serialize() for t in rows], total
 
     @staticmethod
     def get_by_id(tipo_contrato_id):

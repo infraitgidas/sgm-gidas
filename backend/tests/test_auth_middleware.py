@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from flask import Flask, g
+from flask import Flask, g, request
 
 from modules.auth.controllers.auth_controller import AuthController
 from modules.shared.services.middleware import requiere_auth, requiere_rol
@@ -66,6 +66,7 @@ class AuthMiddlewareTestCase(unittest.TestCase):
     def test_controller_reutiliza_payload_del_contexto(self):
         with self.app.test_request_context("/perfil"):
             g.current_user_payload = {"sub": "9", "rol": "ADMIN"}
+            g.tenant_request_marker = id(request._get_current_object())
             with patch(
                 "modules.auth.controllers.auth_controller.AuthService.verify_token"
             ) as mock_verify_token:

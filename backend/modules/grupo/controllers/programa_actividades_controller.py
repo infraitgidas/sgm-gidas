@@ -5,10 +5,12 @@ from modules.grupo.services.programa_actividades_service import (
     crear_planificacion_grupo,
     eliminar_planificacion_grupo,
     listar_planificaciones,
+    listar_planificaciones_paginado,
     obtener_historial_planificacion,
     obtener_planificacion_por_id,
 )
-from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, parse_pagination_params
+from modules.shared.controllers.responses import error_response, exception_response, paginated_response
 
 
 class PlanificacionGrupoController:
@@ -23,8 +25,17 @@ class PlanificacionGrupoController:
     @staticmethod
     def listar(req: Request) -> Response:
         try:
+            if pagination_requested(req.args):
+                params = parse_pagination_params(req.args)
+                planes, total = listar_planificaciones_paginado(**params)
+                return paginated_response(
+                    [p.serialize() for p in planes], params["page"], params["per_page"], total,
+                    meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"},
+                )
             planes = listar_planificaciones(req.args.get("activos"))
             return jsonify([p.serialize() for p in planes]), 200
+        except ValueError as error:
+            return error_response("VALIDATION_ERROR", message=str(error), status_code=400)
         except Exception as error:
             return exception_response(error, operation="listar planificaciones de grupo")
 

@@ -12,6 +12,7 @@ from modules.produccion.models.trabajo_revista import TrabajosRevistasReferato
 from modules.recursos.services.becas_service import BecaService
 from modules.produccion.services.distincion_service import DistincionRecibidaService
 from modules.recursos.services.erogacion_service import ErogacionService
+from modules.shared.exceptions import ValidationError
 from modules.transferencia.services.transferencia_service import (
     TransferenciaSocioProductivaService,
 )
@@ -71,6 +72,75 @@ class AuditoriaTanda3ServicesTestCase(unittest.TestCase):
         self.assertEqual(erogacion.updated_by, 11)
         self.assertIsNotNone(erogacion.updated_at)
         mock_registrar.assert_called_once()
+
+    def test_update_erogacion_corrige_fecha_y_registra_cambio(self):
+        erogacion = Erogacion(
+            id=7, numero_erogacion=10, egresos=100, ingresos=50,
+            fecha=date(2024, 1, 1), tipo_erogacion_id=1,
+            fuente_financiamiento_id=2, grupo_utn_id=3, created_by=1,
+        )
+        erogacion.deleted_at = None
+        with patch(
+            "modules.recursos.services.erogacion_service.ErogacionService._get_activa_or_404",
+            return_value=erogacion,
+        ), patch(
+            "modules.recursos.services.erogacion_service.AuditoriaService.registrar_cambios"
+        ) as registrar:
+            ErogacionService.update(7, {"fecha": "2024-02-29"}, user_id=11)
+
+        self.assertEqual(erogacion.fecha, date(2024, 2, 29))
+        self.assertEqual(erogacion.updated_by, 11)
+        self.assertIn("fecha", registrar.call_args.kwargs["cambios"])
+        self.mock_commit.assert_called_once()
+
+    def test_update_erogacion_rechaza_fecha_invalida_sin_persistir(self):
+        erogacion = Erogacion(
+            id=8, numero_erogacion=10, egresos=100, ingresos=50,
+            fecha=date(2024, 1, 1), tipo_erogacion_id=1,
+            fuente_financiamiento_id=2, grupo_utn_id=3, created_by=1,
+        )
+        erogacion.deleted_at = None
+        with patch(
+            "modules.recursos.services.erogacion_service.ErogacionService._get_activa_or_404",
+            return_value=erogacion,
+        ), self.assertRaises(ValidationError):
+            ErogacionService.update(8, {"fecha": "2024-02-30"}, user_id=11)
+
+        self.assertEqual(erogacion.fecha, date(2024, 1, 1))
+        self.mock_commit.assert_not_called()
+
+    def test_update_erogacion_corrige_numero_tipo_y_fuente(self):
+        erogacion = Erogacion(
+            id=9, numero_erogacion=10, egresos=100, ingresos=50,
+            fecha=date(2024, 1, 1), tipo_erogacion_id=1,
+            fuente_financiamiento_id=2, grupo_utn_id=3, created_by=1,
+        )
+        erogacion.deleted_at = None
+        with patch(
+            "modules.recursos.services.erogacion_service.ErogacionService._get_activa_or_404",
+            return_value=erogacion,
+        ), patch(
+            "modules.recursos.services.erogacion_service.ErogacionService.vaLidar_numero_erogacion",
+            return_value=11,
+        ) as validar_numero, patch(
+            "modules.recursos.services.erogacion_service.db.session.get",
+            side_effect=[SimpleNamespace(id=4, deleted_at=None), SimpleNamespace(id=5, deleted_at=None)],
+        ), patch(
+            "modules.recursos.services.erogacion_service.AuditoriaService.registrar_cambios"
+        ) as registrar:
+            ErogacionService.update(
+                9, {"numero_erogacion": 11, "tipo_erogacion_id": 4,
+                    "fuente_financiamiento_id": 5}, user_id=11,
+            )
+
+        validar_numero.assert_called_once_with(11, 3, 9)
+        self.assertEqual(erogacion.numero_erogacion, 11)
+        self.assertEqual(erogacion.tipo_erogacion_id, 4)
+        self.assertEqual(erogacion.fuente_financiamiento_id, 5)
+        self.assertEqual(
+            set(registrar.call_args.kwargs["cambios"]),
+            {"numero_erogacion", "tipo_erogacion_id", "fuente_financiamiento_id"},
+        )
 
     def test_update_beca_registra_auditoria(self):
         beca = Beca(
@@ -197,7 +267,7 @@ class AuditoriaTanda3ServicesTestCase(unittest.TestCase):
             titulo_trabajo="Trabajo inicial",
             nombre_reunion="Reunion inicial",
             procedencia="Nacional",
-            fecha_inicio=date(2024, 3, 1),
+            fecha_presentacion=date(2024, 3, 1),
             tipo_reunion_id=1,
             grupo_utn_id=2,
             created_by=1
@@ -245,9 +315,9 @@ class AuditoriaTanda3ServicesTestCase(unittest.TestCase):
             editorial="Editorial inicial",
             issn="1234-5678",
             pais="Argentina",
-            fecha=date(2024, 4, 1),
+            fecha_publicacion=date(2024, 4, 1),
             grupo_utn_id=1,
-            tipo_reunion_id=2,
+            tipo_revista_id=2,
             created_by=1
         )
         trabajo.deleted_at = None
@@ -263,7 +333,7 @@ class AuditoriaTanda3ServicesTestCase(unittest.TestCase):
             "modules.produccion.services.trabajo_revista_service.TrabajosRevistasReferatoService._validar_grupo",
             return_value=5
         ), patch(
-            "modules.produccion.services.trabajo_revista_service.TrabajosRevistasReferatoService._validar_tipo_reunion",
+            "modules.produccion.services.trabajo_revista_service.TrabajosRevistasReferatoService._validar_tipo_revista",
             return_value=6
         ), patch(
             "modules.produccion.services.trabajo_revista_service.AuditoriaService.registrar_cambios"
@@ -274,7 +344,7 @@ class AuditoriaTanda3ServicesTestCase(unittest.TestCase):
                     "titulo_trabajo": "Titulo actualizado",
                     "pais": "Chile",
                     "grupo_utn_id": 5,
-                    "tipo_reunion_id": 6
+                    "tipo_revista_id": 6
                 },
                 user_id=16
             )
@@ -282,7 +352,7 @@ class AuditoriaTanda3ServicesTestCase(unittest.TestCase):
         self.assertEqual(resultado["titulo_trabajo"], "Titulo actualizado")
         self.assertEqual(resultado["pais"], "Chile")
         self.assertEqual(resultado["grupo_utn_id"], 5)
-        self.assertEqual(resultado["tipo_reunion_id"], 6)
+        self.assertEqual(resultado["tipo_revista_id"], 6)
         self.assertEqual(trabajo.updated_by, 16)
         self.assertIsNotNone(trabajo.updated_at)
         mock_registrar.assert_called_once()

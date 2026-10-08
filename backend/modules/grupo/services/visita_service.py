@@ -1,15 +1,21 @@
+from modules.memorias.services.memoria_periodo_service import (
+    consultar_entidades_memoria, registro_puntual_en_memoria,
+)
 from datetime import datetime, date
+import builtins
+from sqlalchemy.orm import selectinload
 
 from extension import db
 from modules.shared.exceptions import ValidationError as ValueError
 from modules.grupo.models.visita_grupo import (
+    TipoVisita,
     VisitaAcademica,
     VisitaAcademicaMemoriaVersion,
 )
 from modules.grupo.models.grupo import GrupoInvestigacionUtn
-from modules.produccion.models.trabajo_reunion import TipoReunion
 from modules.shared.services.auditoria_service import AuditoriaService
 from modules.memorias.services.memoria_periodo_service import esta_en_periodo_memoria
+from modules.shared.services.date_time import INSTITUTIONAL_MIN_DATE
 
 
 def _validar_payload(data: dict):
@@ -19,13 +25,23 @@ def _validar_payload(data: dict):
 
 def _validar_id(valor, campo: str):
     if not isinstance(valor, int) or valor <= 0:
-        raise ValueError(f"El campo '{campo}' debe ser un entero positivo.")
+        if campo in ("tipo_visita_id", "grupo_utn_id"):
+            nombre = "tipo de visita" if campo == "tipo_visita_id" else "grupo"
+            raise ValueError(
+                f"Seleccione un {nombre} válido e intente nuevamente.",
+                details={"fields": {campo: f"Seleccione un {nombre} válido."}},
+            )
+        raise ValueError("No pudimos procesar la solicitud. Intente nuevamente.")
     return valor
 
 
 def _validar_texto(valor: str, campo: str):
     if not isinstance(valor, str) or not valor.strip():
-        raise ValueError(f"{campo} es obligatorio.")
+        key, label = ("procedencia", "la procedencia") if campo == "La procedencia" else ("razon", "la razón de la visita")
+        raise ValueError(
+            f"Complete {label} e intente nuevamente.",
+            details={"fields": {key: f"Ingrese {label}."}},
+        )
     return valor.strip()
 
 
@@ -33,7 +49,7 @@ def _validar_procedencia(valor: str):
     valor = _validar_texto(valor, "La procedencia")
 
     if valor.isdigit():
-        raise ValueError("La procedencia no puede ser numerica.")
+        raise ValueError("Revise la procedencia e intente nuevamente.", details={"fields": {"procedencia": "Ingrese una procedencia con letras."}})
 
     return valor
 
@@ -41,20 +57,22 @@ def _validar_procedencia(valor: str):
 def _validar_fecha(fecha_str: str):
     try:
         fecha = datetime.strptime(fecha_str, "%Y-%m-%d").date()
-    except (TypeError, ValueError):
-        raise ValueError("El formato de la fecha debe ser YYYY-MM-DD.")
+    except (TypeError, builtins.ValueError):
+        raise ValueError("Revise la fecha e intente nuevamente.", details={"fields": {"fecha": "Ingrese una fecha válida."}})
 
     if fecha > date.today():
-        raise ValueError("La fecha no puede ser futura.")
+        raise ValueError("Revise la fecha e intente nuevamente.", details={"fields": {"fecha": "Ingrese una fecha que no sea futura."}})
 
+    if fecha < INSTITUTIONAL_MIN_DATE:
+        raise ValueError("Revise la fecha e intente nuevamente.", details={"fields": {"fecha": "Ingrese una fecha desde el 01/01/2010."}})
     return fecha
 
 
 def _validar_tipo_visita(tipo_visita_id):
     tipo_visita_id = _validar_id(tipo_visita_id, "tipo_visita_id")
-    tipo_visita = db.session.get(TipoReunion, tipo_visita_id)
-    if not tipo_visita:
-        raise ValueError("Tipo de visita invalido.")
+    tipo_visita = db.session.get(TipoVisita, tipo_visita_id)
+    if not tipo_visita or tipo_visita.deleted_at is not None:
+        raise ValueError("Revise el tipo de visita e intente nuevamente.", details={"fields": {"tipo_visita_id": "Seleccione un tipo de visita disponible."}})
     return tipo_visita.id
 
 
@@ -62,7 +80,7 @@ def _validar_grupo(grupo_utn_id):
     grupo_utn_id = _validar_id(grupo_utn_id, "grupo_utn_id")
     grupo = db.session.get(GrupoInvestigacionUtn, grupo_utn_id)
     if not grupo or getattr(grupo, "deleted_at", None) is not None:
-        raise ValueError("Grupo UTN invalido.")
+        raise ValueError("Revise el grupo e intente nuevamente.", details={"fields": {"grupo_utn_id": "Seleccione un grupo disponible."}})
     return grupo.id
 
 
@@ -186,7 +204,7 @@ def eliminar_visita_academica(id, user_id=None):
         raise
 
 
-def listar_visitas(activos="true"):
+def _consulta_visitas(activos="true", orden="asc"):
     query = VisitaAcademica.query
 
     if activos == "true":
@@ -198,7 +216,21 @@ def listar_visitas(activos="true"):
     else:
         query = query.filter(VisitaAcademica.deleted_at.is_(None))
 
-    return query.all()
+    id_ = VisitaAcademica.id.desc() if orden == "desc" else VisitaAcademica.id.asc()
+    return query.order_by(id_)
+
+
+def listar_visitas(activos="true"):
+    return _consulta_visitas(activos).all()
+
+
+def listar_visitas_paginado(page, per_page, activos="true", orden="asc"):
+    query = _consulta_visitas(activos, orden).options(
+        selectinload(VisitaAcademica.tipo_visita),
+        selectinload(VisitaAcademica.grupo_utn),
+    )
+    total = query.count()
+    return query.offset((page - 1) * per_page).limit(per_page).all(), total
 
 
 def obtener_visita_por_id(id):
@@ -214,11 +246,11 @@ def obtener_historial_visita(id):
 
 
 def snapshot_visitas_para_memoria_version(memoria_version, user_id):
-    visitas = VisitaAcademica.query.filter().all()
+    visitas = consultar_entidades_memoria(VisitaAcademica, memoria_version)
 
     snapshots = []
     for visita in visitas:
-        if not esta_en_periodo_memoria(memoria_version, visita.fecha):
+        if not registro_puntual_en_memoria(memoria_version, visita, visita.fecha):
             continue
         snapshot = VisitaAcademicaMemoriaVersion(
             memoria_version_id=memoria_version.id,

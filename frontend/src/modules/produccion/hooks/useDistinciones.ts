@@ -25,7 +25,9 @@ export function useDistinciones(
   return {
     list: query.data ?? [],
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
     isError: query.isError,
+    refetch: query.refetch,
     remove: remove.mutateAsync,
     isRemoving: remove.isPending,
   };

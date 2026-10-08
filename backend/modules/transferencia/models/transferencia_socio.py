@@ -34,6 +34,7 @@ class Adoptante(db.Model, AuditMixin):
     __tablename__ = 'adoptante'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    grupo_utn_id = db.Column(db.Integer, db.ForeignKey("grupo_utn.id"), nullable=True, index=True)
     nombre = db.Column(db.Text, nullable=False)
     
     participaciones = db.relationship(

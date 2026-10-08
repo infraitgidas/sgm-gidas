@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import Button from "@/components/Button";
 import SuccessToast from "@/components/SuccessToast";
 import { useAuth } from "@/context/AuthContext";
-import { useUct } from "@/modules/grupo/hooks/useUct";
+
 import {
   exportarExcelMemoria,
   getActividadesDocenciaSnapshot,
@@ -33,7 +34,7 @@ import {
   updatePlanificacion,
   type PlanificacionGrupo,
 } from "@/modules/grupo/services/planificacionGrupoServices";
-import { formatFecha } from "@/utils/formatFecha";
+import { formatFecha, getCivilYear } from "@/utils/dateTime";
 
 type SnapshotSection = {
   key: string;
@@ -91,7 +92,7 @@ const sections: SnapshotSection[] = [
   },
   {
     key: "documentacion-bibliografica",
-    label: "Documentacion bibliografica",
+    label: "Documentación bibliográfica",
     queryKey: "memoria-snapshot-documentacion",
     queryFn: getDocumentacionBibliograficaSnapshot,
     homePath: "/documentacion",
@@ -108,7 +109,7 @@ const sections: SnapshotSection[] = [
     label: "Erogaciones",
     queryKey: "memoria-snapshot-erogaciones",
     queryFn: getErogacionesSnapshot,
-    homePath: "/erogaciones",
+    homePath: "/movimientos",
   },
   {
     key: "transferencias",
@@ -119,7 +120,7 @@ const sections: SnapshotSection[] = [
   },
   {
     key: "trabajos-reunion-cientifica",
-    label: "Trabajos en reunion cientifica",
+    label: "Trabajos en reunión científica",
     queryKey: "memoria-snapshot-reunion",
     queryFn: getTrabajosReunionCientificaSnapshot,
     homePath: "/trabajos-reunion",
@@ -147,14 +148,14 @@ const sections: SnapshotSection[] = [
   },
   {
     key: "articulos-divulgacion",
-    label: "Articulos de divulgacion",
+    label: "Artículos de divulgación",
     queryKey: "memoria-snapshot-articulos",
     queryFn: getArticulosDivulgacionSnapshot,
     homePath: "/articulos-divulgacion",
   },
   {
     key: "visitas-academicas",
-    label: "Visitas academicas",
+    label: "Visitas académicas",
     queryKey: "memoria-snapshot-visitas",
     queryFn: getVisitasAcademicasSnapshot,
     homePath: "/visitantes",
@@ -162,8 +163,7 @@ const sections: SnapshotSection[] = [
 ];
 
 function buildMemoriaLabel(memoria: Memoria | null | undefined) {
-  const year = memoria?.periodo_fin ? new Date(memoria.periodo_fin).getFullYear() : "";
-  return year ? `Memoria ${year}` : "Memoria";
+  return memoria ? `Memoria ${formatFecha(memoria.periodo_inicio)}–${formatFecha(memoria.periodo_fin)}` : "Memoria";
 }
 
 const snapshotEntityIdKeys: Record<string, string> = {
@@ -175,7 +175,7 @@ const snapshotEntityIdKeys: Record<string, string> = {
   "participaciones-relevantes": "participacion_relevante_id",
   "documentacion-bibliografica": "documentacion_bibliografica_id",
   equipamiento: "equipamiento_id",
-  erogaciones: "erogacion_id",
+  erogaciones: "movimiento_id",
   transferencias: "transferencia_id",
   "trabajos-reunion-cientifica": "trabajo_reunion_id",
   "trabajos-revistas": "trabajo_revista_id",
@@ -203,7 +203,7 @@ export default function MemoriaVersionDetalle() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { isAdmin, isGestor, canEditRecords } = useAuth();
-  const { uct, isLoading: isLoadingUct } = useUct();
+
 
   const memoriaId = Number(id);
   const memoriaVersionId = Number(versionId);
@@ -211,8 +211,10 @@ export default function MemoriaVersionDetalle() {
   const [showError, setShowError] = useState(false);
   const [message, setMessage] = useState("");
   const [showProgramaModal, setShowProgramaModal] = useState(false);
+  const programaDialogRef = useRef<HTMLDialogElement>(null);
   const [programaDescripcion, setProgramaDescripcion] = useState("");
   const [programaError, setProgramaError] = useState("");
+  const exportInFlight = useRef(false);
 
   const { data: memoria, isLoading: isLoadingMemoria } = useQuery({
     queryKey: ["memoria", id],
@@ -245,24 +247,24 @@ export default function MemoriaVersionDetalle() {
   const sectionsWithItems = sectionData.filter((section) => section.items.length > 0);
   const numeroVersionMemoria = versionActual?.numero_version ?? memoriaVersionId;
   const puedeExportarExcel = versionCerrada && (isAdmin() || isGestor());
-  const anioPrograma = memoria?.periodo_fin
-    ? new Date(`${memoria.periodo_fin}T00:00:00`).getFullYear() + 1
-    : undefined;
+  const anioFinMemoria = getCivilYear(memoria?.periodo_fin);
+  const anioPrograma = anioFinMemoria ? anioFinMemoria + 1 : undefined;
   const puedeEditarPrograma = versionCerrada && canEditRecords();
+  const descripcionProgramaInvalida = Boolean(programaError && !programaDescripcion.trim());
 
   const { data: planificacionesPage, isLoading: isLoadingPlanificaciones } = useQuery({
     queryKey: ["planificaciones", "true"],
     queryFn: () => getPlanificaciones("true"),
-    enabled: puedeEditarPrograma && !!anioPrograma && !!uct?.id,
+    enabled: puedeEditarPrograma && !!anioPrograma && !!memoria?.grupo_utn_id,
   });
   const planificaciones = planificacionesPage?.data ?? [];
 
   const planificacionActual = useMemo<PlanificacionGrupo | undefined>(
     () =>
       planificaciones.find(
-        (item) => item.anio === anioPrograma && item.grupo_id === uct?.id && item.activo
+        (item) => item.anio === anioPrograma && item.grupo_id === memoria?.grupo_utn_id && item.activo
       ),
-    [anioPrograma, planificaciones, uct?.id]
+    [anioPrograma, planificaciones, memoria?.grupo_utn_id]
   );
 
   useEffect(() => {
@@ -271,10 +273,22 @@ export default function MemoriaVersionDetalle() {
     setProgramaError("");
   }, [planificacionActual, showProgramaModal]);
 
+  useEffect(() => {
+    const dialog = programaDialogRef.current;
+    if (!showProgramaModal || !dialog) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog.showModal();
+    dialog.querySelector<HTMLElement>("textarea")?.focus();
+    return () => {
+      if (dialog.open) dialog.close();
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [showProgramaModal]);
+
   const { mutate: descargarExcel, isPending: isExportingExcel } = useMutation({
     mutationFn: () => exportarExcelMemoria(memoriaId, memoriaVersionId),
     onSuccess: (result) => {
-      setMessage(`Excel generado con exito: ${result.filename}`);
+      setMessage(`Excel generado con éxito: ${result.filename}`);
       setShowSuccess(true);
     },
     onError: (error) => {
@@ -285,30 +299,39 @@ export default function MemoriaVersionDetalle() {
       );
       setShowError(true);
     },
+    onSettled: () => {
+      exportInFlight.current = false;
+    },
   });
+
+  const startExport = () => {
+    if (exportInFlight.current || isExportingExcel) return;
+    exportInFlight.current = true;
+    descargarExcel();
+  };
 
   const { mutate: guardarPrograma, isPending: isSavingPrograma } = useMutation({
     mutationFn: async () => {
       const descripcion = programaDescripcion.trim();
       if (!descripcion) {
-        throw new Error("Debe ingresar una descripcion para el programa de actividades.");
+        throw new Error("Debe ingresar una descripción para el programa de actividades.");
       }
-      if (!anioPrograma || !uct?.id) {
-        throw new Error("No se pudo resolver el anio o el grupo de investigacion.");
+      if (!anioPrograma || !memoria?.grupo_utn_id) {
+        throw new Error("No se pudo resolver el año o el grupo de investigación.");
       }
 
       if (planificacionActual) {
         return updatePlanificacion(planificacionActual.id, {
           descripcion,
           anio: anioPrograma,
-          grupo_id: uct.id,
+          grupo_id: memoria!.grupo_utn_id!,
         });
       }
 
       return createPlanificacion({
         descripcion,
         anio: anioPrograma,
-        grupo_id: uct.id,
+        grupo_id: memoria!.grupo_utn_id!,
       });
     },
     onSuccess: () => {
@@ -317,8 +340,8 @@ export default function MemoriaVersionDetalle() {
       setProgramaError("");
       setMessage(
         planificacionActual
-          ? "Programa de actividades actualizado con exito."
-          : "Programa de actividades guardado con exito."
+          ? "Programa de actividades actualizado con éxito."
+          : "Programa de actividades guardado con éxito."
       );
       setShowSuccess(true);
     },
@@ -355,9 +378,8 @@ export default function MemoriaVersionDetalle() {
   };
 
   const abrirProgramaActividades = () => {
-    if (isLoadingUct) return;
-    if (!uct?.id) {
-      setMessage("No hay un grupo de investigacion configurado para guardar la planificacion.");
+    if (!memoria?.grupo_utn_id) {
+      setMessage("No hay un grupo de investigación configurado para guardar la planificación.");
       setShowError(true);
       return;
     }
@@ -366,18 +388,18 @@ export default function MemoriaVersionDetalle() {
 
   const handleGuardarPrograma = () => {
     if (!programaDescripcion.trim()) {
-      setProgramaError("Debe ingresar una descripcion para el programa de actividades.");
+      setProgramaError("Debe ingresar una descripción para el programa de actividades.");
       return;
     }
     guardarPrograma();
   };
 
   if (isLoadingMemoria) {
-    return <p className="text-slate-500">Cargando memoria...</p>;
+    return <LoadingSkeleton variant="detail" label="Cargando memoria..." />;
   }
 
   if (!memoria) {
-    return <p className="text-slate-500">No se encontro la memoria.</p>;
+    return <p className="text-slate-500">No se encontró la memoria.</p>;
   }
 
   return (
@@ -390,7 +412,8 @@ export default function MemoriaVersionDetalle() {
           <p className="mt-2 text-sm text-slate-500">
             Memoria {formatFecha(memoria.periodo_inicio)} - {formatFecha(memoria.periodo_fin)}
           </p>
-          <p className="mt-1 text-xs text-slate-500">Version {numeroVersionMemoria}</p>
+          <p className="mt-1 text-xs text-slate-500">Versión {numeroVersionMemoria}</p>
+          <p className="mt-1 text-sm text-slate-500">UCT: {memoria.grupo_utn_nombre || "Pendiente de asociar"}</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -399,15 +422,15 @@ export default function MemoriaVersionDetalle() {
               size="sm"
               variant="secondary"
               onClick={abrirProgramaActividades}
-              disabled={isLoadingPlanificaciones || isLoadingUct}
+              disabled={isLoadingPlanificaciones}
             >
-              Programa Actividades
+              Planificación actual
             </Button>
           )}
 
           {puedeExportarExcel && (
-            <Button size="sm" onClick={() => descargarExcel()} disabled={isExportingExcel}>
-              {isExportingExcel ? "Generando Excel..." : "Generar Excel"}
+            <Button size="sm" onClick={startExport} disabled={isExportingExcel} loading={isExportingExcel} loadingText="Generando el archivo...">
+              Generar Excel
             </Button>
           )}
 
@@ -422,11 +445,11 @@ export default function MemoriaVersionDetalle() {
       </div>
 
       {isLoadingSnapshots ? (
-        <p className="text-slate-500">Cargando elementos registrados...</p>
+        <LoadingSkeleton variant="table" label="Cargando elementos registrados…" />
       ) : !versionCerrada ? (
         <div className="flex flex-col gap-6">
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
-            Esta version aun no fue cerrada. Los elementos registrados estaran
+            Esta versión aún no fue cerrada. Los elementos registrados estarán
             disponibles una vez generado el snapshot al cerrar la memoria.
           </div>
 
@@ -443,7 +466,7 @@ export default function MemoriaVersionDetalle() {
       ) : sectionsWithItems.length === 0 ? (
         <div className="flex flex-col gap-6">
           <div className="rounded-2xl border border-slate-200 bg-white/90 px-5 py-6 text-sm text-slate-500 shadow-sm">
-            Esta version no contiene elementos registrados.
+            Esta versión no contiene elementos registrados.
           </div>
 
           <div className="flex justify-start">
@@ -494,9 +517,9 @@ export default function MemoriaVersionDetalle() {
                       {section.items.length}
                     </p>
                     <p className="mt-2 text-sm text-slate-500">
-                      Esta seccion aporta {section.items.length} elemento
+                      Esta sección aporta {section.items.length} elemento
                       {section.items.length === 1 ? "" : "s"} al snapshot de esta
-                      version.
+                      versión.
                     </p>
                   </div>
                 </div>
@@ -507,7 +530,7 @@ export default function MemoriaVersionDetalle() {
                     onClick={() => handleNavigateToSection(section)}
                     className="mt-3 text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:text-slate-700"
                   >
-                    Ver registros en el modulo
+                    Ver registros en el módulo
                   </button>
                 )}
               </article>
@@ -540,52 +563,54 @@ export default function MemoriaVersionDetalle() {
       />
 
       {showProgramaModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div
-            className="absolute inset-0 bg-black/30 backdrop-blur-sm"
-            onClick={() => {
-              if (isSavingPrograma) return;
-              setShowProgramaModal(false);
-            }}
-          />
-
-          <div
-            className="relative z-10 w-full max-w-2xl rounded-2xl border border-slate-200 bg-white/95 p-6 shadow-lg"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <dialog
+          ref={programaDialogRef}
+          aria-labelledby="programa-actividades-title"
+          aria-describedby="programa-actividades-description"
+          onCancel={(event) => { event.preventDefault(); if (!isSavingPrograma) setShowProgramaModal(false); }}
+          onClick={(event) => {
+            if (event.target !== event.currentTarget || isSavingPrograma) return;
+            const rect = event.currentTarget.getBoundingClientRect();
+            if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) setShowProgramaModal(false);
+          }}
+          className="fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-2xl rounded-2xl border border-slate-200 bg-white/95 p-6 shadow-lg backdrop:bg-black/30 backdrop:backdrop-blur-sm"
+        >
             <div className="mb-4">
-              <h3 className="text-lg font-semibold text-slate-900">
+              <h3 id="programa-actividades-title" className="text-lg font-semibold text-slate-900">
                 Programa de Actividades {anioPrograma ?? ""}
               </h3>
-              <p className="mt-1 text-sm text-slate-500">
-                Registra los objetivos y actividades del grupo para la proxima memoria.
+              <p id="programa-actividades-description" className="mt-1 text-sm text-slate-500">
+                Registra los objetivos y actividades actuales del grupo para el año siguiente al fin del período. Los cambios no modifican los datos históricos ni el Excel de esta versión cerrada.
               </p>
             </div>
 
             <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              <span className="font-medium text-slate-700">Periodo:</span>{" "}
+              <span className="font-medium text-slate-700">Período:</span>{" "}
               {anioPrograma ?? "-"}
             </div>
 
-            <label className="block text-sm font-medium text-slate-700">
-              Descripcion
+            <label htmlFor="programa-actividades-descripcion" className="block text-sm font-medium text-slate-700">
+              Descripción
             </label>
             <textarea
+              id="programa-actividades-descripcion"
               rows={10}
+              aria-invalid={descripcionProgramaInvalida}
+              aria-describedby={descripcionProgramaInvalida ? "programa-actividades-descripcion-error" : undefined}
               className={`mt-2 w-full rounded-xl border bg-white px-4 py-3 text-sm text-slate-800 outline-none transition ${
-                programaError
+                descripcionProgramaInvalida
                   ? "border-red-400 ring-2 ring-red-200"
                   : "border-slate-200 focus:border-slate-400"
               }`}
               value={programaDescripcion}
-              placeholder="Ej: objetivos, actividades previstas, lineas de trabajo, cronograma y metas del grupo para el proximo periodo."
+              placeholder="Ej: objetivos, actividades previstas, líneas de trabajo, cronograma y metas del grupo para el próximo período."
               onChange={(e) => {
                 setProgramaDescripcion(e.target.value);
                 if (programaError) setProgramaError("");
               }}
             />
             {programaError && (
-              <p className="mt-2 text-sm text-red-500">{programaError}</p>
+              <p id="programa-actividades-descripcion-error" role="alert" className="mt-2 text-sm text-red-500">{programaError}</p>
             )}
 
             <div className="mt-6 flex justify-between gap-3">
@@ -598,12 +623,11 @@ export default function MemoriaVersionDetalle() {
                 Cancelar
               </Button>
 
-              <Button size="sm" onClick={handleGuardarPrograma} disabled={isSavingPrograma}>
+              <Button size="sm" onClick={handleGuardarPrograma} disabled={isSavingPrograma} loading={isSavingPrograma} loadingText="Guardando...">
                 {isSavingPrograma ? "Guardando..." : planificacionActual ? "Actualizar" : "Guardar"}
               </Button>
             </div>
-          </div>
-        </div>
+        </dialog>
       )}
     </section>
   );

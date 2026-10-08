@@ -3,6 +3,7 @@ from modules.produccion.services.actividad_docencia_service import (
     ActividadDocenciaService
 )
 from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, filtered_page_response, table_page_response
 
 
 class ActividadDocenciaController:
@@ -16,6 +17,10 @@ class ActividadDocenciaController:
                 "activos": request.args.get("activos", "true")
             }
 
+            if request.args.get("view") == "table":
+                return table_page_response(ActividadDocenciaService, filtros, request.args)
+            if pagination_requested(request.args):
+                return filtered_page_response(ActividadDocenciaService, filtros, request.args)
             return jsonify(
                 ActividadDocenciaService.get_all(filtros)
             ), 200

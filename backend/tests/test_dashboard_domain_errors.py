@@ -6,7 +6,9 @@ from app import create_app
 
 class DashboardDomainErrorsTestCase(unittest.TestCase):
     def setUp(self):
-        self.app = create_app()
+        # These tests exercise error responses, independently of tenant setup.
+        with patch("app.register_tenant_request_scope"):
+            self.app = create_app()
         self.app.testing = True
         self.client = self.app.test_client()
 

@@ -1,4 +1,5 @@
 import concurrent.futures
+import datetime
 import os
 import tempfile
 import threading
@@ -107,6 +108,19 @@ class AuthRefreshTokenTestCase(unittest.TestCase):
             with self.assertRaisesRegex(Exception, "Usuario no encontrado"):
                 AuthService.refresh_tokens(tokens["refresh_token"])
 
+    def test_refresh_rechaza_sesion_vencida_aunque_el_jwt_siga_vigente(self):
+        with self.app.app_context():
+            tokens = self._login()
+            session = RefreshTokenSession.query.one()
+            session.expires_at = datetime.datetime.utcnow() - datetime.timedelta(seconds=1)
+            db.session.commit()
+
+            with self.assertRaisesRegex(Exception, "expirado"):
+                AuthService.refresh_tokens(tokens["refresh_token"])
+
+            db.session.refresh(session)
+            self.assertEqual(session.revoked_reason, "expired")
+
     def test_cambio_password_revoca_sesiones_activas(self):
         with self.app.app_context():
             tokens = self._login()
@@ -122,6 +136,17 @@ class AuthRefreshTokenTestCase(unittest.TestCase):
 
             with self.assertRaisesRegex(Exception, "revocado"):
                 AuthService.refresh_tokens(tokens["refresh_token"])
+
+    def test_cambio_password_permite_renovar_sesion_nueva(self):
+        with self.app.app_context():
+            previous = self._login()
+            user = AuthService.change_password(self.user_id, "password123", "password456")
+            new_tokens = AuthService.generate_tokens(user, persist_refresh=True)
+
+            with self.assertRaisesRegex(Exception, "revocado"):
+                AuthService.refresh_tokens(previous["refresh_token"])
+            renewed = AuthService.refresh_tokens(new_tokens["refresh_token"])
+            self.assertEqual(renewed["user"]["id"], self.user_id)
 
     def test_logout_revoca_refresh_token_actual(self):
         with self.app.app_context():
@@ -187,6 +212,7 @@ class AuthConcurrentRefreshTokenTestCase(unittest.TestCase):
         with self.app.app_context():
             db.session.remove()
             db.drop_all()
+            db.engine.dispose()
         self.temp_dir.cleanup()
 
     def test_doble_refresh_concurrente_solo_rota_una_vez(self):

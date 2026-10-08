@@ -1,8 +1,11 @@
-import { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes } from "react";
+import { LoaderCircle } from "lucide-react";
 
 type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary";
   size?: "sm" | "md" | "lg";
+  loading?: boolean;
+  loadingText?: string;
 };
 
 export default function Button({
@@ -10,6 +13,10 @@ export default function Button({
   size = "md",
   className = "",
   type = "button",
+  loading = false,
+  loadingText = "Procesando...",
+  disabled,
+  children,
   ...rest
 }: Props) {
   const sizeClasses =
@@ -29,6 +36,15 @@ export default function Button({
       type={type}
       className={`rounded-lg font-medium transition disabled:opacity-50 ${sizeClasses} ${variantClasses} ${className}`}
       {...rest}
-    />
+      disabled={disabled || loading}
+      aria-busy={loading || rest["aria-busy"]}
+    >
+      {loading ? (
+        <span role="status" className="inline-flex items-center justify-center gap-2">
+          <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          {loadingText}
+        </span>
+      ) : children}
+    </button>
   );
 }

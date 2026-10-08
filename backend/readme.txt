@@ -161,6 +161,8 @@ Variables importantes:
 - FRONTEND_URL
 - FRONTEND_URLS
 - JWT_EXPIRATION_MINUTES
+- REFRESH_TOKEN_EXPIRATION_MINUTES
+- SESSION_WARNING_SECONDS
 - RATELIMIT_STORAGE_URI
 - RATELIMIT_DEFAULT
 - AUTH_LOGIN_LIMIT
@@ -171,7 +173,9 @@ Variables importantes:
 - POSTGRES_USER
 - POSTGRES_PASSWORD
 
-JWT_EXPIRATION_MINUTES controla la duracion real del access token. Debe ser un numero entero entre 5 y 1440 minutos. Si no se define, el backend usa 60 minutos.
+JWT_EXPIRATION_MINUTES controla la duracion real del access token. Debe ser un numero entero entre 5 y 1440 minutos. Si no se define, el backend usa 15 minutos.
+
+REFRESH_TOKEN_EXPIRATION_MINUTES controla la vigencia renovable de la sesion y usa 10080 minutos por defecto. SESSION_WARNING_SECONDS controla la anticipacion del aviso visible de vencimiento y usa 300 segundos por defecto.
 
 JWT_ISSUER identifica al emisor esperado de tokens y por defecto usa auth-service. JWT_AUDIENCE es opcional: cuando se define, el backend la incluye en los access tokens y rechaza tokens destinados a otra audiencia.
 

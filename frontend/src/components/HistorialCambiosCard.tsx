@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Button from "@/components/Button";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { formatFechaHora } from "@/utils/dateTime";
 import {
   Collapsible,
   CollapsibleContent,
@@ -16,6 +18,11 @@ export type HistorialCambioCardItem = {
   tipo?: string;
 };
 
+type HistorialCambioPresentation = {
+  title: string;
+  description: string;
+};
+
 type Props = {
   title?: string;
   subtitle?: string;
@@ -29,12 +36,10 @@ type Props = {
     value: unknown,
     kind: "anterior" | "nuevo"
   ) => string;
+  formatItemPresentation?: (
+    item: HistorialCambioCardItem
+  ) => HistorialCambioPresentation | null;
 };
-
-function formatFechaHora(fecha?: string | null) {
-  if (!fecha) return "-";
-  return new Date(fecha).toLocaleString("es-AR");
-}
 
 function formatValor(valor: unknown) {
   if (valor === null || valor === undefined || valor === "") return "-";
@@ -67,6 +72,7 @@ export default function HistorialCambiosCard({
   updatedByName,
   pageSize = 3,
   formatItemValue,
+  formatItemPresentation,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -113,7 +119,30 @@ export default function HistorialCambiosCard({
           className="rounded-xl border border-slate-200 bg-white px-4 py-3"
         >
           <div className="space-y-1 text-sm text-slate-500">
-            <p className="font-medium text-slate-700">Ultima actualizacion</p>
+            <p className="font-medium text-slate-700">Última actualización</p>
+            <p>
+              <span className="font-medium text-slate-700">Fecha:</span>{" "}
+              {formatFechaHora(item.fecha_cambio)}
+            </p>
+            <p>
+              <span className="font-medium text-slate-700">Usuario:</span>{" "}
+              {item.usuario_nombre || "-"}
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    const presentation = formatItemPresentation?.(item);
+    if (presentation) {
+      return (
+        <div
+          key={`${item.id}-${item.fecha_cambio ?? "sin-fecha"}`}
+          className="rounded-xl border border-slate-200 bg-white px-4 py-3"
+        >
+          <div className="space-y-1 text-sm text-slate-500">
+            <p className="font-medium text-slate-700">{presentation.title}</p>
+            <p>{presentation.description}</p>
             <p>
               <span className="font-medium text-slate-700">Fecha:</span>{" "}
               {formatFechaHora(item.fecha_cambio)}
@@ -187,7 +216,7 @@ export default function HistorialCambiosCard({
 
         <CollapsibleContent className="pt-4">
           {isLoading ? (
-            <p className="text-sm text-slate-500">Cargando historial...</p>
+            <LoadingSkeleton variant="compact" label="Cargando historial…" />
           ) : normalizedItems.length === 0 ? (
             <p className="text-sm text-slate-500">No hay cambios registrados.</p>
           ) : (
@@ -207,7 +236,7 @@ export default function HistorialCambiosCard({
                   </Button>
 
                   <span className="text-sm text-slate-500">
-                    Pagina {page} de {totalPages}
+                    Página {page} de {totalPages}
                   </span>
 
                   <Button

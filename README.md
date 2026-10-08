@@ -388,9 +388,22 @@ Reglas:
 
 Permisos generales:
 
-- `ADMIN`: crea memorias, cambia estados, reabre y exporta.
-- `GESTOR`: gestiona contenido y puede exportar cuando corresponde.
-- `LECTURA`: consulta informacion disponible.
+- `ADMIN`: administra usuarios; consulta, agrega, edita y elimina registros; crea
+  memorias, cambia estados, reabre y exporta.
+- `GESTOR`: consulta, agrega, edita y elimina contenido operativo; puede exportar
+  cuando corresponde, pero no administra usuarios ni sus roles.
+- `LECTURA`: consulta listados, detalles, auditorias e historiales disponibles. No
+  puede agregar, editar ni eliminar registros, administrar usuarios o ejecutar
+  exportaciones reservadas.
+
+`LECTURA` es el identificador canonico del rol lector en base de datos, API y
+frontend. El nombre heredado `LECTOR` se normaliza mediante migracion y no debe
+utilizarse en seeds ni contratos nuevos.
+
+Cada usuario puede consultar en `Mi perfil` una tarjeta con el rol de la sesion
+activa, sus acciones disponibles y sus restricciones. La ausencia de botones en
+una pantalla previene errores de uso, pero el backend siempre conserva la
+autorizacion definitiva.
 
 ---
 
@@ -437,6 +450,8 @@ DATABASE_URL
 FRONTEND_URL
 FRONTEND_URLS
 JWT_EXPIRATION_MINUTES
+REFRESH_TOKEN_EXPIRATION_MINUTES
+SESSION_WARNING_SECONDS
 RATELIMIT_STORAGE_URI
 ```
 
@@ -486,9 +501,11 @@ Servicios esperados:
 - Backend expone la API internamente.
 - PostgreSQL y Redis quedan dentro de la red Docker en produccion.
 
-Para despliegues con HTTPS, se recomienda usar un proxy externo del servidor
-con certificados administrados fuera del repositorio y reenviar el trafico al
-Nginx interno del compose.
+Para despliegues con HTTPS se usa un proxy Nginx externo del servidor, con
+certificados administrados fuera del repositorio, que reenvia el trafico al Nginx
+interno de Compose enlazado a `127.0.0.1`. La plantilla comentada se encuentra en
+`nginx/gidas.external.conf.example` y el procedimiento de activacion, validacion,
+renovacion y rollback esta documentado en `docs/despliegue_produccion.md`.
 
 ---
 

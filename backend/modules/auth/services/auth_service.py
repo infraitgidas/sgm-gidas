@@ -1,12 +1,27 @@
 import jwt
 import datetime
 import hashlib
+import hmac
+import math
 import uuid
+import bcrypt
+from flask import current_app
+from sqlalchemy import text
 from modules.auth.models.persona import Persona
+from modules.auth.models.login_attempt import LoginAttempt
 from modules.auth.models.refresh_token_session import RefreshTokenSession
 from modules.auth.models.usuario import Usuario, RolUsuario
 from extension import db
 from config import Config
+from modules.shared.exceptions import AuthenticationError, ConflictError, LoginLockedError, NotFoundError, ValidationError
+from modules.shared.services.logging_config import get_logger
+
+
+logger = get_logger(__name__)
+_DUMMY_PASSWORD_HASH = bcrypt.hashpw(b"unused-login-secret", bcrypt.gensalt())
+_LOGIN_FAILURE_MESSAGE = 'Lo sentimos, no pudimos iniciar sesión. Verifique su usuario y contraseña e intente nuevamente.'
+_LOGIN_LOCK_MINUTES = 15
+_LOGIN_MAX_FAILURES = 3
 
 
 class AuthService:
@@ -70,20 +85,24 @@ class AuthService:
         user = db.session.get(Usuario, user_id)
 
         if not user:
-            raise Exception("Usuario no encontrado")
+            raise NotFoundError('Usuario no encontrado')
 
         if solo_activos and (not user.activo or user.deleted_at is not None):
-            raise Exception("Usuario no encontrado")
+            raise NotFoundError('Usuario no encontrado')
 
         return user
 
     @staticmethod
-    def _generate_access_token(user: Usuario) -> str:
+    def _generate_access_token(
+        user: Usuario,
+        expires_at: datetime.datetime | None = None,
+    ) -> str:
+        expires_at = expires_at or AuthService._access_token_expires_at()
         access_payload = AuthService._with_optional_audience({
             "sub": str(user.id),
             "nombre_usuario": user.nombre_usuario,
             "rol": user.rol.nombre,   
-            "exp": AuthService._access_token_expires_at(),
+            "exp": expires_at,
             "iss": Config.JWT_ISSUER
         })
 
@@ -157,7 +176,8 @@ class AuthService:
         persist_refresh: bool = False,
         metadata: dict | None = None,
     ) -> dict:
-        access_token = AuthService._generate_access_token(user)
+        access_expires_at = AuthService._access_token_expires_at()
+        access_token = AuthService._generate_access_token(user, access_expires_at)
         refresh_token, jti, expires_at = AuthService._generate_refresh_token(user)
 
         if persist_refresh:
@@ -176,7 +196,10 @@ class AuthService:
 
         return {
             "access_token": access_token,
-            "refresh_token": refresh_token
+            "refresh_token": refresh_token,
+            "access_expires_at": access_expires_at.isoformat() + "Z",
+            "session_expires_at": expires_at.isoformat() + "Z",
+            "session_warning_seconds": Config.SESSION_WARNING_SECONDS,
         }
 
     # -------------------------
@@ -191,19 +214,73 @@ class AuthService:
     # Login
     # -------------------------
     @staticmethod
+    def _login_identifier_hash(nombre_usuario: str) -> str:
+        secret = current_app.config.get("SECRET_KEY") or Config.SECRET_KEY
+        if isinstance(secret, str):
+            secret = secret.encode("utf-8")
+        return hmac.new(secret, nombre_usuario.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    @staticmethod
+    def _lock_login_attempt(nombre_usuario: str, now: datetime.datetime) -> LoginAttempt:
+        identifier_hash = AuthService._login_identifier_hash(nombre_usuario)
+        # SQLite has no SELECT FOR UPDATE; BEGIN IMMEDIATE serializes its test/local writes.
+        if db.engine.dialect.name == "sqlite":
+            db.session.execute(text("BEGIN IMMEDIATE"))
+        db.session.execute(
+            text("""
+                INSERT INTO login_attempt
+                    (identifier_hash, failed_count, created_at, updated_at)
+                VALUES (:identifier_hash, 0, :now, :now)
+                ON CONFLICT (identifier_hash) DO NOTHING
+            """),
+            {"identifier_hash": identifier_hash, "now": now},
+        )
+        return LoginAttempt.query.filter_by(identifier_hash=identifier_hash).with_for_update().one()
+
+    @staticmethod
     def login(
         nombre_usuario: str,
         password: str,
         metadata: dict | None = None,
     ) -> dict:
 
+        now = datetime.datetime.utcnow()
+        nombre_usuario = nombre_usuario.strip()
+        attempt = AuthService._lock_login_attempt(nombre_usuario, now)
+        now = datetime.datetime.utcnow()
+
+        if attempt.locked_until and attempt.locked_until > now:
+            remaining = max(1, math.ceil((attempt.locked_until - now).total_seconds()))
+            db.session.rollback()
+            raise LoginLockedError(remaining)
+
+        if attempt.locked_until:
+            attempt.failed_count = 0
+            attempt.locked_until = None
+
         user = Usuario.query.filter_by(
             nombre_usuario=nombre_usuario,
-            activo=True   # importante para evitar login de usuarios eliminados
+            activo=True
         ).filter(Usuario.deleted_at.is_(None)).first()
+        valid_password = (
+            user.verificar_password(password)
+            if user else bcrypt.checkpw(password.encode("utf-8"), _DUMMY_PASSWORD_HASH)
+        )
 
-        if not user or not user.verificar_password(password):
-            raise Exception("Credenciales inválidas")
+        if not user or not valid_password:
+            attempt.failed_count += 1
+            attempt.last_failed_at = now
+            if attempt.failed_count >= _LOGIN_MAX_FAILURES:
+                attempt.locked_until = now + datetime.timedelta(minutes=_LOGIN_LOCK_MINUTES)
+                identifier_prefix = attempt.identifier_hash[:16]
+                db.session.commit()
+                logger.info("login_locked identifier_hash_prefix=%s", identifier_prefix)
+                raise LoginLockedError(_LOGIN_LOCK_MINUTES * 60)
+            db.session.commit()
+            raise AuthenticationError(_LOGIN_FAILURE_MESSAGE)
+
+        attempt.failed_count = 0
+        attempt.locked_until = None
 
         tokens = AuthService.generate_tokens(
             user,
@@ -214,6 +291,9 @@ class AuthService:
         return {
             "access_token": tokens["access_token"],
             "refresh_token": tokens["refresh_token"],
+            "access_expires_at": tokens["access_expires_at"],
+            "session_expires_at": tokens["session_expires_at"],
+            "session_warning_seconds": tokens["session_warning_seconds"],
             "user": {
                 "id": user.id,
                 "nombre_usuario": user.nombre_usuario,
@@ -222,15 +302,6 @@ class AuthService:
                 "primer_login": user.primer_login
             }
         }
-
-    # -------------------------
-    # ¿Es Primer Usuario?
-    # -------------------------
-    @staticmethod
-    def es_primer_usuario() -> bool:
-        """Devuelve True si NO hay ningún usuario en la base de datos."""
-        count = Usuario.query.count()
-        return count == 0
 
     # -------------------------
     # Registro
@@ -243,7 +314,8 @@ class AuthService:
         rol_id: int | None = None,
         nombre_apellido: str | None = None,
         dni: str | None = None,
-        es_primer_usuario: bool = False
+        es_primer_usuario: bool = False,
+        actor_id: int | None = None,
     ) -> Usuario:
         existe = Usuario.query.filter(
             (Usuario.nombre_usuario == nombre_usuario) |
@@ -251,7 +323,12 @@ class AuthService:
         ).first()
 
         if existe:
-            raise Exception("Usuario o mail ya existe")
+            fields = {}
+            if existe.nombre_usuario == nombre_usuario:
+                fields["nombre_usuario"] = "El nombre de usuario ya está en uso. Ingrese otro."
+            if existe.mail == mail:
+                fields["mail"] = "El correo electrónico ya está en uso. Ingrese otro."
+            raise ConflictError("Revise los campos indicados.", details={"fields": fields})
 
         if es_primer_usuario:
             rol = RolUsuario.query.filter_by(nombre="ADMIN").first()
@@ -261,10 +338,10 @@ class AuthService:
         else:
             primer_login = True
             if not rol_id:
-                raise Exception("rol_id es obligatorio para crear usuarios")
+                raise ValidationError('Seleccione un rol e intente nuevamente.', details={"fields": {'rol_id': 'Seleccione un rol para el usuario.'}})
             rol = RolUsuario.query.get(rol_id)
             if not rol:
-                raise Exception("Rol inválido")
+                raise ValidationError('Seleccione un rol disponible.', details={"fields": {'rol_id': 'Seleccione un rol disponible.'}})
 
         persona_id = None
         if nombre_apellido and dni:
@@ -288,6 +365,20 @@ class AuthService:
 
         db.session.add(nuevo_usuario)
 
+        if not es_primer_usuario and actor_id is not None:
+            from modules.auth.models.usuario_grupo_utn import UsuarioGrupoUtn
+            from modules.auth.services.uct_membership_service import single_allowed_uct_id
+
+            group_id = single_allowed_uct_id(actor_id)
+            if group_id is None:
+                raise ValidationError("El administrador debe tener una UCT activa asignada.")
+            db.session.flush()
+            db.session.add(UsuarioGrupoUtn(
+                usuario_id=nuevo_usuario.id,
+                grupo_utn_id=group_id,
+                created_by=actor_id,
+            ))
+
         try:
             db.session.commit()
             return nuevo_usuario
@@ -308,34 +399,38 @@ class AuthService:
 
             user_id = int(payload["sub"])
             jti = payload.get("jti")
-            user = AuthService._get_user_or_error(user_id, solo_activos=True)
+            try:
+                user = AuthService._get_user_or_error(user_id, solo_activos=True)
+            except NotFoundError as error:
+                raise AuthenticationError("Usuario no encontrado") from error
             current_session = RefreshTokenSession.query.filter_by(
                 token_hash=AuthService._hash_refresh_token(refresh_token)
             ).first()
 
             if not current_session:
-                raise Exception("Refresh token invalido")
+                raise AuthenticationError('Refresh token invalido')
 
             if current_session.jti != jti:
-                raise Exception("Refresh token invalido")
+                raise AuthenticationError('Refresh token invalido')
 
             if current_session.user_id != user.id:
-                raise Exception("Refresh token invalido")
+                raise AuthenticationError('Refresh token invalido')
 
             if current_session.is_revoked:
-                raise Exception("Refresh token revocado")
+                raise AuthenticationError('Refresh token revocado')
 
             if current_session.is_expired:
                 current_session.revoke("expired")
                 db.session.commit()
-                raise Exception("Refresh token expirado")
+                raise AuthenticationError('Refresh token expirado')
 
             claimed_at = datetime.datetime.utcnow()
             if not AuthService._claim_refresh_session(current_session.id, claimed_at):
                 db.session.rollback()
-                raise Exception("Refresh token revocado")
+                raise AuthenticationError('Refresh token revocado')
 
-            access_token = AuthService._generate_access_token(user)
+            access_expires_at = AuthService._access_token_expires_at()
+            access_token = AuthService._generate_access_token(user, access_expires_at)
             new_refresh_token, new_jti, expires_at = AuthService._generate_refresh_token(user)
             new_session = AuthService._store_refresh_session(
                 user,
@@ -351,6 +446,9 @@ class AuthService:
             return {
                 "access_token": access_token,
                 "refresh_token": new_refresh_token,
+                "access_expires_at": access_expires_at.isoformat() + "Z",
+                "session_expires_at": expires_at.isoformat() + "Z",
+                "session_warning_seconds": Config.SESSION_WARNING_SECONDS,
                 "user": {
                     "id": user.id,
                     "nombre_usuario": user.nombre_usuario,
@@ -361,9 +459,9 @@ class AuthService:
             }
 
         except jwt.ExpiredSignatureError:
-            raise Exception("Refresh token expirado")
+            raise AuthenticationError('Refresh token expirado')
         except jwt.InvalidTokenError:
-            raise Exception("Refresh token invalido")
+            raise AuthenticationError('Refresh token invalido')
         except Exception:
             db.session.rollback()
             raise
@@ -375,17 +473,17 @@ class AuthService:
         except jwt.ExpiredSignatureError:
             return
         except jwt.InvalidTokenError:
-            raise Exception("Refresh token invalido")
+            raise AuthenticationError('Refresh token invalido')
 
         session = RefreshTokenSession.query.filter_by(
             token_hash=AuthService._hash_refresh_token(refresh_token)
         ).first()
 
         if not session:
-            raise Exception("Refresh token invalido")
+            raise AuthenticationError('Refresh token invalido')
 
         if session.jti != payload.get("jti"):
-            raise Exception("Refresh token invalido")
+            raise AuthenticationError('Refresh token invalido')
 
         if not session.is_revoked:
             session.revoke(reason)
@@ -410,9 +508,9 @@ class AuthService:
         try:
             return AuthService._decode_access_token(token)
         except jwt.ExpiredSignatureError:
-            raise Exception("Token expirado")
+            raise AuthenticationError('Token expirado')
         except jwt.InvalidTokenError:
-            raise Exception("Token inválido")
+            raise AuthenticationError('Token inválido')
 
     # -------------------------
     # Cambiar contraseña    
@@ -422,10 +520,13 @@ class AuthService:
     def change_password(user_id: int, password_actual: str, password_nueva: str, es_primer_cambio: bool = False):
         user = AuthService._get_user_or_error(user_id, solo_activos=True)
         if not password_nueva:
-            raise Exception("La contraseña nueva es obligatoria")
+            raise ValidationError('La contraseña nueva es obligatoria', details={"fields": {'password_nueva': 'La contraseña nueva es obligatoria'}})
 
         if not es_primer_cambio:
-            user.cambiar_password(password_actual, password_nueva)
+            if not isinstance(password_actual, str) or not user.verificar_password(password_actual):
+                message = "La contraseña actual es incorrecta. Verifique este campo."
+                raise ValidationError(message, details={"fields": {"password_actual": message}})
+            user.set_password(password_nueva)
         else:
             user.set_password(password_nueva)
 
@@ -448,7 +549,7 @@ class AuthService:
         
         # Evitar que un admin se elimine a sí mismo
         if user_id == current_user_id:
-            raise Exception("No puede eliminar su propia cuenta")
+            raise ConflictError('No puede eliminar su propia cuenta')
         
         # Verificar que quede al menos un admin
         if user.rol.nombre == "ADMIN":
@@ -457,7 +558,7 @@ class AuthService:
                 Usuario.activo == True
             ).count()
             if admin_count <= 1:
-                raise Exception("Debe quedar al menos un administrador en el sistema")
+                raise ConflictError('Debe quedar al menos un administrador en el sistema')
 
         user.soft_delete(current_user_id)
         AuthService.revoke_user_refresh_tokens(user.id, "user_deleted")
@@ -478,7 +579,18 @@ class AuthService:
         return Usuario.query.filter(
             Usuario.activo == True,
             Usuario.deleted_at.is_(None)
-        ).all()
+        ).order_by(Usuario.id.asc()).all()
+
+    @staticmethod
+    def get_users_page(page: int, per_page: int, orden: str = "asc"):
+        query = Usuario.query.filter(
+            Usuario.activo.is_(True),
+            Usuario.deleted_at.is_(None),
+        )
+        total = query.count()
+        direction = Usuario.id.desc() if orden == "desc" else Usuario.id.asc()
+        users = query.order_by(direction).offset((page - 1) * per_page).limit(per_page).all()
+        return users, total
     
     @staticmethod
     def get_user_by_id(user_id: int, solo_activos: bool = False):
@@ -496,20 +608,20 @@ class AuthService:
         if requested_rol_id is not None:
             requested_rol = db.session.get(RolUsuario, requested_rol_id)
             if not requested_rol:
-                raise Exception("Rol invalido")
+                raise ValidationError('Seleccione un rol disponible.', details={"fields": {'rol_id': 'Seleccione un rol disponible.'}})
         elif requested_rol_name is not None:
             requested_rol = RolUsuario.query.filter_by(nombre=requested_rol_name).first()
             if not requested_rol:
-                raise Exception("Rol invalido")
+                raise ValidationError('Seleccione un rol disponible.', details={"fields": {'rol_id': 'Seleccione un rol disponible.'}})
 
         changes_role = requested_rol is not None and requested_rol.id != user.id_rol
         
         # Evitar que un admin se desactive a sí mismo
         if user_id == current_user_id and data.get("activo") == False:
-            raise Exception("No puede desactivar su propia cuenta")
+            raise ConflictError('No puede desactivar su propia cuenta')
 
         if user_id == current_user_id and changes_role:
-            raise Exception("No puede cambiar el rol de su propia cuenta")
+            raise ConflictError('No puede cambiar el rol de su propia cuenta')
         
         # Verificar que quede al menos un admin si se desactiva un admin
         should_check_last_admin = user.rol.nombre == "ADMIN" and (
@@ -522,7 +634,7 @@ class AuthService:
                 Usuario.activo == True
             ).count()
             if admin_count <= 1:
-                raise Exception("Debe quedar al menos un administrador en el sistema")
+                raise ConflictError('Debe quedar al menos un administrador en el sistema')
         
         # Actualizar campos permitidos
         if requested_rol is not None:
@@ -531,21 +643,21 @@ class AuthService:
         if "nombre_usuario" in data:
             nombre_usuario = (data["nombre_usuario"] or "").strip()
             if not nombre_usuario:
-                raise Exception("El nombre de usuario es obligatorio")
+                raise ValidationError('El nombre de usuario es obligatorio', details={"fields": {'nombre_usuario': 'El nombre de usuario es obligatorio'}})
 
             existing = Usuario.query.filter(
                 Usuario.nombre_usuario == nombre_usuario,
                 Usuario.id != user_id
             ).first()
             if existing:
-                raise Exception("El nombre de usuario ya esta en uso")
+                raise ConflictError('El nombre de usuario ya está en uso. Ingrese otro.', details={"fields": {'nombre_usuario': 'El nombre de usuario ya está en uso. Ingrese otro.'}})
 
             user.nombre_usuario = nombre_usuario
 
         if "mail" in data:
             mail = (data["mail"] or "").strip()
             if not mail:
-                raise Exception("El mail es obligatorio")
+                raise ValidationError('Ingrese el correo electrónico e intente nuevamente.', details={"fields": {'mail': 'Ingrese el correo electrónico.'}})
 
             # Verificar que el mail no exista
             existing = Usuario.query.filter(
@@ -553,7 +665,7 @@ class AuthService:
                 Usuario.id != user_id
             ).first()
             if existing:
-                raise Exception("El mail ya está en uso")
+                raise ConflictError('El correo electrónico ya está en uso. Ingrese otro.', details={"fields": {'mail': 'El correo electrónico ya está en uso. Ingrese otro.'}})
             user.mail = mail
         
         if "activo" in data:

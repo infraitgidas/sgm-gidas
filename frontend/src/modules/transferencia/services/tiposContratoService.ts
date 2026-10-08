@@ -19,12 +19,9 @@ export const TIPOS_CONTRATO_STATIC = [
 
 // ─── Helpers ─────────────────────────────────────────────────
 
-/** Devuelve `true` solo con el mock habilitado explicitamente en desarrollo. */
+/** El módulo usa siempre el backend para mantener coherentes catálogos y vínculos. */
 export function isMockMode(): boolean {
-  return (
-    import.meta.env.DEV &&
-    import.meta.env.VITE_ENABLE_TRANSFERENCIA_MOCK === "true"
-  );
+  return false;
 }
 
 // ─── API ─────────────────────────────────────────────────────

@@ -1,6 +1,8 @@
 from flask import jsonify, request, g
 from modules.recursos.services.equipamiento_service import EquipamientoService
-from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, parse_pagination_params
+from modules.shared.controllers.responses import exception_response, paginated_response
+from modules.shared.exceptions import ValidationError
 
 
 class EquipamientoController:
@@ -8,6 +10,16 @@ class EquipamientoController:
     @staticmethod
     def get_all():
         try:
+            if pagination_requested(request.args):
+                try:
+                    params = parse_pagination_params(request.args)
+                except ValueError as error:
+                    raise ValidationError(str(error)) from error
+                data, total = EquipamientoService.get_page(**params)
+                return paginated_response(
+                    data, params["page"], params["per_page"], total,
+                    meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"},
+                )
             activos = request.args.get("activos", "true")
             return jsonify(EquipamientoService.get_all(activos)), 200
         except Exception as error:

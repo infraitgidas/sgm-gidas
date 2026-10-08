@@ -28,6 +28,9 @@ npm run dev
 
 ## Arquitectura frontend
 
+El alcance de datos por UCT de la sesion, los contratos y el comportamiento
+de cache se describen en [Aislamiento de UCT](UCT_ISOLATION.md).
+
 El frontend se organiza como monolito modular bajo `src/modules`.
 
 Cada modulo contiene, cuando aplica:
@@ -59,6 +62,51 @@ Las implementaciones de dominio y sus imports residen directamente bajo
 Los componentes reutilizables globales permanecen en `src/components`, el layout
 global en `src/layouts`, el contexto de autenticacion en `src/context` y los
 estilos base en `src/styles`.
+
+El contrato transversal para adaptar homes, formularios, detalles e historiales
+se encuentra en [`CONVENCIONES_PANTALLAS.md`](CONVENCIONES_PANTALLAS.md). Incluye
+paginacion, filtros, acciones, permisos, estados, accesibilidad y la presentacion
+directa de eventos relacionales sin exponer IDs ni JSON.
+
+## Contrato de fechas y horas
+
+- Las fechas civiles recibidas como `YYYY-MM-DD` se parsean con
+  `src/utils/dateTime.ts` en calendario local, sin convertirlas a UTC.
+- Los formularios generan payloads de fecha civil desde sus componentes locales;
+  no deben usar `toISOString()` para campos SQL `Date`.
+- Los timestamps de API deben incluir `Z` u otro offset. El frontend los convierte
+  a la zona local del navegador para su presentacion.
+- El parser de timestamps conserva compatibilidad con respuestas antiguas sin
+  zona interpretandolas como UTC, que es la semantica con la que fueron creadas.
+- Los filtros de anio usan `getCivilYear` para evitar que `01/01` se atribuya al
+  anio anterior en zonas horarias negativas.
+
+## Tabla reutilizable (ISS-25)
+
+`src/components/Table.tsx` expone una tabla generica y controlada. El componente
+solo presenta datos y delega consultas, filtros, permisos, navegacion y acciones
+de dominio al modulo consumidor.
+
+API principal:
+
+- `TableColumn<T>` define `id`, encabezado y renderizador; admite alineacion,
+  prioridad responsive, ordenamiento y clases adicionales.
+- `TableProps<T>` recibe filas, `getRowId`, densidad `compact` o `comfortable`,
+  estados de carga/error/vacio, orden y paginacion controlados.
+- `expandedRowId`, `onToggleRow` y `renderExpanded` permiten contenido diferido
+  por fila sin almacenar estado dentro de la tabla.
+- `onRowClick` y `getRowTitle` hacen navegable una fila; los controles
+  interactivos internos no disparan la navegacion de la fila.
+- `refreshing` conserva las filas durante una recarga y comunica la actualizacion
+  mediante `aria-busy` y un estado accesible.
+- El slot `toolbar` acepta las primitivas exportadas `TableToolbar`,
+  `TableSearch`, `TableFilterChip`, `TableActions` y `TableActionButton`.
+
+La tabla incluye `caption`, encabezados con `scope` y `aria-sort`, expansion con
+`aria-expanded`, paginacion etiquetada, foco visible, soporte de teclado y
+transiciones que respetan `prefers-reduced-motion`. Las columnas `secondary` y
+`tertiary` se ocultan progresivamente y el contenedor admite desplazamiento
+horizontal.
 
 ## Variables de entorno
 

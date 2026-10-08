@@ -1,6 +1,13 @@
+from modules.memorias.services.memoria_periodo_service import (
+    consultar_entidades_memoria, fin_vigencia, relacion_vigente_en_memoria,
+)
 import builtins
+import math
 from datetime import datetime
 from extension import db
+from sqlalchemy import Integer, cast, func, text
+from sqlalchemy.orm import joinedload, selectinload
+from modules.shared.services.text_validation import has_letter, has_only_letters_and_spaces
 
 from modules.transferencia.models.transferencia_socio import (
     Adoptante,
@@ -12,11 +19,77 @@ from modules.transferencia.models.transferencia_socio import (
 )
 from modules.grupo.models.grupo import GrupoInvestigacionUtn
 from modules.shared.services.auditoria_service import AuditoriaService
+from modules.shared.services.date_time import INSTITUTIONAL_MIN_DATE
 from modules.memorias.services.memoria_periodo_service import estuvo_activo_en_periodo_memoria
 from modules.shared.exceptions import ConflictError, NotFoundError, ValidationError as ValueError
+from modules.shared.controllers.pagination import table_query_page, table_scope_predicate
 
 
 class TransferenciaSocioProductivaService:
+
+    @staticmethod
+    def _resolver_adoptantes(data):
+        if "adoptantes_ids" not in data and "adoptantes_nuevos" not in data:
+            return None
+        ids = data.get("adoptantes_ids", [])
+        nombres = data.get("adoptantes_nuevos", [])
+        if not isinstance(ids, list) or not isinstance(nombres, list):
+            raise ValueError("Revise los adoptantes e intente nuevamente.", details={"fields": {"adoptantes_ids": "Revise los adoptantes seleccionados."}})
+        if any(isinstance(item, bool) or not isinstance(item, int) or item <= 0 for item in ids) or len(ids) != len(set(ids)):
+            raise ValueError("Revise los adoptantes e intente nuevamente.", details={"fields": {"adoptantes_ids": "Seleccione adoptantes válidos sin repetir."}})
+        limpios = []
+        for nombre in nombres:
+            if not isinstance(nombre, str) or not has_only_letters_and_spaces(nombre):
+                raise ValueError("Revise los adoptantes e intente nuevamente.", details={"fields": {"adoptantes_ids": "Ingrese nombres de adoptantes con letras y espacios."}})
+            limpio = " ".join(nombre.split())
+            if not limpio:
+                raise ValueError("Revise los adoptantes e intente nuevamente.", details={"fields": {"adoptantes_ids": "Ingrese el nombre del adoptante."}})
+            limpios.append(limpio)
+        if len({nombre.casefold() for nombre in limpios}) != len(limpios):
+            raise ValueError("Revise los adoptantes e intente nuevamente.", details={"fields": {"adoptantes_ids": "No repita adoptantes nuevos."}})
+        existentes = db.session.query(Adoptante).filter(Adoptante.id.in_(ids), Adoptante.deleted_at.is_(None)).all() if ids else []
+        if len(existentes) != len(ids):
+            raise ValueError("Revise los adoptantes e intente nuevamente.", details={"fields": {"adoptantes_ids": "Un adoptante ya no está disponible. Recargue el formulario."}})
+        for nombre in limpios:
+            if db.session.query(Adoptante).filter(func.lower(Adoptante.nombre) == nombre.lower(), Adoptante.deleted_at.is_(None)).first():
+                raise ValueError("Revise los adoptantes e intente nuevamente.", details={"fields": {"adoptantes_ids": f"{nombre} ya existe. Selecciónelo de la lista."}})
+        return existentes, limpios
+
+    @staticmethod
+    def _sincronizar_adoptantes(transferencia, seleccion, user_id):
+        if seleccion is None:
+            return False
+        existentes, nombres = seleccion
+        adoptantes = list(existentes)
+        for nombre in nombres:
+            adoptante = Adoptante(nombre=nombre, created_by=user_id)
+            db.session.add(adoptante)
+            db.session.flush()
+            adoptantes.append(adoptante)
+        actuales = {item.adoptante_id: item for item in transferencia.participaciones if item.deleted_at is None}
+        nuevos_ids = {item.id for item in adoptantes}
+        hubo_cambios = False
+        for adoptante_id, participacion in actuales.items():
+            if adoptante_id not in nuevos_ids:
+                participacion.soft_delete(user_id)
+                hubo_cambios = True
+                AuditoriaService.registrar_evento_relacion(
+                    entidad="transferencia_socio_productiva", registro_id=transferencia.id,
+                    relacion="adoptantes", accion="desvincular",
+                    detalle={"adoptante_id": adoptante_id, "nombre": participacion.adoptante.nombre}, user_id=user_id,
+                )
+        for adoptante in adoptantes:
+            if adoptante.id in actuales:
+                continue
+            participacion = AdoptanteTransferencia(transferencia=transferencia, adoptante=adoptante, created_by=user_id)
+            db.session.add(participacion)
+            hubo_cambios = True
+            AuditoriaService.registrar_evento_relacion(
+                entidad="transferencia_socio_productiva", registro_id=transferencia.id,
+                relacion="adoptantes", accion="vincular",
+                detalle={"adoptante_id": adoptante.id, "nombre": adoptante.nombre}, user_id=user_id,
+            )
+        return hubo_cambios
 
     # =================================================
     # VALIDADORES
@@ -24,21 +97,16 @@ class TransferenciaSocioProductivaService:
 
     @staticmethod
     def _validar_texto(valor, campo, min_len=3):
-        if valor is None:
-            raise ValueError(f"El campo '{campo}' es obligatorio")
-
-        if not isinstance(valor, str):
-            raise ValueError(f"El campo '{campo}' debe ser texto")
+        labels = {"denominacion": "la denominación", "demandante": "el demandante", "descripcion_actividad": "la descripción de la actividad"}
+        label = labels.get(campo, "este dato")
+        if not isinstance(valor, str) or not valor.strip():
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {campo: f"Ingrese {label}."}})
+        if campo in {"denominacion", "demandante"} and not has_letter(valor):
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {campo: f"{label.capitalize()} debe contener letras."}})
 
         valor = valor.strip()
-
-        if not valor:
-            raise ValueError(f"El campo '{campo}' no puede estar vacío")
-
         if len(valor) < min_len:
-            raise ValueError(
-                f"El campo '{campo}' debe tener al menos {min_len} caracteres"
-            )
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {campo: f"Use al menos {min_len} caracteres para {label}."}})
 
         return valor
 
@@ -48,12 +116,22 @@ class TransferenciaSocioProductivaService:
         try:
             monto = float(monto)
         except (TypeError, builtins.ValueError):
-            raise ValueError("El monto debe ser numérico")
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"monto": "Ingrese un monto numérico válido."}})
 
-        if monto <= 0:
-            raise ValueError("El monto debe ser mayor a 0")
+        if not math.isfinite(monto) or monto <= 0:
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"monto": "Ingrese un monto mayor que cero."}})
 
         return monto
+
+    @staticmethod
+    def _validar_fecha(valor, campo):
+        try:
+            fecha = datetime.strptime(valor, "%Y-%m-%d").date()
+        except (TypeError, builtins.ValueError):
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {campo: "Ingrese una fecha válida."}})
+        if fecha < INSTITUTIONAL_MIN_DATE:
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {campo: "Ingrese una fecha desde el 01/01/2010."}})
+        return fecha
 
 
     # =================================================
@@ -61,8 +139,13 @@ class TransferenciaSocioProductivaService:
     # =================================================
 
     @staticmethod
-    def get_all(filters: dict = None):
-        query = db.session.query(TransferenciaSocioProductiva)
+    def _list_query(filters: dict = None):
+        query = db.session.query(TransferenciaSocioProductiva).options(
+            selectinload(TransferenciaSocioProductiva.participaciones)
+            .joinedload(AdoptanteTransferencia.adoptante),
+            joinedload(TransferenciaSocioProductiva.tipo_contrato_transferencia),
+            joinedload(TransferenciaSocioProductiva.grupo_utn).lazyload("*"),
+        )
         filters = filters or {}
 
         activos = filters.get("activos", "true")
@@ -88,7 +171,42 @@ class TransferenciaSocioProductivaService:
                 TransferenciaSocioProductiva.tipo_contrato_id == filters["tipo_contrato_id"]
             )
 
-        return [t.serialize() for t in query.all()]
+        return query.order_by(TransferenciaSocioProductiva.id.asc())
+
+    @staticmethod
+    def get_all(filters: dict = None):
+        return [t.serialize() for t in TransferenciaSocioProductivaService._list_query(filters).all()]
+
+    @staticmethod
+    def get_page(filters: dict, page: int, per_page: int, orden: str = "asc"):
+        query = TransferenciaSocioProductivaService._list_query(filters)
+        if orden == "desc":
+            query = query.order_by(None).order_by(TransferenciaSocioProductiva.id.desc())
+        total = query.count()
+        rows = query.offset((page - 1) * per_page).limit(per_page).all()
+        return [row.serialize() for row in rows], total
+
+    @staticmethod
+    def get_table_page(filters, args):
+        query = TransferenciaSocioProductivaService._list_query(filters).outerjoin(
+            TransferenciaSocioProductiva.tipo_contrato_transferencia,
+        ).outerjoin(TransferenciaSocioProductiva.grupo_utn)
+        fields = {"denominacion": TransferenciaSocioProductiva.denominacion,
+                  "numero": TransferenciaSocioProductiva.numero_transferencia,
+                  "demandante": TransferenciaSocioProductiva.demandante,
+                  "descripcion": TransferenciaSocioProductiva.descripcion_actividad,
+                  "tipo": TipoContrato.nombre, "grupo": GrupoInvestigacionUtn.nombre_sigla_grupo,
+                  "anio": cast(func.extract("year", TransferenciaSocioProductiva.fecha_inicio), Integer)}
+        return table_query_page(query, TransferenciaSocioProductiva, args, fields,
+                                default_sort="denominacion",
+                                searchable=("numero", "denominacion", "demandante", "descripcion", "tipo", "grupo"),
+                                facets=("tipo", "grupo", "anio"),
+                                extra_search=lambda term: TransferenciaSocioProductiva.participaciones.any(
+                                    (AdoptanteTransferencia.deleted_at.is_(None)) &
+                                    table_scope_predicate(AdoptanteTransferencia) &
+                                    AdoptanteTransferencia.adoptante.has(
+                                        table_scope_predicate(Adoptante) &
+                                        func.lower(Adoptante.nombre).contains(term, autoescape=True))))
 
 
     # =================================================
@@ -130,10 +248,10 @@ class TransferenciaSocioProductivaService:
 
     @staticmethod
     def create(data: dict, user_id: int):
+        if not isinstance(data, dict) or not data:
+            raise ValueError("Envíe los datos de la transferencia e intente nuevamente.")
 
-        numero_transferencia = data.get("numero_transferencia")
-        if not isinstance(numero_transferencia, int) or numero_transferencia <= 0:
-            raise ValueError("El número de transferencia debe ser un entero positivo")
+        seleccion_adoptantes = TransferenciaSocioProductivaService._resolver_adoptantes(data)
 
         denominacion = TransferenciaSocioProductivaService._validar_texto(
             data.get("denominacion"), "denominacion"
@@ -153,32 +271,34 @@ class TransferenciaSocioProductivaService:
             data.get("monto")
         )
 
-        fecha_inicio = datetime.strptime(
-            data["fecha_inicio"],
-            "%Y-%m-%d"
-        ).date()
+        fecha_inicio = TransferenciaSocioProductivaService._validar_fecha(data.get("fecha_inicio"), "fecha_inicio")
 
         fecha_fin = None
         if data.get("fecha_fin"):
-            fecha_fin = datetime.strptime(
-                data["fecha_fin"],
-                "%Y-%m-%d"
-            ).date()
+            fecha_fin = TransferenciaSocioProductivaService._validar_fecha(data["fecha_fin"], "fecha_fin")
 
             if fecha_fin < fecha_inicio:
-                raise ValueError("La fecha_fin no puede ser anterior a fecha_inicio")
+                raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"fecha_fin": "Ingrese una fecha de fin igual o posterior al inicio."}})
 
         # Validar relaciones
         tipo_contrato_id = data.get("tipo_contrato_id")
-        if not tipo_contrato_id or not TipoContrato.query.get(tipo_contrato_id):
-            raise ValueError("Tipo de contrato inválido")
+        if isinstance(tipo_contrato_id, bool) or not isinstance(tipo_contrato_id, int) or tipo_contrato_id <= 0:
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"tipo_contrato_id": "Seleccione un tipo de contrato disponible."}})
+        tipo_contrato = db.session.get(TipoContrato, tipo_contrato_id) if tipo_contrato_id else None
+        if not tipo_contrato or tipo_contrato.deleted_at is not None:
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"tipo_contrato_id": "Seleccione un tipo de contrato disponible."}})
 
         grupo_utn_id = data.get("grupo_utn_id")
-        if not grupo_utn_id or not GrupoInvestigacionUtn.query.get(grupo_utn_id):
-            raise ValueError("Grupo UTN inválido")
+        if not grupo_utn_id or not db.session.get(GrupoInvestigacionUtn, grupo_utn_id):
+            raise ValueError("El grupo ya no está disponible. Recargue el formulario e intente nuevamente.")
+
+        # Serializa la asignación en PostgreSQL y conserva los números históricos.
+        if db.session.get_bind().dialect.name == "postgresql":
+            db.session.execute(text("SELECT pg_advisory_xact_lock(71930451)"))
+        siguiente_numero = (db.session.query(func.max(TransferenciaSocioProductiva.numero_transferencia)).scalar() or 0) + 1
 
         transferencia = TransferenciaSocioProductiva(
-            numero_transferencia=numero_transferencia,
+            numero_transferencia=siguiente_numero,
             denominacion=denominacion,
             demandante=demandante,
             descripcion_actividad=descripcion_actividad,
@@ -191,6 +311,8 @@ class TransferenciaSocioProductivaService:
         )
 
         db.session.add(transferencia)
+        db.session.flush()
+        TransferenciaSocioProductivaService._sincronizar_adoptantes(transferencia, seleccion_adoptantes, user_id)
         db.session.commit()
 
         return transferencia.serialize()
@@ -202,6 +324,8 @@ class TransferenciaSocioProductivaService:
 
     @staticmethod
     def update(transferencia_id, data: dict, user_id: int):
+
+        seleccion_adoptantes = TransferenciaSocioProductivaService._resolver_adoptantes(data)
 
         transferencia = db.session.get(
             TransferenciaSocioProductiva,
@@ -266,11 +390,20 @@ class TransferenciaSocioProductivaService:
                 cambios["monto"] = cambio
                 transferencia.monto = nuevo_valor
 
+        if "tipo_contrato_id" in data:
+            tipo_id = data["tipo_contrato_id"]
+            if isinstance(tipo_id, bool) or not isinstance(tipo_id, int) or tipo_id <= 0:
+                raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"tipo_contrato_id": "Seleccione un tipo de contrato disponible."}})
+            tipo = db.session.get(TipoContrato, tipo_id)
+            if not tipo or tipo.deleted_at is not None:
+                raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"tipo_contrato_id": "Seleccione un tipo de contrato disponible."}})
+            cambio = AuditoriaService.construir_cambio(transferencia.tipo_contrato_id, tipo.id)
+            if cambio:
+                cambios["tipo_contrato_id"] = cambio
+                transferencia.tipo_contrato_id = tipo.id
+
         if "fecha_inicio" in data:
-            nuevo_valor = datetime.strptime(
-                data["fecha_inicio"],
-                "%Y-%m-%d"
-            ).date()
+            nuevo_valor = TransferenciaSocioProductivaService._validar_fecha(data["fecha_inicio"], "fecha_inicio")
             cambio = AuditoriaService.construir_cambio(
                 transferencia.fecha_inicio,
                 nuevo_valor
@@ -281,7 +414,7 @@ class TransferenciaSocioProductivaService:
 
         if "fecha_fin" in data:
             nuevo_valor = (
-                datetime.strptime(data["fecha_fin"], "%Y-%m-%d").date()
+                TransferenciaSocioProductivaService._validar_fecha(data["fecha_fin"], "fecha_fin")
                 if data["fecha_fin"] else None
             )
             cambio = AuditoriaService.construir_cambio(
@@ -292,8 +425,16 @@ class TransferenciaSocioProductivaService:
                 cambios["fecha_fin"] = cambio
                 transferencia.fecha_fin = nuevo_valor
 
-        if cambios:
+        if (
+            transferencia.fecha_fin
+            and transferencia.fecha_fin < transferencia.fecha_inicio
+        ):
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"fecha_fin": "Ingrese una fecha de fin igual o posterior al inicio."}})
+
+        hubo_relaciones = TransferenciaSocioProductivaService._sincronizar_adoptantes(transferencia, seleccion_adoptantes, user_id)
+        if cambios or hubo_relaciones:
             transferencia.mark_updated(user_id)
+        if cambios:
             AuditoriaService.registrar_cambios(
                 entidad="transferencia_socio_productiva",
                 registro_id=transferencia.id,
@@ -361,7 +502,7 @@ class TransferenciaSocioProductivaService:
     def add_adoptantes(transferencia_id: int, adoptantes_ids: list[int], user_id: int):
 
         if not isinstance(adoptantes_ids, list) or not adoptantes_ids:
-            raise ValueError("adoptantes_ids debe ser una lista no vacía")
+            raise ValueError("Seleccione al menos un adoptante.", details={"fields": {"adoptantes_ids": "Seleccione al menos un adoptante"}})
 
         transferencia = db.session.get(
             TransferenciaSocioProductiva,
@@ -381,7 +522,7 @@ class TransferenciaSocioProductivaService:
         )
 
         if len(adoptantes) != len(adoptantes_ids):
-            raise NotFoundError("Uno o más adoptantes no existen o están eliminados")
+            raise NotFoundError("Uno o más adoptantes ya no están disponibles", details={"fields": {"adoptantes_ids": "Quite los adoptantes no disponibles y vuelva a intentar"}})
 
         hubo_cambios = False
         for adoptante in adoptantes:
@@ -431,7 +572,7 @@ class TransferenciaSocioProductivaService:
     def remove_adoptantes(transferencia_id: int, adoptantes_ids: list[int], user_id: int):
 
         if not isinstance(adoptantes_ids, list) or not adoptantes_ids:
-            raise ValueError("adoptantes_ids debe ser una lista no vacía")
+            raise ValueError("Seleccione al menos un adoptante.", details={"fields": {"adoptantes_ids": "Seleccione al menos un adoptante"}})
 
         transferencia = db.session.get(
             TransferenciaSocioProductiva,
@@ -475,15 +616,14 @@ class TransferenciaSocioProductivaService:
 
     @staticmethod
     def snapshot_para_memoria_version(memoria_version, user_id):
-        transferencias = TransferenciaSocioProductiva.query.filter().all()
+        transferencias = consultar_entidades_memoria(TransferenciaSocioProductiva, memoria_version)
 
         snapshots = []
         for transferencia in transferencias:
             if not estuvo_activo_en_periodo_memoria(
                 memoria_version,
                 transferencia.fecha_inicio,
-                getattr(transferencia, "fecha_fin", None)
-                or getattr(transferencia, "deleted_at", None)
+                fin_vigencia(transferencia)
             ):
                 continue
             snapshot = TransferenciaSocioProductivaMemoriaVersion(
@@ -509,12 +649,11 @@ class TransferenciaSocioProductivaService:
                 created_by=user_id
             )
             db.session.add(snapshot)
-            db.session.flush()
 
             for participacion in transferencia.participaciones:
-                if participacion.deleted_at is not None or participacion.adoptante is None:
+                if not relacion_vigente_en_memoria(memoria_version, participacion) or participacion.adoptante is None:
                     continue
-                if getattr(participacion.adoptante, "deleted_at", None) is not None:
+                if not relacion_vigente_en_memoria(memoria_version, participacion.adoptante):
                     continue
 
                 participacion_snapshot = AdoptanteTransferenciaMemoriaVersion(

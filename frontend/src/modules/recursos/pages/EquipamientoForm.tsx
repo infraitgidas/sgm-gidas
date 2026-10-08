@@ -1,6 +1,10 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { applyFieldErrors } from "@/lib/httpError";
+import { hasLetter } from "../../../lib/textValidation";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Button from "@/components/Button";
+import DraftLeaveControls from "@/modules/shared/components/DraftLeaveControls";
 import DatePicker from "@/components/Calendar";
 import Field from "@/components/Field";
 import React, { useState, useEffect } from "react";
@@ -13,12 +17,22 @@ import {
   type EquipamientoPayload,
 } from "@/modules/recursos/services/equipamientoServices";
 import { useUctGuard } from "@/modules/grupo/hooks/useUctGuard";
+import {
+  EQUIPAMIENTO_MIN_FECHA_INCORPORACION,
+  getLocalIsoDate,
+  validateFechaIncorporacion,
+} from "@/modules/recursos/utils/equipamientoValidation";
+import { parseCivilDate, toCivilDateString } from "@/utils/dateTime";
+import { useAuth } from "@/context/AuthContext";
+import { useFormDraft } from "@/modules/shared/hooks/useFormDraft";
+import DraftRecoveryNotice from "@/modules/shared/components/DraftRecoveryNotice";
 
 export default function EquipamientoForm() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { uct, uctGuard } = useUctGuard();
+  const { user } = useAuth();
 
   const isEdit = Boolean(id);
 
@@ -42,19 +56,24 @@ export default function EquipamientoForm() {
   useEffect(() => {
     if (!initial) return;
 
-    const formattedDate = initial.fecha_incorporacion
-      ? new Date(`${initial.fecha_incorporacion}T00:00:00`)
-          .toISOString()
-          .split("T")[0]
-      : "";
-
     setData({
       denominacion: initial.denominacion ?? "",
       descripcion_breve: initial.descripcion_breve ?? "",
       monto_invertido: initial.monto_invertido ?? undefined,
-      fecha_incorporacion: formattedDate,
+      fecha_incorporacion: initial.fecha_incorporacion ?? "",
     });
   }, [initial]);
+
+  const { availableDraft, sourceChanged, restoreDraft, discardDraft, clearDraft, saveStatus, blocker, requestLeave, keepAndLeave, discardAndLeave } = useFormDraft({
+    userId: user?.id,
+    module: "recursos-equipamiento",
+    recordId: id,
+    value: data,
+    ready: !isEdit || (!isLoading && Boolean(initial)),
+    autosave: false,
+    hasContent: (draft) => Boolean(draft.denominacion || draft.descripcion_breve || draft.fecha_incorporacion || draft.monto_invertido),
+    onRestore: setData,
+  });
 
   const clearError = (field: string) => {
     setErrors((prev) => {
@@ -68,16 +87,17 @@ export default function EquipamientoForm() {
     const newErrors: Record<string, string> = {};
 
     if (!data.denominacion.trim()) {
-      newErrors.denominacion = "La denominacion es obligatoria";
+      newErrors.denominacion = "La denominación es obligatoria";
+    } else if (!hasLetter(data.denominacion)) {
+      newErrors.denominacion = "La denominación debe contener letras";
     }
 
     if (!data.descripcion_breve.trim()) {
-      newErrors.descripcion = "La descripcion es obligatoria";
+      newErrors.descripcion = "La descripción es obligatoria";
     }
 
-    if (!data.fecha_incorporacion) {
-      newErrors.fecha_incorporacion = "La fecha es obligatoria";
-    }
+    const fechaError = validateFechaIncorporacion(data.fecha_incorporacion);
+    if (fechaError) newErrors.fecha_incorporacion = fechaError;
 
     if (
       data.monto_invertido === undefined ||
@@ -97,6 +117,7 @@ export default function EquipamientoForm() {
         ? updateEquipamiento(Number(id), payload)
         : createEquipamiento(payload as EquipamientoPayload),
     onSuccess: async (saved) => {
+      clearDraft();
       const equipamientoId = isEdit ? Number(id) : saved.id;
 
       await qc.invalidateQueries({ queryKey: ["equipamiento"] });
@@ -109,28 +130,19 @@ export default function EquipamientoForm() {
         replace: true,
         state: {
           successMessage: isEdit
-            ? "Equipamiento actualizado con exito."
-            : "Equipamiento creado con exito.",
+            ? "Equipamiento actualizado con éxito."
+            : "Equipamiento creado con éxito.",
         },
       });
     },
     onError: (error) => {
+      if (applyFieldErrors(error, setErrors, ["denominacion","descripcion","fecha_incorporacion","monto"])) return;
       const backendMessage = getErrorMessage(
         error,
-        "Lo sentimos, no pudimos guardar los cambios. Verifique los datos e intente nuevamente."
+        isEdit
+          ? "Lo sentimos, no pudimos actualizar el equipamiento. Revise los datos e intente nuevamente."
+          : "Lo sentimos, no pudimos crear el equipamiento. Revise los datos e intente nuevamente."
       );
-      const lowerMessage = backendMessage.toLowerCase();
-
-      if (lowerMessage.includes("denominacion")) {
-        setErrors((prev) => ({ ...prev, denominacion: backendMessage }));
-      } else if (lowerMessage.includes("descripcion")) {
-        setErrors((prev) => ({ ...prev, descripcion: backendMessage }));
-      } else if (lowerMessage.includes("monto")) {
-        setErrors((prev) => ({ ...prev, monto: backendMessage }));
-      } else if (lowerMessage.includes("fecha")) {
-        setErrors((prev) => ({ ...prev, fecha_incorporacion: backendMessage }));
-      }
-
       setErrorMessage(backendMessage);
       setShowError(true);
     },
@@ -138,6 +150,7 @@ export default function EquipamientoForm() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isPending) return;
     if (!uct) return;
     if (!validate()) return;
 
@@ -169,6 +182,7 @@ export default function EquipamientoForm() {
     );
 
     if (Object.keys(changedPayload).length === 0) {
+      clearDraft();
       navigate(`/equipamiento/${id}`, {
         replace: true,
         state: {
@@ -181,7 +195,9 @@ export default function EquipamientoForm() {
     await mutateAsync(changedPayload);
   };
 
-  if (isLoading) return <p className="text-slate-500">Cargando...</p>;
+  if (isLoading) return <LoadingSkeleton variant="form" label="Cargando..." />;
+
+  const maxFechaIncorporacion = getLocalIsoDate();
 
   const inputClass = (field: string) =>
     `input ${errors[field] ? "!border-red-500 !ring-2 !ring-red-500" : ""}`;
@@ -192,12 +208,15 @@ export default function EquipamientoForm() {
         {isEdit ? "Editar equipamiento" : "Nuevo equipamiento"}
       </h2>
 
+      {availableDraft && <DraftRecoveryNotice savedAt={availableDraft.saved_at} sourceChanged={sourceChanged} onRestore={restoreDraft} onDiscard={discardDraft} />}
+      <DraftLeaveControls blocker={blocker} saveStatus={saveStatus} keepAndLeave={keepAndLeave} discardAndLeave={discardAndLeave} />
+
       <form
         noValidate
         onSubmit={submit}
         className="mt-6 space-y-6 rounded-2xl border border-slate-200 bg-white p-6"
       >
-        <Field label="Denominacion">
+        <Field required label="Denominación" name="denominacion" error={errors.denominacion}>
           <>
             <input
               className={inputClass("denominacion")}
@@ -217,7 +236,7 @@ export default function EquipamientoForm() {
           </>
         </Field>
 
-        <Field label="Descripcion breve">
+        <Field required label="Descripción breve" name="descripcion" error={errors.descripcion}>
           <>
             <input
               className={inputClass("descripcion")}
@@ -237,7 +256,7 @@ export default function EquipamientoForm() {
           </>
         </Field>
 
-        <Field label="Monto invertido">
+        <Field required label="Monto invertido" name="monto" error={errors.monto}>
           <>
             <input
               type="number"
@@ -263,22 +282,24 @@ export default function EquipamientoForm() {
           </>
         </Field>
 
-        <Field label="Fecha de incorporacion">
+        <Field required label="Fecha de incorporación" name="fecha_incorporacion" error={errors.fecha_incorporacion}>
           <DatePicker
             value={
               data.fecha_incorporacion
                 ? new Date(`${data.fecha_incorporacion}T00:00:00`)
                 : null
             }
+            minDate={parseCivilDate(EQUIPAMIENTO_MIN_FECHA_INCORPORACION) ?? undefined}
+            maxDate={parseCivilDate(maxFechaIncorporacion) ?? undefined}
             onChange={(dt) => {
               setData((d) => ({
                 ...d,
-                fecha_incorporacion: dt ? dt.toISOString().split("T")[0] : "",
+                fecha_incorporacion: toCivilDateString(dt) ?? "",
               }));
 
               if (dt) clearError("fecha_incorporacion");
             }}
-            helperText={errors.fecha_incorporacion ?? "DD/MM/AAAA"}
+            helperText="Ingrese una fecha entre el 01/01/2010 y la fecha actual"
             className={inputClass("fecha_incorporacion")}
           />
         </Field>
@@ -288,12 +309,12 @@ export default function EquipamientoForm() {
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => navigate(-1)}
+            onClick={() => requestLeave(() => navigate(-1))}
           >
             Volver
           </Button>
 
-          <Button type="submit" size="sm" disabled={isPending || !uct}>
+          <Button type="submit" size="sm" disabled={isPending || !uct} loading={isPending} loadingText="Guardando...">
             {isPending
               ? isEdit
                 ? "Actualizando..."

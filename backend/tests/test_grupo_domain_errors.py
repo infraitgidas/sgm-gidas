@@ -3,12 +3,34 @@ from unittest.mock import patch
 
 from app import create_app
 from modules.shared.exceptions import ValidationError
+from modules.grupo.services.grupo_service import crear_grupo_utn
+from modules.grupo.services.programa_actividades_service import _validar_anio, _validar_descripcion
 
 
 class GrupoDomainErrorsTestCase(unittest.TestCase):
 
+    def test_uct_identifica_el_campo_obligatorio_antes_de_persistir(self):
+        with self.app.app_context(), patch("modules.grupo.services.grupo_service.GrupoInvestigacionUtn.query") as query, patch("modules.grupo.services.grupo_service.db.session.add") as add:
+            query.filter.return_value.first.return_value = None
+            with self.assertRaises(ValidationError) as caught:
+                crear_grupo_utn({}, 1)
+            add.assert_not_called()
+            self.assertEqual(caught.exception.details, {})
+
+            with self.assertRaises(ValidationError) as caught:
+                crear_grupo_utn({"nombre_unidad_academica": ""}, 1)
+            self.assertIn("nombre_unidad_academica", caught.exception.details["fields"])
+            add.assert_not_called()
+
+    def test_planificacion_identifica_descripcion_y_anio(self):
+        for validate, value, field in ((_validar_descripcion, "", "descripcion"), (_validar_anio, 1999, "anio")):
+            with self.subTest(field=field), self.assertRaises(ValidationError) as caught:
+                validate(value)
+            self.assertIn(field, caught.exception.details["fields"])
+
     def setUp(self):
-        self.app = create_app()
+        with patch("app.register_tenant_request_scope"):
+            self.app = create_app()
         self.app.testing = True
         self.client = self.app.test_client()
 
@@ -21,6 +43,19 @@ class GrupoDomainErrorsTestCase(unittest.TestCase):
             "modules.shared.services.middleware.AuthService.verify_token",
             return_value={"sub": "7", "rol": rol},
         )
+
+    def test_opciones_uct_respeta_roles_y_contrato(self):
+        for rol, status in (("ADMIN", 200), ("GESTOR", 200), ("LECTURA", 200), ("LECTOR", 403)):
+            with self.subTest(rol=rol), self._auth(rol), patch(
+                "modules.grupo.controllers.grupo_controller.listar_grupos_utn_activos",
+                return_value=[{"id": 3, "nombre": "GIDAS"}],
+            ):
+                response = self.client.get(
+                    "/api/v1/grupo/grupo-utn/opciones", headers=self._headers()
+                )
+            self.assertEqual(response.status_code, status)
+            if status == 200:
+                self.assertEqual(response.get_json(), [{"id": 3, "nombre": "GIDAS"}])
 
     def test_cargo_expone_validacion_tipificada(self):
         with self._auth(), patch(
@@ -59,6 +94,20 @@ class GrupoDomainErrorsTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.get_json()["error"]["code"], "NOT_FOUND")
+
+    def test_historial_grupo_respeta_roles_y_contrato(self):
+        for rol, status in (("ADMIN", 200), ("GESTOR", 200), ("LECTURA", 200), ("LECTOR", 403)):
+            with self.subTest(rol=rol), self._auth(rol), patch(
+                "modules.grupo.controllers.grupo_controller.obtener_historial_grupo_utn",
+                return_value=[{"id": 1, "campo": "mail"}],
+            ):
+                response = self.client.get(
+                    "/api/v1/grupo/grupo-utn/3/historial",
+                    headers=self._headers(),
+                )
+            self.assertEqual(response.status_code, status)
+            if status == 200:
+                self.assertEqual(response.get_json(), [{"id": 1, "campo": "mail"}])
 
 
 if __name__ == "__main__":

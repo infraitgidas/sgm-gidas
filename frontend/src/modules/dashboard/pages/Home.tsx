@@ -4,10 +4,13 @@ import { useUct } from "@/modules/grupo/hooks/useUct";
 import { useDirectivos } from "@/modules/grupo/hooks/useDirectivos";
 import { useDashboardResumen } from "@/modules/dashboard/hooks/useDashboardGeneral";
 import Button from "@/components/Button";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import SuccessToast from "@/components/SuccessToast";
 import { useAuth } from "@/context/AuthContext";
 import DirectivosHistoryPopover from "@/modules/grupo/components/DirectivosHistoryPopover";
+import BecasVencimientoModal from "@/modules/recursos/components/BecasVencimientoModal";
+import { buscarDirectivoPorCargo } from "@/modules/grupo/utils/directivoCargo";
 import { ArrowUp } from "lucide-react";
 import { getErrorMessage } from "@/lib/httpError";
 import {
@@ -24,14 +27,8 @@ import {
   Legend,
 } from "recharts";
 
-const CHART_COLORS = [
-  "#2563eb",
-  "#10b981",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
-  "#06b6d4",
-];
+const DASHBOARD_COLORS = ["#F86262", "#EE63F8", "#F962C2", "#A162F9", "#8E90FB"] as const;
+type DashboardColor = (typeof DASHBOARD_COLORS)[number];
 
 function scrollToPageTop() {
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -61,8 +58,8 @@ export default function Home() {
     isError: dashboardError,
   } = useDashboardResumen({ anios: 5 });
 
-  const director = directivos.find((d) => d.cargo === "Director");
-  const vicedirector = directivos.find((d) => d.cargo === "Vicedirector");
+  const director = buscarDirectivoPorCargo(directivos, "Director");
+  const vicedirector = buscarDirectivoPorCargo(directivos, "Vicedirector");
   const canEditUct = isAdmin() || isGestor();
   const canDeleteUct = isAdmin();
 
@@ -82,9 +79,7 @@ export default function Home() {
 
   if (isLoading) {
     return (
-      <div className="grid place-items-center min-h-[60vh] text-slate-500">
-        Cargando configuración…
-      </div>
+      <LoadingSkeleton label="Cargando configuración…" />
     );
   }
 
@@ -92,7 +87,7 @@ export default function Home() {
     return (
       <div className="grid place-items-center min-h-[60vh] text-center space-y-4">
         <p className="text-slate-600">
-          Lo sentimos, no pudimos recuperar la informacion. Intente nuevamente.
+          Lo sentimos, no pudimos recuperar la información. Intente nuevamente.
         </p>
       </div>
     );
@@ -141,6 +136,7 @@ export default function Home() {
 
   return (
     <>
+      <BecasVencimientoModal />
       <section className="space-y-8">
         <div className="flex items-center justify-between border-b border-slate-200 pb-4">
           <div>
@@ -160,7 +156,7 @@ export default function Home() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => navigate("/uct/nueva")}
+                  onClick={() => navigate("/uct/editar")}
                 >
                   Editar
                 </Button>
@@ -194,7 +190,7 @@ export default function Home() {
                   </p>
                 </div>
 
-                <Button size="sm" onClick={() => navigate("/uct/nueva")}>
+                <Button size="sm" onClick={() => navigate("/uct/editar")}>
                   Cargar directivos
                 </Button>
               </div>
@@ -232,9 +228,7 @@ export default function Home() {
               </div>
 
               {dashboardLoading && (
-                <div className="rounded-3xl border border-slate-200 bg-white p-8 text-slate-500 shadow-sm">
-                  Cargando métricas…
-                </div>
+                <LoadingSkeleton variant="table" label="Cargando métricas…" />
               )}
 
               {dashboardError && (
@@ -250,31 +244,31 @@ export default function Home() {
                       title="Total proyectos"
                       value={dashboard.resumen.total_proyectos}
                       subtitle="Proyectos del período"
-                      accent="blue"
+                      accent={DASHBOARD_COLORS[0]}
                     />
                     <KpiCard
                       title="Proyectos activos"
                       value={dashboard.resumen.proyectos_activos}
                       subtitle="Activos en el período"
-                      accent="violet"
+                      accent={DASHBOARD_COLORS[1]}
                     />
                     <KpiCard
                       title="Investigadores"
                       value={dashboard.resumen.total_investigadores}
                       subtitle="Total registrados"
-                      accent="emerald"
+                      accent={DASHBOARD_COLORS[2]}
                     />
                     <KpiCard
                       title="Becarios"
                       value={dashboard.resumen.total_becarios}
                       subtitle="Total registrados"
-                      accent="amber"
+                      accent={DASHBOARD_COLORS[3]}
                     />
                     <KpiCard
                       title="Personal"
                       value={dashboard.resumen.total_personal}
                       subtitle="Total registrado"
-                      accent="rose"
+                      accent={DASHBOARD_COLORS[4]}
                     />
                   </div>
 
@@ -282,6 +276,7 @@ export default function Home() {
                     <ChartCard
                       title="Personal general"
                       subtitle="Investigadores, becarios y personal"
+                      accent={DASHBOARD_COLORS[0]}
                     >
                       <ResponsiveContainer width="100%" height={320}>
                         <BarChart
@@ -310,7 +305,7 @@ export default function Home() {
                             {personalGeneral.map((_, index) => (
                               <Cell
                                 key={index}
-                                fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                fill={DASHBOARD_COLORS[index % DASHBOARD_COLORS.length]}
                               />
                             ))}
                           </Bar>
@@ -321,6 +316,7 @@ export default function Home() {
                     <ChartCard
                       title="Proyectos por estado"
                       subtitle="Activos y finalizados"
+                      accent={DASHBOARD_COLORS[1]}
                     >
                       <ResponsiveContainer width="100%" height={320}>
                         <PieChart>
@@ -339,7 +335,7 @@ export default function Home() {
                             {proyectosPorEstado.map((_, index) => (
                               <Cell
                                 key={index}
-                                fill={index === 0 ? "#10b981" : "#ef4444"}
+                                fill={index === 0 ? DASHBOARD_COLORS[3] : DASHBOARD_COLORS[0]}
                               />
                             ))}
                           </Pie>
@@ -360,6 +356,7 @@ export default function Home() {
                     <ChartCard
                       title="Proyectos por tipo"
                       subtitle="Distribución por clasificación"
+                      accent={DASHBOARD_COLORS[2]}
                     >
                       <ResponsiveContainer width="100%" height={320}>
                         <PieChart>
@@ -378,7 +375,7 @@ export default function Home() {
                             {proyectosPorTipo.map((_, index) => (
                               <Cell
                                 key={index}
-                                fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                fill={DASHBOARD_COLORS[index % DASHBOARD_COLORS.length]}
                               />
                             ))}
                           </Pie>
@@ -399,6 +396,7 @@ export default function Home() {
                     <ChartCard
                       title="Becarios por tipo de formación"
                       subtitle="Distribución actual"
+                      accent={DASHBOARD_COLORS[3]}
                     >
                       <ResponsiveContainer width="100%" height={330}>
                         <BarChart
@@ -431,7 +429,7 @@ export default function Home() {
                             {becariosPorTipoFormacion.map((_, index) => (
                               <Cell
                                 key={index}
-                                fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                fill={DASHBOARD_COLORS[index % DASHBOARD_COLORS.length]}
                               />
                             ))}
                           </Bar>
@@ -458,14 +456,18 @@ export default function Home() {
                 </div>
 
                 <p className="text-base leading-8 text-slate-700">
-                  El GIDAS es el grupo de I&amp;D aplicado a sistemas
-                  informáticos, de la UTN FRLP. Con el objetivo de realizar
-                  aportes al mejoramiento de la informática para sus
-                  aplicaciones en el medio socio productivo actual y futuro,
-                  manteniendo una participación activa en actividades
-                  científicas-tecnológicas, compartiendo conocimientos de
-                  actualidad y aportando innovaciones metodológicas y soluciones
-                  digitales.
+                  Somos GIDAS, el Grupo de I&amp;D Aplicado a Sistemas Informáticos
+                  y Computacionales de la Universidad Tecnológica Nacional,
+                  Facultad Regional La Plata. Junto con nuestros becarios,
+                  desarrollamos proyectos científico-tecnológicos que aplican
+                  conocimientos de informática y computación a desafíos reales.
+                </p>
+
+                <p className="text-base leading-8 text-slate-700">
+                  Promovemos la investigación, la innovación y la transferencia
+                  tecnológica para contribuir a la transformación digital y
+                  fortalecer el vínculo entre la universidad, las organizaciones
+                  y la sociedad.
                 </p>
 
                 <div className="grid gap-4 sm:grid-cols-3 pt-2">
@@ -526,13 +528,14 @@ export default function Home() {
               setErrorMessage(
                 getErrorMessage(
                   error,
-                  "Lo sentimos, no pudimos completar la operacion. Intente nuevamente."
+                  "Lo sentimos, no pudimos completar la operación. Intente nuevamente."
                 )
               );
               setShowError(true);
             }
           }}
-        />
+         loadingText="Eliminando..."
+       />
 
         <SuccessToast
           open={showSuccess}
@@ -581,19 +584,12 @@ function KpiCard({
   title: string;
   value: number;
   subtitle?: string;
-  accent: "blue" | "violet" | "emerald" | "amber" | "rose";
+  accent: DashboardColor;
 }) {
-  const accentStyles = {
-    blue: "from-blue-500/15 to-blue-100/40 border-blue-200",
-    violet: "from-violet-500/15 to-violet-100/40 border-violet-200",
-    emerald: "from-emerald-500/15 to-emerald-100/40 border-emerald-200",
-    amber: "from-amber-500/15 to-amber-100/40 border-amber-200",
-    rose: "from-rose-500/15 to-rose-100/40 border-rose-200",
-  };
-
   return (
     <article
-      className={`rounded-3xl border bg-gradient-to-br ${accentStyles[accent]} p-5 shadow-sm`}
+      className="rounded-3xl border border-slate-200 border-t-4 bg-white p-5 shadow-sm"
+      style={{ borderTopColor: accent }}
     >
       <p className="text-sm text-slate-600">{title}</p>
       <p className="mt-3 text-4xl font-semibold text-slate-900">{value}</p>
@@ -606,16 +602,19 @@ function ChartCard({
   title,
   subtitle,
   children,
+  accent,
   className = "",
 }: {
   title: string;
   subtitle?: string;
   children: ReactNode;
+  accent: DashboardColor;
   className?: string;
 }) {
   return (
     <article
-      className={`rounded-3xl border border-slate-200 bg-white p-6 shadow-sm ${className}`}
+      className={`rounded-3xl border border-slate-200 border-t-4 bg-white p-6 shadow-sm ${className}`}
+      style={{ borderTopColor: accent }}
     >
       <div className="mb-5">
         <h3 className="text-lg font-semibold text-slate-900">{title}</h3>

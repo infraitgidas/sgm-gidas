@@ -3,12 +3,15 @@ from modules.recursos.services.tipo_erogacion_service import TipoErogacionServic
 from modules.recursos.models.erogacion import TipoErogacion
 from modules.shared.services.catalogo_auditoria_service import CatalogoAuditoriaService
 from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, catalog_page_response
 
 class TipoErogacionController:
 
     @staticmethod
     def get_all():
         try:
+            if pagination_requested(request.args):
+                return catalog_page_response(TipoErogacionService, request.args)
             return jsonify(
                 TipoErogacionService.get_all(request.args.get("activos", "true"))
             ), 200

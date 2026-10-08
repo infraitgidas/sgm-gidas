@@ -122,13 +122,31 @@ class ActividadDocenciaHistorialTestCase(unittest.TestCase):
         ):
             resultado = ActividadDocenciaService.get_historial(1)
 
-        self.assertEqual(len(resultado), 3)
+        self.assertEqual(len(resultado), 2)
         self.assertEqual(resultado[0]["campo"], "curso")
         self.assertEqual(resultado[1]["tipo"], "historial_grado")
         self.assertEqual(resultado[1]["valor_nuevo"]["id"], 8)
         self.assertEqual(resultado[1]["valor_anterior"]["id"], 7)
-        self.assertEqual(resultado[2]["valor_anterior"], None)
-        self.assertEqual(resultado[2]["valor_nuevo"]["id"], 7)
+
+    def test_historial_grados_no_interpreta_el_alta_como_cambio(self):
+        actividad = SimpleNamespace(
+            id=1,
+            investigadores_grado=[
+                SimpleNamespace(
+                    id=1,
+                    fecha_inicio=date(2024, 1, 1),
+                    fecha_fin=None,
+                    grado_academico=SimpleNamespace(id=7, nombre="Asistente"),
+                    created_by=2,
+                    created_by_user=SimpleNamespace(nombre_usuario="gestor"),
+                    serialize=lambda: {"id": 1, "grado_academico": {"id": 7}},
+                )
+            ],
+        )
+
+        resultado = ActividadDocenciaService._construir_historial_grados(actividad)
+
+        self.assertEqual(resultado, [])
 
     def test_get_historial_devuelve_auditoria_ordenada(self):
         auditoria = AuditoriaCampo(

@@ -1,7 +1,8 @@
 from flask import g
 from werkzeug.exceptions import HTTPException
 
-from modules.shared.controllers.responses import error_response
+from modules.shared.controllers.responses import error_response, exception_response
+from modules.shared.exceptions import DomainError
 from modules.shared.services.logging_config import get_logger
 
 
@@ -17,6 +18,8 @@ HTTP_ERROR_CODES = {
     415: "UNSUPPORTED_MEDIA_TYPE",
     422: "VALIDATION_ERROR",
     429: "RATE_LIMIT_EXCEEDED",
+    500: "INTERNAL_ERROR",
+    503: "SERVICE_UNAVAILABLE",
 }
 
 
@@ -26,6 +29,10 @@ def _request_details() -> dict:
 
 
 def register_error_handlers(app):
+    @app.errorhandler(DomainError)
+    def _domain_exception(error):
+        return exception_response(error, operation="procesar solicitud")
+
     @app.errorhandler(HTTPException)
     def _http_exception(error):
         status_code = error.code or 500
@@ -37,7 +44,7 @@ def register_error_handlers(app):
 
     @app.errorhandler(Exception)
     def _unhandled_exception(error):
-        logger.exception("unhandled exception type=%s", type(error).__name__)
+        logger.exception("unhandled exception type=%s request_id=%s", type(error).__name__, getattr(g, "request_id", None))
         return error_response(
             "INTERNAL_ERROR",
             details=_request_details(),

@@ -24,6 +24,12 @@ def get_by_id(autor_id):
     return AutorController.get_by_id(autor_id)
 
 
+@autor_bp.route("/<int:autor_id>/historial", methods=["GET"])
+@requiere_rol("ADMIN", "GESTOR", "LECTURA")
+def get_historial(autor_id):
+    return AutorController.get_historial(autor_id)
+
+
 # ==========================================
 # MODIFICACIONES
 # ==========================================

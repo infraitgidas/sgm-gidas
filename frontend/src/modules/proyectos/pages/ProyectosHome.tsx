@@ -1,643 +1,205 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
-
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Button from "@/components/Button";
-import CerrarProyectoDialog from "@/components/CerrarProyectoDialog";
-import SuccessToast from "@/components/SuccessToast";
-import Tarjeta from "@/components/Tarjeta";
+import Calendar from "@/components/Calendar";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import Field from "@/components/Field";
 import MemoriaFilterBanner from "@/components/MemoriaFilterBanner";
+import SuccessToast from "@/components/SuccessToast";
+import Table, { TableActionButton, TableActions, TableFilterChip, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
+import type { TableColumn, TableSortDirection } from "@/components/Table";
+import TableFilterSelect from "@/components/TableFilterSelect";
 import { useAuth } from "@/context/AuthContext";
-import { useProyectos } from "@/modules/proyectos/hooks/useProyectos";
-import {
-  cerrarProyecto,
-  reabrirProyecto,
-  type Proyecto,
-} from "@/modules/proyectos/services/proyectosServices";
-import {
-  applyMemoriaSectionFilter,
-  getMemoriaSectionFilter,
-} from "@/lib/memoriaSectionFilter";
-import { buildMemoriaDetailState } from "@/lib/memoriaNavigation";
 import { getErrorMessage } from "@/lib/httpError";
+import { getMemoriaSectionFilter } from "@/lib/memoriaSectionFilter";
+import { buildMemoriaDetailState } from "@/lib/memoriaNavigation";
+import { useFuentesFinanciamiento } from "@/modules/catalogos/hooks/useFuenteFinanciamiento";
+import { useProyectosPage } from "@/modules/proyectos/hooks/useProyectos";
+import { useTiposProyecto } from "@/modules/proyectos/hooks/useTiposProyecto";
+import { cerrarProyecto, getHistorialProyectoById, reabrirProyecto, type Proyecto, type ProyectoSort } from "@/modules/proyectos/services/proyectosServices";
+import { formatProyectoHistoryEntry } from "@/modules/proyectos/utils/proyectoHistory";
+import { formatFecha, getLocalTodayIso, toCivilDateString } from "@/utils/dateTime";
 
 const ITEMS_PER_PAGE = 9;
+const HISTORY_PER_PAGE = 3;
 
 export default function ProyectosLanding() {
   const navigate = useNavigate();
   const location = useLocation();
-  const qc = useQueryClient();
-  const { canCreateRecords, canDeleteRecords } = useAuth();
+  const queryClient = useQueryClient();
+  const { canCreateRecords, canEditRecords, canDeleteRecords, isGestor } = useAuth();
+  const tiposQuery = useTiposProyecto();
+  const { fuentes } = useFuentesFinanciamiento();
 
-  const puedeCrear = canCreateRecords();
-  const puedeEliminar = canDeleteRecords();
-
-  const [showSuccess, setShowSuccess] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState<"true" | "false" | "all">("true");
+  const [typeFilter, setTypeFilter] = useState<number | undefined>();
+  const [sourceFilter, setSourceFilter] = useState<number | undefined>();
+  const [sort, setSort] = useState<ProyectoSort>("fecha_inicio");
+  const [direction, setDirection] = useState<TableSortDirection>("desc");
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [pendingClose, setPendingClose] = useState<Proyecto | null>(null);
+  const [pendingReopen, setPendingReopen] = useState<Proyecto | null>(null);
+  const [closeDate, setCloseDate] = useState<Date | null>(new Date());
+  const [closeError, setCloseError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [showCerrarDialog, setShowCerrarDialog] = useState(false);
 
-  const [showFilters, setShowFilters] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filters, setFilters] = useState({
-    estado: "",
-    tipo: "",
-    fuente: "",
-    investigador: "",
-    becario: "",
+  const memoriaFilter = useMemo(() => getMemoriaSectionFilter(location.state, "proyectos"), [location.state]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearch(search), 250);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+    setExpandedRow(null);
+  }, [debouncedSearch, activeFilter, typeFilter, sourceFilter, sort, direction, memoriaFilter]);
+
+  useEffect(() => {
+    if (!location.state?.successMessage) return;
+    setSuccessMessage(location.state.successMessage);
+    navigate(location.pathname, { replace: true, state: { ...location.state, successMessage: undefined } });
+  }, [location.pathname, location.state, navigate]);
+
+  const proyectos = useProyectosPage({
+    page,
+    perPage: ITEMS_PER_PAGE,
+    search: debouncedSearch,
+    activos: memoriaFilter ? "all" : activeFilter,
+    sort,
+    direction,
+    tipoProyectoId: typeFilter,
+    fuenteFinanciamientoId: sourceFilter,
+    ids: memoriaFilter?.ids,
   });
-  const [tempFilters, setTempFilters] = useState(filters);
-  const [currentPage, setCurrentPage] = useState(1);
-  const memoriaFilter = useMemo(
-    () => getMemoriaSectionFilter(location.state, "proyectos"),
-    [location.state]
-  );
 
-  const activosFilter = useMemo<"true" | "false" | "all">(() => {
-    if (memoriaFilter) return "all";
-    if (filters.estado === "todos") return "all";
-    if (filters.estado === "inactivos") return "false";
-    return "true";
-  }, [filters.estado, memoriaFilter]);
+  const expandedProject = expandedRow ? proyectos.list.find((project) => String(project.id) === expandedRow) : undefined;
+  const history = useQuery({
+    queryKey: ["proyecto-historial", expandedProject?.id],
+    queryFn: () => getHistorialProyectoById(Number(expandedProject!.id)),
+    enabled: Boolean(expandedProject?.id),
+    staleTime: 5 * 60_000,
+  });
 
-  const { data: list = [], isLoading, isError } = useProyectos(activosFilter);
-  const scopedList = useMemo(
-    () => applyMemoriaSectionFilter(list, memoriaFilter),
-    [list, memoriaFilter]
-  );
-
-  const opcionesFiltros = useMemo(() => {
-    const tipos = new Set<string>();
-    const fuentes = new Set<string>();
-    const investigadores = new Set<string>();
-    const becarios = new Set<string>();
-
-    scopedList.forEach((proyecto) => {
-      if (proyecto.tipoProyectoNombre) {
-        tipos.add(proyecto.tipoProyectoNombre);
-      }
-      if (proyecto.fuenteFinanciamientoNombre) {
-        fuentes.add(proyecto.fuenteFinanciamientoNombre);
-      }
-      proyecto.investigadores?.forEach((investigador) => {
-        investigadores.add(investigador.nombre_apellido);
-      });
-      proyecto.becarios?.forEach((becario) => {
-        becarios.add(becario.nombre_apellido);
-      });
-    });
-
-    return {
-      tipos: Array.from(tipos).sort(),
-      fuentes: Array.from(fuentes).sort(),
-      investigadores: Array.from(investigadores).sort(),
-      becarios: Array.from(becarios).sort(),
-    };
-  }, [scopedList]);
-
-  const proyectosFiltrados = useMemo(() => {
-    return scopedList.filter((proyecto) => {
-      const query = searchQuery.toLowerCase().trim();
-
-      const matchesSearch =
-        !query ||
-        proyecto.nombreProyecto?.toLowerCase().includes(query) ||
-        proyecto.descripcionProyecto?.toLowerCase().includes(query) ||
-        proyecto.dificultadesProyecto?.toLowerCase().includes(query) ||
-        proyecto.tipoProyectoNombre?.toLowerCase().includes(query) ||
-        proyecto.fuenteFinanciamientoNombre?.toLowerCase().includes(query) ||
-        proyecto.investigadores?.some((investigador) =>
-          investigador.nombre_apellido.toLowerCase().includes(query)
-        ) ||
-        proyecto.becarios?.some((becario) =>
-          becario.nombre_apellido.toLowerCase().includes(query)
-        );
-
-      const matchTipo =
-        !filters.tipo || proyecto.tipoProyectoNombre === filters.tipo;
-
-      const matchFuente =
-        !filters.fuente ||
-        proyecto.fuenteFinanciamientoNombre === filters.fuente;
-
-      const matchInvestigador =
-        !filters.investigador ||
-        proyecto.investigadores?.some(
-          (investigador) =>
-            investigador.nombre_apellido === filters.investigador
-        );
-
-      const matchBecario =
-        !filters.becario ||
-        proyecto.becarios?.some(
-          (becario) => becario.nombre_apellido === filters.becario
-        );
-
-      return (
-        matchesSearch &&
-        matchTipo &&
-        matchFuente &&
-        matchInvestigador &&
-        matchBecario
-      );
-    });
-  }, [scopedList, filters, searchQuery]);
-
-  const totalPages = Math.ceil(proyectosFiltrados.length / ITEMS_PER_PAGE);
-
-  const paginatedItems = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return proyectosFiltrados.slice(start, start + ITEMS_PER_PAGE);
-  }, [currentPage, proyectosFiltrados]);
-
-  const filtrosActivosCount = Object.values(filters).filter(Boolean).length;
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [filters, searchQuery]);
-
-  useEffect(() => {
-    if (location.state?.successMessage) {
-      setSuccessMessage(location.state.successMessage);
-      setShowSuccess(true);
-      navigate(location.pathname, { replace: true });
+  const refreshProjects = async (id?: string) => {
+    await queryClient.invalidateQueries({ queryKey: ["proyectos"] });
+    if (id) {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["proyecto", id] }),
+        queryClient.invalidateQueries({ queryKey: ["proyecto-historial", id] }),
+      ]);
     }
-  }, [location.state, navigate, location.pathname]);
-
-  const toggleSelect = (id: string, checked: boolean) => {
-    if (!puedeEliminar) return;
-
-    setSelectedIds((prev) =>
-      checked ? [...prev, id] : prev.filter((currentId) => currentId !== id)
-    );
   };
 
-  const cancelSelection = () => {
-    setSelectMode(false);
-    setSelectedIds([]);
-    setShowCerrarDialog(false);
-  };
-
-  const confirmCerrar = async (fecha: Date) => {
-    const fechaFormateada = fecha.toISOString().split("T")[0];
-
+  const confirmClose = async () => {
+    if (!pendingClose?.id || !closeDate || !canDeleteRecords()) return;
+    const date = toCivilDateString(closeDate);
+    if (!date) return;
     try {
-      for (const id of selectedIds) {
-        await cerrarProyecto(id, fechaFormateada);
-      }
-
-      await qc.invalidateQueries({ queryKey: ["proyectos"] });
-      cancelSelection();
-      setSuccessMessage("Proyectos cerrados con exito");
-      setShowSuccess(true);
-    } catch (error: unknown) {
-      setShowCerrarDialog(false);
-      setErrorMessage(
-        getErrorMessage(
-          error,
-          "Lo sentimos, no pudimos completar la operacion. Intente nuevamente."
-        )
-      );
+      await cerrarProyecto(pendingClose.id, date);
+      await refreshProjects(pendingClose.id);
+      setPendingClose(null);
+      setCloseError("");
+      setSuccessMessage("Proyecto cerrado con éxito.");
+    } catch (error) {
+      setCloseError(getErrorMessage(error, "Lo sentimos, no pudimos completar la operación. Intente nuevamente."));
     }
   };
 
-  const handleReabrirSeleccion = async () => {
+  const confirmReopen = async () => {
+    if (!pendingReopen?.id || !canEditRecords()) return;
     try {
-      for (const id of selectedIds) {
-        await reabrirProyecto(id);
-      }
-
-      await qc.invalidateQueries({ queryKey: ["proyectos"] });
-      cancelSelection();
-      setSuccessMessage("Proyectos reabiertos con exito");
-      setShowSuccess(true);
-    } catch (error: unknown) {
-      setErrorMessage(
-        getErrorMessage(
-          error,
-          "Lo sentimos, no pudimos completar la operacion. Intente nuevamente."
-        )
-      );
+      await reabrirProyecto(pendingReopen.id);
+      await refreshProjects(pendingReopen.id);
+      setPendingReopen(null);
+      setSuccessMessage("Proyecto reabierto con éxito.");
+    } catch (error) {
+      setPendingReopen(null);
+      setErrorMessage(getErrorMessage(error, "Lo sentimos, no pudimos completar la operación. Intente nuevamente."));
     }
   };
 
-  const setQuickEstado = (estado: "" | "todos" | "inactivos") => {
-    setFilters((prev) => ({
-      ...prev,
-      estado,
-    }));
+  const columns = useMemo<TableColumn<Proyecto>[]>(() => [
+    { id: "codigo", header: "Código", sortable: true, render: (project) => <span className="font-medium text-slate-700">{project.codigoProyecto}</span> },
+    { id: "nombre", header: "Proyecto", sortable: true, render: (project) => <span className="font-medium text-slate-900">{project.nombreProyecto}</span> },
+    { id: "tipo", header: "Tipo", sortable: true, priority: "secondary", render: (project) => project.tipoProyectoNombre || "—" },
+    { id: "coordinador", header: "Coordinador", priority: "secondary", render: (project) => project.investigadores?.find((item) => item.es_coordinador)?.nombre_apellido || "—" },
+    { id: "fecha_inicio", header: "Inicio", sortable: true, priority: "tertiary", render: (project) => formatFecha(project.fechaInicio) },
+    { id: "estado", header: "Estado", sortable: true, render: (project) => <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${project.cerrado ? "text-amber-700" : project.activo === false || project.deleted_at ? "text-slate-600" : "text-emerald-700"}`}><span aria-hidden="true" className={`h-2 w-2 rounded-full ${project.cerrado ? "bg-amber-500" : project.activo === false || project.deleted_at ? "bg-slate-400" : "bg-emerald-500"}`} />{project.cerrado ? "Cerrado" : project.activo === false || project.deleted_at ? "Inactivo" : "Activo"}{project.fechaFinProrrogada ? " · Prorrogado" : ""}</span> },
+    { id: "acciones", header: "Acciones", align: "right", render: (project) => <TableActions>
+      <TableRowActionButton action="view" aria-label={`Ver detalle de ${project.nombreProyecto}`} onClick={() => navigate(`/proyectos/${project.id}`, { state: buildMemoriaDetailState(location) })} />
+      {!project.cerrado && project.activo !== false && !project.deleted_at && canEditRecords() && <TableRowActionButton action="edit" aria-label={`Editar ${project.nombreProyecto}`} onClick={() => navigate(`/proyectos/${project.id}/editar`)} />}
+      {!project.cerrado && project.activo !== false && !project.deleted_at && canDeleteRecords() && <TableRowActionButton action="delete" label="Cerrar" aria-label={`Cerrar ${project.nombreProyecto}`} onClick={() => { setCloseDate(new Date()); setCloseError(""); setPendingClose(project); }} />}
+      {(project.cerrado || project.activo === false || project.deleted_at) && canEditRecords() && (!project.fechaFinProrrogada || project.fechaFinProrrogada > getLocalTodayIso()) && <TableRowActionButton action="restore" label="Reabrir" aria-label={`Reabrir ${project.nombreProyecto}`} onClick={() => setPendingReopen(project)} />}
+    </TableActions> },
+  ], [canDeleteRecords, canEditRecords, location, navigate]);
+
+  const renderHistory = () => {
+    if (history.isLoading) return <LoadingSkeleton variant="compact" label="Cargando historial…" />;
+    if (history.isError) return <div role="alert" className="flex items-center gap-3 text-sm text-rose-700"><span>Lo sentimos, no pudimos recuperar el historial. Intente nuevamente.</span><TableActionButton onClick={() => history.refetch()}>Reintentar</TableActionButton></div>;
+    const entries = history.data ?? [];
+    if (!entries.length) return <p className="text-sm text-slate-500">No hay cambios registrados.</p>;
+    const pages = Math.ceil(entries.length / HISTORY_PER_PAGE);
+    const visible = entries.slice((historyPage - 1) * HISTORY_PER_PAGE, historyPage * HISTORY_PER_PAGE);
+    return <div>
+      <h3 className="mb-3 text-sm font-semibold text-slate-900">Historial de cambios</h3>
+      <ul className="space-y-2">{visible.map((entry) => { const presentation = formatProyectoHistoryEntry(entry, expandedProject); return <li key={entry.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm"><span className="block font-medium text-slate-800">{presentation.title}</span><span className="mt-1 block text-slate-600">{presentation.description}</span>{entry.usuario_nombre && <span className="mt-1 block text-xs text-slate-500">Por {entry.usuario_nombre}</span>}</li>; })}</ul>
+      {pages > 1 && <nav aria-label="Paginación del historial" className="mt-3 flex gap-2"><TableActionButton disabled={historyPage === 1} onClick={() => setHistoryPage((value) => value - 1)}>Anterior</TableActionButton><span className="self-center text-xs text-slate-500">Página {historyPage} de {pages}</span><TableActionButton disabled={historyPage === pages} onClick={() => setHistoryPage((value) => value + 1)}>Siguiente</TableActionButton></nav>}
+    </div>;
   };
 
-  const quickEstadoActual =
-    filters.estado === "todos"
-      ? "todos"
-      : filters.estado === "inactivos"
-        ? "inactivos"
-        : "activos";
-
-  const haySeleccionablesCerrados = selectedIds.some((id) =>
-    scopedList.some((proyecto) => String(proyecto.id) === id && proyecto.cerrado)
-  );
-
-  const haySeleccionablesActivos = selectedIds.some((id) =>
-    scopedList.some((proyecto) => String(proyecto.id) === id && !proyecto.cerrado)
-  );
-
-  return (
-    <section className="flex min-h-[calc(100vh-80px)] w-full flex-col px-4 py-4 text-sm md:px-6">
-      <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <h2 className="text-2xl font-semibold leading-none text-slate-800 md:text-3xl">
-            Proyectos
-          </h2>
-          <p className="mt-2 text-xs text-slate-500">
-            {proyectosFiltrados.length} de {scopedList.length} resultados
-          </p>
+  return <section className="min-h-[calc(100vh-120px)] w-full px-4 py-4">
+    <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      <div><h2 className="text-2xl font-semibold md:text-3xl">Proyectos</h2><p className="mt-1 text-sm text-slate-500">Gestione proyectos, integrantes, estados y su historial.</p></div>
+      {canCreateRecords() && <Button size="sm" onClick={() => navigate("/proyectos/nuevo")}>Agregar nuevo</Button>}
+    </div>
+    {memoriaFilter && <div className="mb-4"><MemoriaFilterBanner filter={memoriaFilter} /></div>}
+    <Table
+      caption="Listado de proyectos"
+      columns={columns}
+      rows={proyectos.list}
+      getRowId={(project) => String(project.id)}
+      onRowClick={(project) => navigate(`/proyectos/${project.id}`, { state: buildMemoriaDetailState(location) })}
+      getRowTitle={(project) => `Ver detalle de ${project.nombreProyecto}`}
+      density="compact"
+      loading={proyectos.isLoading}
+      refreshing={proyectos.isFetching && !proyectos.isLoading}
+      error={proyectos.isError}
+      onRetry={() => proyectos.refetch()}
+      emptyMessage="No hay proyectos que coincidan con los filtros."
+      sortKey={sort}
+      sortDirection={direction}
+      onSortChange={(key, nextDirection) => { setSort(key as ProyectoSort); setDirection(nextDirection); }}
+      expandedRowId={expandedRow}
+      renderExpanded={renderHistory}
+      onToggleRow={(project) => { const id = String(project.id); setExpandedRow((current) => current === id ? null : id); setHistoryPage(1); }}
+      getExpandLabel={(project, expanded) => `${expanded ? "Ocultar" : "Mostrar"} historial de ${project.nombreProyecto}`}
+      page={page}
+      totalPages={proyectos.meta.total_pages}
+      totalRecords={proyectos.meta.total}
+      onPageChange={(nextPage) => { setExpandedRow(null); setPage(nextPage); }}
+      toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
+        <TableSearch label="Buscar proyectos" placeholder="Buscar por código, nombre, tipo o integrante" value={search} onChange={(event) => setSearch(event.target.value)} />
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1 whitespace-nowrap" aria-label="Filtros de proyectos">
+          <span className="shrink-0 text-xs font-medium text-slate-500">Estado</span>
+          <TableFilterChip className="shrink-0" active={activeFilter === "true"} onClick={() => setActiveFilter("true")}>Activos</TableFilterChip>
+          <TableFilterChip className="shrink-0" active={activeFilter === "all"} onClick={() => setActiveFilter("all")}>Todos</TableFilterChip>
+          <TableFilterChip className="shrink-0" active={activeFilter === "false"} onClick={() => setActiveFilter("false")}>Cerrados e inactivos</TableFilterChip>
+          <TableFilterSelect label="Filtrar por tipo de proyecto" placeholder="Todos los tipos" value={typeFilter === undefined ? undefined : String(typeFilter)} onValueChange={(value) => setTypeFilter(value === undefined ? undefined : Number(value))} options={(tiposQuery.data ?? []).map((type) => ({ value: String(type.id), label: type.nombre }))} />
+          <TableFilterSelect label="Filtrar por fuente de financiamiento" placeholder="Todas las fuentes" value={sourceFilter === undefined ? undefined : String(sourceFilter)} onValueChange={(value) => setSourceFilter(value === undefined ? undefined : Number(value))} className="min-w-52" options={fuentes.map((source) => ({ value: String(source.id), label: source.nombre }))} />
         </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <button
-              type="button"
-              onClick={() => setQuickEstado("")}
-              className={`px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "activos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Activos
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickEstado("todos")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "todos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Todos
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setQuickEstado("inactivos")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                quickEstadoActual === "inactivos"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Cerrados
-            </button>
-          </div>
-
-          <div className="relative w-full sm:w-64">
-            <input
-              type="text"
-              placeholder="Buscar por nombre, tipo, investigador..."
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-10 text-xs outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-200"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-            </div>
-          </div>
-
-          {!selectMode ? (
-            <div className="flex gap-2">
-              {puedeEliminar && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setSelectMode(true)}
-                >
-                  Seleccionar
-                </Button>
-              )}
-
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setTempFilters(filters);
-                  setShowFilters(true);
-                }}
-              >
-                Filtros
-                {filtrosActivosCount > 0 && (
-                  <span className="ml-1.5 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-white">
-                    {filtrosActivosCount}
-                  </span>
-                )}
-              </Button>
-
-              {puedeCrear && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => navigate("/proyectos/nuevo")}
-                >
-                  Nuevo
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              {selectedIds.length > 0 && haySeleccionablesActivos && puedeEliminar && (
-                <Button size="sm" onClick={() => setShowCerrarDialog(true)}>
-                  Cerrar seleccion
-                </Button>
-              )}
-
-              {selectedIds.length > 0 && haySeleccionablesCerrados && puedeEliminar && (
-                <Button size="sm" onClick={handleReabrirSeleccion}>
-                  Reabrir seleccion
-                </Button>
-              )}
-
-              <Button variant="secondary" size="sm" onClick={cancelSelection}>
-                Cancelar
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {memoriaFilter && <MemoriaFilterBanner filter={memoriaFilter} />}
-
-      <div className="flex-1">
-        {isLoading ? (
-          <p className="py-10 text-center text-slate-500">Cargando...</p>
-        ) : isError ? (
-          <p className="py-10 text-center text-red-600">
-            Lo sentimos, no pudimos recuperar la informacion. Intente nuevamente.
-          </p>
-        ) : proyectosFiltrados.length === 0 ? (
-          <p className="py-10 text-center text-slate-500">
-            No hay proyectos para mostrar.
-          </p>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {paginatedItems.map((proyecto) => (
-                <Tarjeta<Proyecto>
-                  key={proyecto.id}
-                  item={proyecto}
-                  title={(item) => item.nombreProyecto}
-                  subtitle={(item) => item.tipoProyectoNombre || "PID"}
-                  badge={(item) => (item.cerrado ? "CERRADO" : "ACTIVO")}
-                  selectable={puedeEliminar && selectMode}
-                  selected={selectedIds.includes(String(proyecto.id))}
-                  onSelectChange={(checked) =>
-                    toggleSelect(String(proyecto.id), checked)
-                  }
-                  onClick={() =>
-                    !selectMode &&
-                    navigate(`/proyectos/${proyecto.id}`, {
-                      state: buildMemoriaDetailState(location),
-                    })
-                  }
-                />
-              ))}
-            </div>
-
-            {totalPages > 1 && (
-              <div className="mt-8">
-                <div className="flex items-center justify-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={currentPage === 1}
-                    onClick={() => setCurrentPage((page) => page - 1)}
-                  >
-                    {"<"}
-                  </Button>
-
-                  {[...Array(totalPages)].map((_, index) => {
-                    const page = index + 1;
-                    return (
-                      <button
-                        key={page}
-                        onClick={() => setCurrentPage(page)}
-                        className={`rounded-lg px-3 py-1 text-sm ${
-                          currentPage === page
-                            ? "bg-slate-800 text-white"
-                            : "bg-slate-100 hover:bg-slate-200"
-                        }`}
-                      >
-                        {page}
-                      </button>
-                    );
-                  })}
-
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={currentPage === totalPages}
-                    onClick={() => setCurrentPage((page) => page + 1)}
-                  >
-                    {">"}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {showFilters && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
-            onClick={() => setShowFilters(false)}
-          />
-          <div className="fixed right-0 top-0 z-50 flex h-full w-[380px] flex-col overflow-y-auto bg-white p-6 shadow-2xl">
-            <h3 className="mb-6 text-xl font-semibold">Filtros Avanzados</h3>
-
-            <div className="flex-1 space-y-5 text-[11px]">
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Estado
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.estado}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      estado: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Activos (Default)</option>
-                  <option value="todos">Todos</option>
-                  <option value="inactivos">Cerrados</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Tipo de Proyecto
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.tipo}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      tipo: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos los tipos</option>
-                  {opcionesFiltros.tipos.map((tipo) => (
-                    <option key={tipo} value={tipo}>
-                      {tipo}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Fuente de Financiamiento
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.fuente}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      fuente: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todas las fuentes</option>
-                  {opcionesFiltros.fuentes.map((fuente) => (
-                    <option key={fuente} value={fuente}>
-                      {fuente}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Investigador
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.investigador}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      investigador: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos los investigadores</option>
-                  {opcionesFiltros.investigadores.map((investigador) => (
-                    <option key={investigador} value={investigador}>
-                      {investigador}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block uppercase tracking-wider text-slate-400 font-bold">
-                  Becario
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.becario}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      becario: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos los becarios</option>
-                  {opcionesFiltros.becarios.map((becario) => (
-                    <option key={becario} value={becario}>
-                      {becario}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-between gap-2 border-t pt-6">
-              <Button
-                variant="secondary"
-                className="flex-1"
-                size="sm"
-                onClick={() =>
-                  setTempFilters({
-                    estado: "",
-                    tipo: "",
-                    fuente: "",
-                    investigador: "",
-                    becario: "",
-                  })
-                }
-              >
-                Limpiar
-              </Button>
-
-              <Button
-                className="flex-1"
-                size="sm"
-                onClick={() => {
-                  setFilters(tempFilters);
-                  setShowFilters(false);
-                }}
-              >
-                Aplicar
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
-
-      <CerrarProyectoDialog
-        open={showCerrarDialog}
-        onCancel={() => setShowCerrarDialog(false)}
-        onConfirm={confirmCerrar}
-      />
-
-      <SuccessToast
-        open={showSuccess}
-        message={successMessage || "Cambios aplicados con exito"}
-        onClose={() => setShowSuccess(false)}
-      />
-
-      <SuccessToast
-        open={Boolean(errorMessage)}
-        message={errorMessage}
-        onClose={() => setErrorMessage("")}
-        variant="error"
-      />
-    </section>
-  );
+      </div></TableToolbar>}
+    />
+    <ConfirmDialog open={Boolean(pendingClose)} title="Cerrar proyecto" onCancel={() => { setPendingClose(null); setCloseError(""); }} onConfirm={confirmClose} confirmText="Confirmar cierre" confirmDisabled={!closeDate} loadingText="Cerrando..."><div className="space-y-3"><p className="text-sm text-slate-600">La fecha de cierre debe estar dentro del período de la Memoria de un informe PID que incluya este proyecto. Un informe de otro período no habilita el cierre.</p><Field label="Fecha de cierre" name="fechaCierre" required><Calendar value={closeDate} onChange={(value) => { setCloseDate(value); setCloseError(""); }} maxDate={new Date()} className="input" helperText="DD/MM/AAAA" /></Field>{closeError && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{closeError}</p>}{isGestor() && pendingClose?.id && <Button variant="secondary" size="sm" onClick={() => { const projectId = pendingClose.id; const projectName = pendingClose.nombreProyecto; setPendingClose(null); setCloseError(""); navigate(`/informes/pid/nuevo?proyectoId=${projectId}`, { state: { projectName } }); }}>Generar Informe</Button>}</div></ConfirmDialog>
+    <ConfirmDialog open={Boolean(pendingReopen)} title="Reabrir proyecto" message={`¿Está seguro de reabrir ${pendingReopen?.nombreProyecto ?? "este proyecto"}?`} confirmText="Reabrir" loadingText="Reabriendo..." onCancel={() => setPendingReopen(null)} onConfirm={confirmReopen} />
+    <SuccessToast open={Boolean(successMessage)} message={successMessage} onClose={() => setSuccessMessage("")} />
+    <SuccessToast open={Boolean(errorMessage)} message={errorMessage} variant="error" onClose={() => setErrorMessage("")} />
+  </section>;
 }

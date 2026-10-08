@@ -1,621 +1,257 @@
-import { useLocation, useNavigate } from "react-router-dom";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 import Button from "@/components/Button";
-import Tarjeta from "@/components/Tarjeta";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import SuccessToast from "@/components/SuccessToast";
 import MemoriaFilterBanner from "@/components/MemoriaFilterBanner";
-
-import { useErogaciones } from "@/modules/recursos/hooks/useErogaciones";
-import { useTiposErogacion } from "@/modules/recursos/hooks/useTipoErogacion";
-import { useFuentesFinanciamiento } from "@/modules/catalogos/hooks/useFuenteFinanciamiento";
-import { deleteErogaciones } from "@/modules/recursos/services/erogacionesServices";
-import { getErrorMessage } from "@/lib/httpError";
+import SuccessToast from "@/components/SuccessToast";
+import Table, { TableActionButton, TableActions, TableFilterChip, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
+import type { TableColumn, TableSortDirection } from "@/components/Table";
+import TableFilterSelect from "@/components/TableFilterSelect";
 import { useAuth } from "@/context/AuthContext";
-import {
-  applyMemoriaSectionFilter,
-  getMemoriaSectionFilter,
-} from "@/lib/memoriaSectionFilter";
+import { getErrorMessage } from "@/lib/httpError";
 import { buildMemoriaDetailState } from "@/lib/memoriaNavigation";
+import { applyMemoriaSectionFilter, getMemoriaSectionFilter } from "@/lib/memoriaSectionFilter";
+import { useFuentesFinanciamiento } from "@/modules/catalogos/hooks/useFuenteFinanciamiento";
+import { useUct } from "@/modules/grupo/hooks/useUct";
+import { useCategoriasErogacion } from "@/modules/recursos/hooks/useCategoriasErogacion";
+import { useErogaciones } from "@/modules/recursos/hooks/useErogaciones";
+import { useSaldosPorFuente } from "@/modules/recursos/hooks/useSaldosPorFuente";
+import { deleteErogaciones, getHistorialErogacionById, getResumenFinanciero, type Erogacion } from "@/modules/recursos/services/erogacionesServices";
+import { formatMovimientoHistoryEntry, formatMovimientoMoney, presentMovimientoHistoryItems } from "@/modules/recursos/utils/movimientoHistory";
+import { formatFecha, formatFechaHora, getCivilYear } from "@/utils/dateTime";
 
 const ITEMS_PER_PAGE = 9;
+const HISTORY_PER_PAGE = 3;
+const SOURCES_PER_PAGE = 3;
+const initialFilters = { estado: "", tipo: "", fuente: "", categoria: "", anio: "", desde: "", hasta: "" };
+const movementLabel = (item: Erogacion) => `Movimiento N.º ${String(item.numero_movimiento).padStart(6, "0")}`;
 
 export default function ErogacionesLanding() {
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const location = useLocation();
-  const { canCreateRecords, canDeleteRecords } = useAuth();
-
-  const puedeCrear = canCreateRecords();
-  const puedeEliminar = canDeleteRecords();
-
-  const [showSuccess, setShowSuccess] = useState(false);
+  const queryClient = useQueryClient();
+  const { canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
+  const { uct, isLoading: uctLoading, isError: uctError } = useUct();
+  const { fuentes } = useFuentesFinanciamiento();
+  const { data: categorias = [] } = useCategoriasErogacion();
+  const [filters, setFilters] = useState(initialFilters);
+  const [fuenteDashboard, setFuenteDashboard] = useState<string | undefined>();
+  const [fuentesPage, setFuentesPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [sortKey, setSortKey] = useState("fecha");
+  const [sortDirection, setSortDirection] = useState<TableSortDirection>("desc");
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [pendingDelete, setPendingDelete] = useState<Erogacion | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
-
-  const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  const [showFilters, setShowFilters] = useState(false);
-  const [filtroActivos, setFiltroActivos] = useState<"true" | "false" | "all">(
-    "true"
+  const memoriaFilter = useMemo(() => getMemoriaSectionFilter(location.state, "erogaciones"), [location.state]);
+  const activos = memoriaFilter || filters.estado === "todos" ? "all" : filters.estado === "inactivos" ? "false" : "true";
+  const movimientos = useErogaciones(activos, uct?.id);
+  const saldosPorFuente = useSaldosPorFuente(uct?.id);
+  const fuentesDashboard = saldosPorFuente.data ?? [];
+  const fuenteDashboardActual = fuentesDashboard.some((item) => String(item.fuente_id) === fuenteDashboard)
+    ? fuenteDashboard : undefined;
+  const saldosPorFuenteVisibles = fuenteDashboardActual
+    ? fuentesDashboard.filter((item) => String(item.fuente_id) === fuenteDashboardActual)
+    : fuentesDashboard;
+  const fuentesTotalPages = Math.max(1, Math.ceil(saldosPorFuenteVisibles.length / SOURCES_PER_PAGE));
+  const fuentesCurrentPage = Math.min(fuentesPage, fuentesTotalPages);
+  const fuentesPaginadas = saldosPorFuenteVisibles.slice(
+    (fuentesCurrentPage - 1) * SOURCES_PER_PAGE,
+    fuentesCurrentPage * SOURCES_PER_PAGE,
   );
-
-  const { tipos } = useTiposErogacion();
-  const { fuentes } = useFuentesFinanciamiento();
-
-  const [filters, setFilters] = useState({
-    search: "",
-    tipoId: "",
-    fuenteId: "",
-    ingresosMin: "",
-    egresosMin: "",
-    anio: "",
+  const resumen = useQuery({
+    queryKey: ["resumen-financiero", uct?.id],
+    queryFn: () => getResumenFinanciero(uct!.id),
+    enabled: Boolean(uct?.id),
+  });
+  const scopedList = useMemo(() => applyMemoriaSectionFilter(movimientos.list, memoriaFilter), [movimientos.list, memoriaFilter]);
+  const years = useMemo(() => [...new Set(scopedList.map((item) => getCivilYear(item.fecha)))]
+    .filter((year): year is number => year !== null).sort((a, b) => b - a), [scopedList]);
+  const filteredList = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase("es");
+    return scopedList.filter((item) => {
+      const searchable = [movementLabel(item), String(item.numero_movimiento), item.fuente?.nombre ?? "", item.categoria_erogacion?.nombre ?? ""];
+      return (!query || searchable.some((value) => value.toLocaleLowerCase("es").includes(query)))
+        && (!filters.tipo || item.tipo_movimiento === filters.tipo)
+        && (!filters.fuente || String(item.fuente_financiamiento_id ?? "") === filters.fuente)
+        && (!filters.categoria || String(item.categoria_erogacion_id ?? "") === filters.categoria)
+        && (!filters.anio || getCivilYear(item.fecha) === Number(filters.anio))
+        && (!filters.desde || item.fecha >= filters.desde)
+        && (!filters.hasta || item.fecha <= filters.hasta);
+    });
+  }, [scopedList, searchQuery, filters]);
+  const orderedList = useMemo(() => [...filteredList].sort((a, b) => {
+    const direction = sortDirection === "asc" ? 1 : -1;
+    const comparison = sortKey === "numero" ? a.numero_movimiento - b.numero_movimiento
+      : sortKey === "monto" ? Number(a.monto) - Number(b.monto)
+        : a.fecha.localeCompare(b.fecha);
+    return direction * (comparison || a.numero_movimiento - b.numero_movimiento);
+  }), [filteredList, sortKey, sortDirection]);
+  const totalPages = Math.max(1, Math.ceil(orderedList.length / ITEMS_PER_PAGE));
+  const paginated = orderedList.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+  const expandedItem = expandedRow === null ? undefined : scopedList.find((item) => item.id === expandedRow);
+  const history = useQuery({
+    queryKey: ["movimiento-financiero-historial", expandedItem?.id],
+    queryFn: () => getHistorialErogacionById(expandedItem!.id),
+    enabled: Boolean(expandedItem),
+    staleTime: 5 * 60_000,
   });
 
-  const [tempFilters, setTempFilters] = useState(filters);
-  const [currentPage, setCurrentPage] = useState(1);
-  const memoriaFilter = useMemo(
-    () => getMemoriaSectionFilter(location.state, "erogaciones"),
-    [location.state]
-  );
-  const effectiveActivos = memoriaFilter ? "all" : filtroActivos;
-  const { list = [], isLoading, isError } = useErogaciones(effectiveActivos);
-  const scopedList = useMemo(
-    () => applyMemoriaSectionFilter(list, memoriaFilter),
-    [list, memoriaFilter]
-  );
-  const filtrosActivos = Object.values(filters).filter(Boolean).length;
-
-  const aniosDisponibles = useMemo(() => {
-    const years = scopedList
-      .filter((item) => item.fecha)
-      .map((item) => new Date(item.fecha).getFullYear());
-
-    return [...new Set(years)].sort((a, b) => b - a);
-  }, [scopedList]);
-
-  const erogacionesFiltradas = useMemo(() => {
-    return scopedList.filter((item) => {
-      const search = filters.search.toLowerCase().trim();
-
-      const matchSearch =
-        !search ||
-        String(item.numero_erogacion ?? "").includes(search) ||
-        String(item.tipo_erogacion?.nombre ?? "").toLowerCase().includes(search) ||
-        String(item.fuente?.nombre ?? "").toLowerCase().includes(search);
-
-      const matchTipo =
-        !filters.tipoId || item.tipo_erogacion?.id?.toString() === filters.tipoId;
-
-      const matchFuente =
-        !filters.fuenteId || item.fuente?.id?.toString() === filters.fuenteId;
-
-      const matchIngresos =
-        !filters.ingresosMin || item.ingresos >= Number(filters.ingresosMin);
-
-      const matchEgresos =
-        !filters.egresosMin || item.egresos >= Number(filters.egresosMin);
-
-      const matchAnio =
-        !filters.anio ||
-        new Date(item.fecha).getFullYear().toString() === filters.anio;
-
-      return (
-        matchSearch &&
-        matchTipo &&
-        matchFuente &&
-        matchIngresos &&
-        matchEgresos &&
-        matchAnio
-      );
-    });
-  }, [scopedList, filters]);
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(erogacionesFiltradas.length / ITEMS_PER_PAGE)
-  );
-
-  const paginatedItems = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return erogacionesFiltradas.slice(start, start + ITEMS_PER_PAGE);
-  }, [erogacionesFiltradas, currentPage]);
-
+  useEffect(() => { setPage(1); setExpandedRow(null); }, [filters, searchQuery]);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
   useEffect(() => {
-    setCurrentPage(1);
-  }, [filters, filtroActivos]);
+    if (!location.state?.successMessage) return;
+    setSuccessMessage(location.state.successMessage);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
 
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
-
-  useEffect(() => {
-    if (location.state?.successMessage) {
-      setSuccessMessage(location.state.successMessage);
-      setShowSuccess(true);
-      navigate(location.pathname, { replace: true });
-    }
-  }, [location.state, navigate, location.pathname]);
-
-  const toggleSelect = (id: number, checked: boolean) => {
-    if (!puedeEliminar) return;
-
-    const erogacion = scopedList.find((item) => item.id === id);
-
-    if (erogacion?.deleted_at) {
-      setErrorMessage("No se puede eliminar una erogacion que ya fue eliminada.");
-      setShowError(true);
-      return;
-    }
-
-    setSelectedIds((prev) =>
-      checked ? [...prev, id] : prev.filter((value) => value !== id)
-    );
-  };
-
-  const cancelSelection = () => {
-    if (isDeleting) return;
-    setSelectMode(false);
-    setSelectedIds([]);
-    setShowConfirm(false);
-  };
-
-  const selectedItems = scopedList.filter((item) => selectedIds.includes(item.id));
-  const selectedActiveItems = selectedItems.filter((item) => !item.deleted_at);
+  const setFilter = (key: keyof typeof initialFilters, value?: string) =>
+    setFilters((current) => ({ ...current, [key]: value ?? "" }));
 
   const confirmDelete = async () => {
-    if (isDeleting) return;
-
-    const invalidItems = selectedItems.filter((item) => item.deleted_at);
-
-    if (invalidItems.length > 0) {
-      setShowConfirm(false);
-      setErrorMessage(
-        invalidItems.length === 1
-          ? "La erogacion seleccionada ya fue eliminada."
-          : "Una o mas erogaciones seleccionadas ya fueron eliminadas."
-      );
-      setShowError(true);
-      return;
-    }
-
+    if (!pendingDelete || pendingDelete.deleted_at || !canDeleteRecords()) return;
     try {
-      setIsDeleting(true);
-
-      for (const item of selectedActiveItems) {
-        await deleteErogaciones(item.id);
-      }
-
-      await qc.invalidateQueries({ queryKey: ["erogaciones"] });
-      cancelSelection();
-
-      setSuccessMessage(
-        selectedActiveItems.length === 1
-          ? "Erogacion eliminada con exito."
-          : "Erogaciones eliminadas con exito."
-      );
-      setShowSuccess(true);
+      await deleteErogaciones(pendingDelete.id);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["erogaciones"] }),
+        queryClient.invalidateQueries({ queryKey: ["resumen-financiero"] }),
+        queryClient.invalidateQueries({ queryKey: ["saldos-por-fuente"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      ]);
+      setPendingDelete(null);
+      setSuccessMessage("Movimiento eliminado con éxito.");
     } catch (error) {
-      setShowConfirm(false);
-      setErrorMessage(
-        getErrorMessage(
-          error,
-          "Lo sentimos, no pudimos completar la operacion. Intente nuevamente."
-        )
-      );
-
-      setShowError(true);
-    } finally {
-      setIsDeleting(false);
+      setPendingDelete(null);
+      setErrorMessage(getErrorMessage(error, "Lo sentimos, no pudimos completar la operación. Intente nuevamente."));
     }
   };
 
-  return (
-    <section className="flex min-h-[calc(100vh-80px)] w-full flex-col px-4 py-4 text-sm md:px-6">
-      <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <h2 className="text-2xl font-semibold leading-none text-slate-800 md:text-3xl">
-            Resumen de ingresos y egresos
-          </h2>
-          <p className="mt-2 text-xs text-slate-500">
-            {erogacionesFiltradas.length} de {scopedList.length} resultados
-          </p>
-        </div>
+  const renderHistory = () => {
+    if (history.isLoading) return <LoadingSkeleton variant="compact" label="Cargando historial…" />;
+    if (history.isError) return <div role="alert" className="flex items-center gap-3 text-sm text-rose-700"><span>Lo sentimos, no pudimos recuperar el historial. Intente nuevamente.</span><TableActionButton onClick={() => history.refetch()}>Reintentar</TableActionButton></div>;
+    const entries = presentMovimientoHistoryItems(history.data ?? []);
+    if (!expandedItem || !entries.length) return <p className="text-sm text-slate-500">No hay cambios registrados.</p>;
+    const pages = Math.ceil(entries.length / HISTORY_PER_PAGE);
+    const visible = entries.slice((historyPage - 1) * HISTORY_PER_PAGE, historyPage * HISTORY_PER_PAGE);
+    return <div>
+      <h3 className="mb-3 text-sm font-semibold text-slate-900">Historial de cambios</h3>
+      <ul className="space-y-2">{visible.map((entry) => {
+        const presentation = formatMovimientoHistoryEntry(entry, expandedItem);
+        return <li key={entry.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+          <span className="block font-medium text-slate-800">{presentation.title}</span>
+          <span className="mt-1 block text-slate-600">{presentation.description}</span>
+          <span className="mt-1 block text-xs text-slate-500">{formatFechaHora(entry.fecha_cambio)} · {entry.usuario_nombre || "Usuario no informado"}</span>
+        </li>;
+      })}</ul>
+      {pages > 1 && <nav aria-label="Paginación del historial" className="mt-3 flex gap-2"><TableActionButton disabled={historyPage === 1} onClick={() => setHistoryPage((value) => value - 1)}>Anterior</TableActionButton><span className="self-center text-xs text-slate-500">Página {historyPage} de {pages}</span><TableActionButton disabled={historyPage === pages} onClick={() => setHistoryPage((value) => value + 1)}>Siguiente</TableActionButton></nav>}
+    </div>;
+  };
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <button
-              type="button"
-              onClick={() => setFiltroActivos("true")}
-              className={`px-3 py-1.5 text-xs transition-colors ${
-                filtroActivos === "true"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Activas
-            </button>
+  const columns: TableColumn<Erogacion>[] = [
+    { id: "numero", header: "Movimiento", sortable: true, render: (item) => <span className="font-medium text-slate-900">{item.numero_movimiento}</span> },
+    { id: "fecha", header: "Fecha", sortable: true, render: (item) => formatFecha(item.fecha) },
+    { id: "tipo", header: "Tipo", render: (item) => <span className={item.tipo_movimiento === "INGRESO" ? "font-medium text-emerald-700" : "font-medium text-rose-700"}>{item.tipo_movimiento === "INGRESO" ? "Ingreso" : "Egreso"}</span> },
+    { id: "fuente", header: "Fuente", render: (item) => item.fuente?.nombre ?? "—" },
+    { id: "monto", header: "Monto", sortable: true, align: "right", render: (item) => <span className="whitespace-nowrap font-medium">{formatMovimientoMoney(item.monto, item.moneda)}</span> },
+    { id: "estado", header: "Estado", priority: "tertiary", render: (item) => <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${item.deleted_at ? "text-rose-700" : "text-emerald-700"}`}><span aria-hidden="true" className={`h-2 w-2 rounded-full ${item.deleted_at ? "bg-rose-500" : "bg-emerald-500"}`} />{item.deleted_at ? "Inactivo" : "Activo"}</span> },
+    { id: "acciones", header: "Acciones", align: "right", render: (item) => <TableActions>
+      <TableRowActionButton action="view" aria-label={`Ver detalle de ${movementLabel(item)}`} onClick={() => navigate(`/movimientos/${item.id}`, { state: buildMemoriaDetailState(location) })} />
+      {!item.deleted_at && canEditRecords() && <TableRowActionButton action="edit" aria-label={`Editar ${movementLabel(item)}`} onClick={() => navigate(`/movimientos/${item.id}/editar`)} />}
+      {!item.deleted_at && canDeleteRecords() && <TableRowActionButton action="delete" aria-label={`Eliminar ${movementLabel(item)}`} onClick={() => setPendingDelete(item)} />}
+    </TableActions> },
+  ];
 
-            <button
-              type="button"
-              onClick={() => setFiltroActivos("all")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                filtroActivos === "all"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Todas
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setFiltroActivos("false")}
-              className={`border-l border-slate-200 px-3 py-1.5 text-xs transition-colors ${
-                filtroActivos === "false"
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Inactivas
-            </button>
-          </div>
-
-          <div className="relative w-full sm:w-64">
-            <input
-              type="text"
-              placeholder="Buscar por numero, tipo o fuente..."
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-10 text-xs outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-200"
-              value={filters.search}
-              onChange={(e) =>
-                setFilters((prev) => ({
-                  ...prev,
-                  search: e.target.value,
-                }))
-              }
-            />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-            </div>
-          </div>
-
-          {!selectMode ? (
-            <>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setTempFilters(filters);
-                  setShowFilters(true);
-                }}
-              >
-                Filtros
-                {filtrosActivos > 0 && (
-                  <span className="ml-1.5 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] text-white">
-                    {filtrosActivos}
-                  </span>
-                )}
-              </Button>
-
-              {puedeEliminar && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setSelectMode(true)}
-                >
-                  Seleccionar
-                </Button>
-              )}
-
-              {puedeCrear && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => navigate("/erogaciones/nuevo")}
-                >
-                  Nuevo
-                </Button>
-              )}
-            </>
-          ) : (
-            <>
-              {selectedIds.length > 0 && puedeEliminar && (
-                <Button size="sm" onClick={() => setShowConfirm(true)}>
-                  Eliminar
-                </Button>
-              )}
-
-              <Button variant="secondary" size="sm" onClick={cancelSelection}>
-                Cancelar
-              </Button>
-            </>
-          )}
-        </div>
+  return <>
+    <section className="min-h-[calc(100vh-120px)] w-full px-4 py-4">
+      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div><h2 className="text-2xl font-semibold md:text-3xl">Movimientos financieros</h2><p className="mt-1 text-sm text-slate-500">Saldo disponible e historial de ingresos y egresos del grupo.</p></div>
+        {canCreateRecords() && <Button size="sm" onClick={() => navigate("/movimientos/nuevo")}>Agregar nuevo</Button>}
       </div>
-
-      {memoriaFilter && <MemoriaFilterBanner filter={memoriaFilter} />}
-
-      <div className="flex flex-1 flex-col">
-        {isLoading ? (
-          <p className="py-10 text-center text-slate-500">Cargando...</p>
-        ) : isError ? (
-          <p className="py-10 text-center text-slate-500">Error al cargar.</p>
-        ) : erogacionesFiltradas.length === 0 ? (
-          <p className="py-10 text-center text-slate-500">
-            No hay erogaciones registradas.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {paginatedItems.map((item) => (
-              <Tarjeta
-                key={item.id}
-                item={item}
-                title={(x) =>
-                  `Erogacion Nro ${String(x.numero_erogacion).padStart(6, "0")}`
-                }
-                subtitle={(x) => x.tipo_erogacion?.nombre || "-"}
-                badge={(x) => (x.deleted_at ? "INACTIVA" : "ACTIVA")}
-                selectable={puedeEliminar && selectMode}
-                selectDisabled={!!item.deleted_at}
-                selected={selectedIds.includes(item.id)}
-                onSelectChange={(checked) => toggleSelect(item.id, checked)}
-                onClick={() =>
-                  !selectMode &&
-                  navigate(`/erogaciones/${item.id}`, {
-                    state: buildMemoriaDetailState(location),
-                  })
-                }
-              />
-            ))}
-          </div>
-        )}
-
-        {totalPages > 1 && (
-          <div className="mt-auto pt-8">
-            <div className="flex items-center justify-between">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-              >
-                Anterior
-              </Button>
-
-              <span className="text-sm text-slate-500">
-                Pagina {currentPage} de {totalPages}
-              </span>
-
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() =>
-                  setCurrentPage((prev) => Math.min(totalPages, prev + 1))
-                }
-                disabled={currentPage === totalPages}
-              >
-                Siguiente
-              </Button>
-            </div>
-          </div>
-        )}
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Resumen financiero">
+        <article className="rounded-2xl border border-slate-800 bg-slate-800 p-5 text-white shadow-sm sm:col-span-2 lg:col-span-1">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-slate-200">Saldo disponible</h3>
+          <p className="mt-2 text-2xl font-semibold" aria-live="polite">{resumen.data ? formatMovimientoMoney(resumen.data.saldo_disponible) : "—"}</p>
+          <p className="mt-1 text-xs text-slate-300">Ingresos menos egresos activos</p>
+        </article>
+        {(["total_ingresos", "total_egresos", "cantidad_movimientos"] as const).map((key) => <article key={key} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">{key === "total_ingresos" ? "Total de ingresos" : key === "total_egresos" ? "Total de egresos" : "Movimientos activos"}</h3>
+          <p className="mt-2 text-xl font-semibold text-slate-900">{resumen.data ? key === "cantidad_movimientos" ? resumen.data[key] : formatMovimientoMoney(resumen.data[key]) : "—"}</p>
+        </article>)}
       </div>
-
-      {showFilters && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
-            onClick={() => setShowFilters(false)}
+      {resumen.isLoading && <LoadingSkeleton variant="compact" label="Cargando saldo disponible…" />}
+      {resumen.isError && <div role="alert" className="mb-4 flex items-center gap-3 text-sm text-rose-700"><span>Lo sentimos, no pudimos recuperar el saldo. Intente nuevamente.</span><TableActionButton onClick={() => resumen.refetch()}>Reintentar</TableActionButton></div>}
+      <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="saldos-por-fuente-title">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h3 id="saldos-por-fuente-title" className="text-lg font-semibold text-slate-900">Saldo por fuente de financiamiento</h3>
+          <TableFilterSelect
+            label="Filtrar dashboard por fuente de financiamiento"
+            placeholder="Todas las fuentes"
+            value={fuenteDashboardActual}
+            onValueChange={(value) => { setFuenteDashboard(value); setFuentesPage(1); }}
+            options={fuentesDashboard.map((item) => ({ value: String(item.fuente_id), label: item.fuente_nombre }))}
+            disabled={fuentesDashboard.length === 0}
+            className="max-w-full sm:max-w-64"
           />
-
-          <div className="fixed top-0 right-0 z-50 flex h-full w-[380px] flex-col overflow-y-auto bg-white p-6 shadow-2xl">
-            <h3 className="mb-6 text-xl font-semibold">Filtros avanzados</h3>
-
-            <div className="flex-1 space-y-5 text-[11px]">
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Ano
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.anio}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      anio: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos</option>
-                  {aniosDisponibles.map((anio) => (
-                    <option key={anio} value={anio}>
-                      {anio}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Numero de erogacion
-                </label>
-                <input
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.search}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      search: e.target.value,
-                    })
-                  }
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Tipo
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.tipoId}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      tipoId: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todos</option>
-                  {tipos.map((tipo) => (
-                    <option key={tipo.id} value={tipo.id}>
-                      {tipo.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Fuente
-                </label>
-                <select
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.fuenteId}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      fuenteId: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Todas</option>
-                  {fuentes.map((fuente) => (
-                    <option key={fuente.id} value={fuente.id}>
-                      {fuente.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Ingresos minimos
-                </label>
-                <input
-                  type="number"
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.ingresosMin}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      ingresosMin: e.target.value,
-                    })
-                  }
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block font-bold uppercase tracking-wider text-slate-400">
-                  Egresos minimos
-                </label>
-                <input
-                  type="number"
-                  className="w-full rounded border border-slate-200 p-2 outline-none focus:border-slate-400"
-                  value={tempFilters.egresosMin}
-                  onChange={(e) =>
-                    setTempFilters({
-                      ...tempFilters,
-                      egresosMin: e.target.value,
-                    })
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-between gap-2 border-t pt-6">
-              <Button
-                variant="secondary"
-                className="flex-1"
-                size="sm"
-                onClick={() =>
-                  setTempFilters({
-                    search: "",
-                    tipoId: "",
-                    fuenteId: "",
-                    ingresosMin: "",
-                    egresosMin: "",
-                    anio: "",
-                  })
-                }
-              >
-                Limpiar
-              </Button>
-
-              <Button
-                className="flex-1"
-                size="sm"
-                onClick={() => {
-                  setFilters(tempFilters);
-                  setShowFilters(false);
-                }}
-              >
-                Aplicar
-              </Button>
-            </div>
+        </div>
+        <p className="mt-1 text-sm text-slate-500">Ingresos menos egresos activos imputados a cada fuente.</p>
+        {saldosPorFuente.isLoading && <LoadingSkeleton variant="compact" label="Cargando saldos por fuente…" />}
+        {saldosPorFuente.isError && <div role="alert" className="mt-4 flex items-center gap-3 text-sm text-rose-700"><span>Lo sentimos, no pudimos recuperar los saldos por fuente. Intente nuevamente.</span><TableActionButton onClick={() => saldosPorFuente.refetch()}>Reintentar</TableActionButton></div>}
+        {saldosPorFuente.isSuccess && saldosPorFuente.data.length === 0 && <p className="mt-4 text-sm text-slate-500">Aún no hay movimientos registrados para este grupo.</p>}
+        {saldosPorFuente.isSuccess && saldosPorFuente.data.length > 0 && <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {fuentesPaginadas.map((item) => <article key={item.fuente_id} className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <h4 className="truncate text-sm font-medium text-slate-600" title={item.fuente_nombre}>{item.fuente_nombre}</h4>
+            <p className="mt-2 break-words text-xl font-semibold text-slate-900">{formatMovimientoMoney(item.saldo_disponible)}</p>
+            <p className="mt-2 text-xs text-slate-600">Ingresos: {formatMovimientoMoney(item.total_ingresos)}</p>
+            <p className="mt-1 text-xs text-slate-600">Egresos: {formatMovimientoMoney(item.total_egresos)}</p>
+          </article>)}
+        </div>}
+        {saldosPorFuente.isSuccess && fuentesTotalPages > 1 && <nav aria-label="Paginación de fuentes de financiamiento" className="mt-4 flex items-center justify-center gap-3">
+          <TableActionButton disabled={fuentesCurrentPage === 1} onClick={() => setFuentesPage(fuentesCurrentPage - 1)}>Anterior</TableActionButton>
+          <span className="text-xs text-slate-500">Página {fuentesCurrentPage} de {fuentesTotalPages}</span>
+          <TableActionButton disabled={fuentesCurrentPage === fuentesTotalPages} onClick={() => setFuentesPage(fuentesCurrentPage + 1)}>Siguiente</TableActionButton>
+        </nav>}
+      </section>
+      {memoriaFilter && <div className="mb-4"><MemoriaFilterBanner filter={memoriaFilter} /></div>}
+      {movimientos.isError && movimientos.list.length > 0 && <div role="alert" className="mb-4 flex items-center gap-3 text-sm text-rose-700"><span>Lo sentimos, no pudimos actualizar los movimientos. Intente nuevamente.</span><TableActionButton onClick={() => movimientos.refetch()}>Reintentar</TableActionButton></div>}
+      <Table caption="Historial de movimientos financieros" columns={columns} rows={paginated} getRowId={(item) => item.id}
+        density="compact" loading={uctLoading || movimientos.isLoading} refreshing={movimientos.isFetching && !movimientos.isLoading}
+        error={uctError || (movimientos.isError && movimientos.list.length === 0)}
+        onRetry={() => uctError ? queryClient.invalidateQueries({ queryKey: ["uct"] }) : movimientos.refetch()}
+        emptyMessage="No hay movimientos que coincidan con los filtros."
+        onRowClick={(item) => navigate(`/movimientos/${item.id}`, { state: buildMemoriaDetailState(location) })}
+        getRowTitle={(item) => `Ver detalle de ${movementLabel(item)}`}
+        expandedRowId={expandedRow} renderExpanded={renderHistory}
+        onToggleRow={(item) => { setExpandedRow((current) => current === item.id ? null : item.id); setHistoryPage(1); }}
+        getExpandLabel={(item, expanded) => `${expanded ? "Ocultar" : "Mostrar"} historial de ${movementLabel(item)}`}
+        sortKey={sortKey} sortDirection={sortDirection}
+        onSortChange={(key, direction) => { setSortKey(key); setSortDirection(direction); setPage(1); setExpandedRow(null); }}
+        page={page} totalPages={totalPages} totalRecords={filteredList.length}
+        onPageChange={(nextPage) => { setPage(nextPage); setExpandedRow(null); }}
+        toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
+          <TableSearch label="Buscar movimientos" placeholder="Buscar por número, fuente o categoría" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de movimientos">
+            <span className="shrink-0 text-xs font-medium text-slate-500">Estado</span>
+            <TableFilterChip className="shrink-0" active={!filters.estado} onClick={() => setFilter("estado", "")}>Activos</TableFilterChip>
+            <TableFilterChip className="shrink-0" active={filters.estado === "todos"} onClick={() => setFilter("estado", "todos")}>Todos</TableFilterChip>
+            <TableFilterChip className="shrink-0" active={filters.estado === "inactivos"} onClick={() => setFilter("estado", "inactivos")}>Inactivos</TableFilterChip>
+            <TableFilterSelect label="Filtrar por tipo" placeholder="Todos los tipos" value={filters.tipo || undefined} onValueChange={(value) => setFilter("tipo", value)} options={[{ value: "INGRESO", label: "Ingreso" }, { value: "EGRESO", label: "Egreso" }]} />
+            <TableFilterSelect label="Filtrar por fuente" placeholder="Todas las fuentes" value={filters.fuente || undefined} onValueChange={(value) => setFilter("fuente", value)} options={fuentes.map((fuente) => ({ value: String(fuente.id), label: fuente.nombre }))} />
+            <TableFilterSelect label="Filtrar por categoría" placeholder="Todas las categorías" value={filters.categoria || undefined} onValueChange={(value) => setFilter("categoria", value)} options={categorias.map((categoria) => ({ value: String(categoria.id), label: categoria.nombre }))} />
+            <TableFilterSelect label="Filtrar por año" placeholder="Todos los años" value={filters.anio || undefined} onValueChange={(value) => setFilter("anio", value)} options={years.map((year) => ({ value: String(year), label: String(year) }))} />
+            <label className="flex shrink-0 items-center gap-2 text-xs text-slate-600">Desde<input type="date" aria-label="Filtrar desde la fecha" className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-700 focus-visible:ring-2 focus-visible:ring-slate-500" value={filters.desde} max={filters.hasta || undefined} onChange={(event) => setFilter("desde", event.target.value)} /></label>
+            <label className="flex shrink-0 items-center gap-2 text-xs text-slate-600">Hasta<input type="date" aria-label="Filtrar hasta la fecha" className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-700 focus-visible:ring-2 focus-visible:ring-slate-500" value={filters.hasta} min={filters.desde || undefined} onChange={(event) => setFilter("hasta", event.target.value)} /></label>
           </div>
-        </>
-      )}
-
-      <ConfirmDialog
-        open={showConfirm}
-        title="Eliminar erogaciones"
-        message="Eliminar las siguientes erogaciones?"
-        items={selectedActiveItems.map(
-          (item) =>
-            `Erogacion Nro ${String(item.numero_erogacion).padStart(6, "0")}`
-        )}
-        onCancel={cancelSelection}
-        onConfirm={confirmDelete}
-        confirmText={isDeleting ? "Eliminando..." : "Aceptar"}
-        confirmDisabled={isDeleting}
+        </div></TableToolbar>}
       />
-
-      <SuccessToast
-        open={showSuccess}
-        message={successMessage || "Eliminado con exito."}
-        onClose={() => setShowSuccess(false)}
-      />
-
-      <SuccessToast
-        open={showError}
-        message={errorMessage}
-        onClose={() => setShowError(false)}
-        variant="error"
-      />
+      <ConfirmDialog open={Boolean(pendingDelete)} title="Eliminar movimiento" message={`¿Está seguro de eliminar ${pendingDelete ? movementLabel(pendingDelete) : "este movimiento"}?`} onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete} loadingText="Eliminando..." />
     </section>
-  );
+    <SuccessToast open={Boolean(successMessage)} message={successMessage} onClose={() => setSuccessMessage("")} />
+    <SuccessToast open={Boolean(errorMessage)} message={errorMessage} onClose={() => setErrorMessage("")} variant="error" />
+  </>;
 }

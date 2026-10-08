@@ -1,3 +1,5 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { applyFieldErrors } from "@/lib/httpError";
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,6 +11,11 @@ import { getErrorMessage } from "@/lib/httpError";
 import { useInvestigadores } from "@/modules/personal/hooks/useInvestigadores";
 import { useGradosAcademicos } from "@/modules/produccion/hooks/useGradoAcademico";
 import { useRolesActividadDocencia } from "@/modules/produccion/hooks/useActividadDocenciaRol";
+import { toCivilDateString } from "@/utils/dateTime";
+import { useAuth } from "@/context/AuthContext";
+import { useFormDraft } from "@/modules/shared/hooks/useFormDraft";
+import DraftRecoveryNotice from "@/modules/shared/components/DraftRecoveryNotice";
+import DraftLeaveControls from "@/modules/shared/components/DraftLeaveControls";
 import {
   crearActividadDocencia,
   getActividadDocenciaById,
@@ -20,6 +27,7 @@ export default function FormDocenciaInvestigador() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { user } = useAuth();
   const isEdit = Boolean(id);
 
   const { data: investigadores = [] } = useInvestigadores();
@@ -81,6 +89,17 @@ export default function FormDocenciaInvestigador() {
     );
   }, [initialData]);
 
+  const { availableDraft, sourceChanged, restoreDraft, discardDraft, clearDraft, saveStatus, blocker, requestLeave, keepAndLeave, discardAndLeave } = useFormDraft({
+    userId: user?.id,
+    module: "produccion-docencia",
+    recordId: id,
+    value: { investigadorId, curso, institucion, fechaInicio: toCivilDateString(fechaInicio), fechaFin: toCivilDateString(fechaFin), gradoAcademicoId, rolActividadId },
+    ready: !isEdit || (!isLoading && Boolean(initialData)),
+    autosave: false,
+    hasContent: (draft) => Boolean(draft.investigadorId || draft.curso || draft.institucion || draft.fechaInicio || draft.fechaFin || draft.gradoAcademicoId || draft.rolActividadId),
+    onRestore: (draft) => { setInvestigadorId(draft.investigadorId); setCurso(draft.curso); setInstitucion(draft.institucion); setFechaInicio(draft.fechaInicio ? new Date(`${draft.fechaInicio}T00:00:00`) : null); setFechaFin(draft.fechaFin ? new Date(`${draft.fechaFin}T00:00:00`) : null); setGradoAcademicoId(draft.gradoAcademicoId); setRolActividadId(draft.rolActividadId); },
+  });
+
   const formatDateStr = (date: Date | null) => {
     if (!date) return null;
     const y = date.getFullYear();
@@ -106,6 +125,7 @@ export default function FormDocenciaInvestigador() {
         ? actualizarActividadDocencia(Number(id), payload)
         : crearActividadDocencia(payload as ActividadDocenciaPayload),
     onSuccess: async () => {
+      clearDraft();
       await qc.invalidateQueries({ queryKey: ["docencia"] });
       await qc.invalidateQueries({ queryKey: ["actividad-docencia", id] });
 
@@ -113,7 +133,7 @@ export default function FormDocenciaInvestigador() {
         navigate(`/docenciaInvestigador/${id}`, {
           replace: true,
           state: {
-            successMessage: "Actividad en docencia actualizada con exito.",
+            successMessage: "Actividad en docencia actualizada con éxito.",
           },
         });
         return;
@@ -121,15 +141,18 @@ export default function FormDocenciaInvestigador() {
 
       navigate("/docenciaInvestigador", {
         state: {
-          successMessage: "Actividad en docencia creada con exito.",
+          successMessage: "Actividad en docencia creada con éxito.",
         },
       });
     },
     onError: (error) => {
+      if (applyFieldErrors(error, setErrors, ["investigador","curso","institucion","fechaInicio","fechaFin","gradoAcademico","rolActividad"])) return;
       setErrorMessage(
         getErrorMessage(
           error,
-          "Lo sentimos, no pudimos guardar los cambios. Verifique los datos e intente nuevamente."
+          isEdit
+            ? "Lo sentimos, no pudimos actualizar la actividad de docencia. Revise los datos e intente nuevamente."
+            : "Lo sentimos, no pudimos crear la actividad de docencia. Revise los datos e intente nuevamente."
         )
       );
 
@@ -153,7 +176,7 @@ export default function FormDocenciaInvestigador() {
     }
     if (!curso.trim()) newErrors.curso = "Debe ingresar curso";
     if (!institucion.trim()) {
-      newErrors.institucion = "Debe ingresar institucion";
+      newErrors.institucion = "Debe ingresar institución";
     }
     if (!fechaInicio) {
       newErrors.fechaInicio = "Debe seleccionar fecha de inicio";
@@ -177,6 +200,7 @@ export default function FormDocenciaInvestigador() {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (mutation.isPending) return;
     if (!validate()) return;
 
     const payload = {
@@ -211,6 +235,7 @@ export default function FormDocenciaInvestigador() {
     );
 
     if (Object.keys(changedPayload).length === 0) {
+      clearDraft();
       navigate(`/docenciaInvestigador/${id}`, {
         replace: true,
         state: {
@@ -223,7 +248,7 @@ export default function FormDocenciaInvestigador() {
     mutation.mutate(changedPayload);
   };
 
-  if (isEdit && isLoading) return <p>Cargando actividad...</p>;
+  if (isEdit && isLoading) return <LoadingSkeleton variant="form" label="Cargando actividad..." />;
 
   const inputClass = (field: string) =>
     `input ${errors[field] ? "!border-red-500 !ring-2 !ring-red-500" : ""}`;
@@ -236,12 +261,15 @@ export default function FormDocenciaInvestigador() {
           : "Nueva actividad en docencia"}
       </h2>
 
+      {availableDraft && <DraftRecoveryNotice savedAt={availableDraft.saved_at} sourceChanged={sourceChanged} onRestore={restoreDraft} onDiscard={discardDraft} />}
+      <DraftLeaveControls blocker={blocker} saveStatus={saveStatus} keepAndLeave={keepAndLeave} discardAndLeave={discardAndLeave} />
+
       <form
         noValidate
         onSubmit={submit}
         className="mt-6 space-y-6 rounded-2xl border border-slate-200 bg-white p-6"
       >
-        <Field label="Investigador">
+        <Field required label="Investigador" name="investigador" error={errors.investigador}>
           <>
             <select
               className={`${inputClass("investigador")} ${
@@ -269,7 +297,7 @@ export default function FormDocenciaInvestigador() {
           </>
         </Field>
 
-        <Field label="Curso">
+        <Field required label="Curso" name="curso" error={errors.curso}>
           <>
             <input
               className={inputClass("curso")}
@@ -286,7 +314,7 @@ export default function FormDocenciaInvestigador() {
           </>
         </Field>
 
-        <Field label="Institucion">
+        <Field required label="Institución" name="institucion" error={errors.institucion}>
           <>
             <input
               className={inputClass("institucion")}
@@ -304,7 +332,7 @@ export default function FormDocenciaInvestigador() {
         </Field>
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <Field label="Fecha inicio">
+          <Field required label="Fecha inicio" name="fechaInicio" error={errors.fechaInicio}>
             <>
               <Calendar
                 value={fechaInicio}
@@ -313,15 +341,12 @@ export default function FormDocenciaInvestigador() {
                   if (date) clearError("fechaInicio");
                 }}
                 className={inputClass("fechaInicio")}
-                helperText={errors.fechaInicio ?? "DD/MM/AAAA"}
+                helperText="DD/MM/AAAA"
               />
-              {errors.fechaInicio && (
-                <p className="mt-1 text-sm text-red-500">{errors.fechaInicio}</p>
-              )}
             </>
           </Field>
 
-          <Field label="Fecha fin">
+          <Field required label="Fecha fin" name="fechaFin" error={errors.fechaFin}>
             <>
               <Calendar
                 value={fechaFin}
@@ -331,16 +356,13 @@ export default function FormDocenciaInvestigador() {
                 }}
                 minDate={fechaInicio ?? undefined}
                 className={inputClass("fechaFin")}
-                helperText={errors.fechaFin ?? "DD/MM/AAAA"}
+                helperText="DD/MM/AAAA"
               />
-              {errors.fechaFin && (
-                <p className="mt-1 text-sm text-red-500">{errors.fechaFin}</p>
-              )}
             </>
           </Field>
         </div>
 
-        <Field label="Grado academico">
+        <Field required label="Grado academico" name="gradoAcademico" error={errors.gradoAcademico}>
           <>
             <select
               className={`${inputClass("gradoAcademico")} ${
@@ -370,7 +392,7 @@ export default function FormDocenciaInvestigador() {
           </>
         </Field>
 
-        <Field label="Rol en la actividad">
+        <Field required label="Rol en la actividad" name="rolActividad" error={errors.rolActividad}>
           <>
             <select
               className={`${inputClass("rolActividad")} ${
@@ -403,12 +425,12 @@ export default function FormDocenciaInvestigador() {
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => navigate(-1)}
+            onClick={() => requestLeave(() => navigate(-1))}
           >
             Volver
           </Button>
 
-          <Button type="submit" size="sm" disabled={mutation.isPending}>
+          <Button type="submit" size="sm" disabled={mutation.isPending} loading={mutation.isPending} loadingText="Guardando...">
             {mutation.isPending
               ? isEdit
                 ? "Actualizando..."

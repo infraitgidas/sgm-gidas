@@ -6,9 +6,11 @@ from modules.personal.services.tipo_dedicacion_service import (
     crear_tipo_dedicacion,
     eliminar_tipo_dedicacion,
     listar_tipos_dedicacion,
+    listar_tipos_dedicacion_paginado,
     obtener_tipo_dedicacion_por_id,
 )
-from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, parse_pagination_params
+from modules.shared.controllers.responses import error_response, exception_response, paginated_response
 from modules.shared.services.catalogo_auditoria_service import CatalogoAuditoriaService
 
 
@@ -25,8 +27,17 @@ class TipoDedicacionController:
     @staticmethod
     def listar(req: Request) -> Response:
         try:
+            if pagination_requested(req.args):
+                params = parse_pagination_params(req.args)
+                tipos, total = listar_tipos_dedicacion_paginado(**params)
+                return paginated_response(
+                    [tipo.serialize() for tipo in tipos], params["page"], params["per_page"], total,
+                    meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"},
+                )
             tipos = listar_tipos_dedicacion(req.args.get("activos", "true"))
             return jsonify([tipo.serialize() for tipo in tipos]), 200
+        except ValueError as error:
+            return error_response("VALIDATION_ERROR", message=str(error), status_code=400)
         except Exception as error:
             return exception_response(error, operation="listar tipos de dedicacion")
 

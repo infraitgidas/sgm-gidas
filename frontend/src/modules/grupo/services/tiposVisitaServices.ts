@@ -1,4 +1,4 @@
-import {http} from "@/lib/http";
+import { http } from "@/lib/http";
 
 export interface TipoVisita {
   id: number;
@@ -6,7 +6,7 @@ export interface TipoVisita {
 }
 
 export const getTiposVisita = async (): Promise<TipoVisita[]> => {
-  return http<TipoVisita[]>("/tipos-reunion-cientifica/", {
+  return http<TipoVisita[]>("/grupo/tipos-visita/", {
     method: "GET",
   });
 };

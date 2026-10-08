@@ -1,6 +1,21 @@
 from extension import db
 from modules.shared.models.audit_mixin import AuditMixin
-from modules.produccion.models.trabajo_reunion import TipoReunion
+
+
+class TipoVisita(db.Model, AuditMixin):
+    __tablename__ = "tipo_visita"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(100), nullable=False, unique=True)
+
+    visitas = db.relationship(
+        "VisitaAcademica",
+        back_populates="tipo_visita",
+        lazy="select",
+    )
+
+    def serialize(self):
+        return self.to_dict()
 
 
 class VisitaAcademica(db.Model, AuditMixin):
@@ -13,9 +28,12 @@ class VisitaAcademica(db.Model, AuditMixin):
     # Procedencia ahora es un string en lugar de ForeignKey
     procedencia = db.Column(db.Text, nullable=False)
     
-    # Tipo de visita ahora apunta a TipoReunion
-    tipo_visita_id = db.Column(db.Integer, db.ForeignKey('tipo_reunion_cientifica.id'), nullable=False)
-    tipo_visita = db.relationship('TipoReunion', back_populates='visitas')
+    tipo_visita_id = db.Column(
+        db.Integer,
+        db.ForeignKey("tipo_visita.id"),
+        nullable=False,
+    )
+    tipo_visita = db.relationship("TipoVisita", back_populates="visitas")
     
     # --- Clave Foránea y Relación ---
     grupo_utn_id = db.Column(db.Integer, db.ForeignKey('grupo_utn.id'))
@@ -55,7 +73,7 @@ class VisitaAcademicaMemoriaVersion(db.Model, AuditMixin):
 
     tipo_visita_id = db.Column(
         db.Integer,
-        db.ForeignKey("tipo_reunion_cientifica.id"),
+        db.ForeignKey("tipo_visita.id"),
         nullable=False
     )
     tipo_visita_nombre = db.Column(db.String(255), nullable=True)
@@ -69,7 +87,7 @@ class VisitaAcademicaMemoriaVersion(db.Model, AuditMixin):
 
     memoria_version = db.relationship("MemoriaVersion", lazy="joined")
     visita_academica = db.relationship("VisitaAcademica", lazy="joined")
-    tipo_visita = db.relationship("TipoReunion", lazy="joined")
+    tipo_visita = db.relationship("TipoVisita", lazy="joined")
     grupo_utn = db.relationship("GrupoInvestigacionUtn", lazy="joined")
 
     __table_args__ = (

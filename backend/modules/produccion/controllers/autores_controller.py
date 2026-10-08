@@ -1,13 +1,16 @@
-from flask import jsonify, request
+from flask import jsonify, request, g
 from modules.produccion.services.autores_service import AutorService
 from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, catalog_page_response
 
 class AutorController:
 
     @staticmethod
     def get_all():
         try:
-            return jsonify(AutorService.get_all()), 200
+            if pagination_requested(request.args):
+                return catalog_page_response(AutorService, request.args)
+            return jsonify(AutorService.get_all(request.args.get("activos", "true"))), 200
         except Exception as error:
             return exception_response(error, operation="listar autores")
 
@@ -21,11 +24,18 @@ class AutorController:
             return exception_response(error, operation="consultar autor")
 
     @staticmethod
+    def get_historial(autor_id):
+        try:
+            return jsonify(AutorService.get_historial(autor_id)), 200
+        except Exception as error:
+            return exception_response(error, operation="consultar historial de autor")
+
+    @staticmethod
     def create():
         try:
             data = request.get_json()
             return jsonify(
-                AutorService.create(data)
+                AutorService.create(data, g.current_user_id)
             ), 201
         except Exception as error:
             return exception_response(error, operation="crear autor")
@@ -35,7 +45,7 @@ class AutorController:
         try:
             data = request.get_json()
             return jsonify(
-                AutorService.update(autor_id, data)
+                AutorService.update(autor_id, data, g.current_user_id)
             ), 200
         except Exception as error:
             return exception_response(error, operation="actualizar autor")
@@ -44,7 +54,7 @@ class AutorController:
     def delete(autor_id):
         try:
             return jsonify(
-                AutorService.delete(autor_id)
+                AutorService.delete(autor_id, g.current_user_id)
             ), 200
         except Exception as error:
             return exception_response(error, operation="eliminar autor")
@@ -58,7 +68,8 @@ class AutorController:
             return jsonify(
                 AutorService.add_libro(
                     autor_id,
-                    data["libro_id"]
+                    data["libro_id"],
+                    g.current_user_id
                 )
             ), 200
         except Exception as error:
@@ -70,7 +81,8 @@ class AutorController:
             return jsonify(
                 AutorService.remove_libro(
                     autor_id,
-                    libro_id
+                    libro_id,
+                    g.current_user_id
                 )
             ), 200
         except Exception as error:

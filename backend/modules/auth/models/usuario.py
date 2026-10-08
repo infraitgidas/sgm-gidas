@@ -35,6 +35,11 @@ class Usuario(db.Model, AuditMixin):
     )
 
     rol = db.relationship("RolUsuario")
+    grupos_utn = db.relationship(
+        "UsuarioGrupoUtn",
+        foreign_keys="UsuarioGrupoUtn.usuario_id",
+        back_populates="usuario",
+    )
     refresh_sessions = db.relationship(
         "RefreshTokenSession",
         back_populates="user",

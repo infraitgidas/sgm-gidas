@@ -5,6 +5,7 @@ export function useTiposPersonal() {
   return useQuery({
     queryKey: ["tipo-personal"],
     queryFn: getTiposPersonal,
-    staleTime: Infinity,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 }

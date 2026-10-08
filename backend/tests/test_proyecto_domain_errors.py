@@ -3,11 +3,19 @@ from unittest.mock import patch
 
 from app import create_app
 from modules.shared.exceptions import NotFoundError, ValidationError
+from modules.proyectos.services.proyecto_investigacion_service import ProyectoInvestigacionService
 
 
 class ProyectoDomainErrorsTestCase(unittest.TestCase):
+    def test_fechas_de_proyecto_invalidas_identifican_el_control(self):
+        for value in (None, "2025-02-30", "2009-01-01"):
+            with self.subTest(value=value), self.assertRaises(ValidationError) as caught:
+                ProyectoInvestigacionService._validar_fecha_proyecto(value, "fecha_inicio")
+            self.assertIn("fecha_inicio", caught.exception.details["fields"])
+
     def setUp(self):
-        self.app = create_app()
+        with patch("app.register_tenant_request_scope"):
+            self.app = create_app()
         self.app.testing = True
         self.client = self.app.test_client()
 

@@ -2,7 +2,8 @@ from flask import jsonify, request, g, send_file
 
 from modules.memorias.services.memoria_service import MemoriaService
 from modules.memorias.services.exportacion_service_impl import ExportService
-from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, parse_pagination_params
+from modules.shared.controllers.responses import error_response, exception_response, paginated_response
 
 
 class MemoriaController:
@@ -10,8 +11,17 @@ class MemoriaController:
     @staticmethod
     def get_all():
         try:
+            if pagination_requested(request.args):
+                params = parse_pagination_params(request.args)
+                memorias, total = MemoriaService.get_page(**params)
+                return paginated_response(
+                    memorias, params["page"], params["per_page"], total,
+                    meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"},
+                )
             activos = request.args.get("activos", "true")
             return jsonify(MemoriaService.get_all(activos)), 200
+        except ValueError as error:
+            return error_response("VALIDATION_ERROR", message=str(error), status_code=400)
         except Exception as error:
             return exception_response(error, operation="listar memorias")
 
@@ -229,7 +239,7 @@ class MemoriaController:
                 (item for item in versiones if item.get("id") == memoria_version_id),
                 None
             )
-            anio = memoria["periodo_fin"][:4] if memoria.get("periodo_fin") else "memoria"
+            periodo = f"{memoria['periodo_inicio']}_{memoria['periodo_fin']}"
             numero_version = (
                 version.get("numero_version")
                 if version and version.get("numero_version") is not None
@@ -239,7 +249,7 @@ class MemoriaController:
             return send_file(
                 archivo,
                 as_attachment=True,
-                download_name=f"memoria_{anio}_v{numero_version}.xlsx",
+                download_name=f"memoria_{periodo}_v{numero_version}.xlsx",
                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         except Exception as error:
@@ -263,7 +273,7 @@ class MemoriaController:
             data = request.get_json()
 
             return jsonify(
-                MemoriaService.update(memoria_id, data)
+                MemoriaService.update(memoria_id, data, g.current_user_id)
             ), 200
         except Exception as error:
             return exception_response(error, operation="actualizar memoria")
@@ -302,3 +312,10 @@ class MemoriaController:
             ), 200
         except Exception as error:
             return exception_response(error, operation="reabrir memoria")
+
+    @staticmethod
+    def get_historial(memoria_id):
+        try:
+            return jsonify(MemoriaService.get_historial(memoria_id)), 200
+        except Exception as error:
+            return exception_response(error, operation="consultar historial de memoria")

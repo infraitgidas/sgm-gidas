@@ -63,6 +63,7 @@ class Directivo(db.Model, AuditMixin):
     __tablename__ = 'directivo'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    grupo_utn_id = db.Column(db.Integer, db.ForeignKey("grupo_utn.id"), nullable=True, index=True)
     nombre_apellido = db.Column(db.Text, nullable=False)
 
     participaciones_grupo = db.relationship(

@@ -33,6 +33,8 @@ python3 backend/tools/scan_tracked_secrets.py
 
 docker run --rm \
     -v "$PWD/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro" \
-    nginxinc/nginx-unprivileged:1.27-alpine nginx -t
+    nginxinc/nginx-unprivileged:1.31-alpine3.24 nginx -t
 
-echo "Preflight de VM correcto: configuracion, topologia, secretos y Nginx validados."
+echo "Preflight correcto: Compose, topologia, secretos y Nginx interno validados."
+echo "La plantilla Nginx TLS externa es opcional para Cloudflare Tunnel directo a localhost:8080."
+echo "Si el laboratorio instala esa alternativa, completar los valores y validar en el host con sudo nginx -t."

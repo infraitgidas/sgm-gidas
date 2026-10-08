@@ -8,7 +8,8 @@ from app import create_app
 class IdorBolaModulesTestCase(unittest.TestCase):
 
     def setUp(self):
-        self.app = create_app()
+        with patch("app.register_tenant_request_scope"):
+            self.app = create_app()
         self.app.config.update(TESTING=True)
         self.client = self.app.test_client()
 

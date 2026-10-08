@@ -6,7 +6,7 @@ export interface GrupoUtn {
 }
 
 export const getGruposUtn = async (): Promise<GrupoUtn[]> => {
-  return http<GrupoUtn[]>("/grupos-utn/", {
+  return http<GrupoUtn[]>("/grupo-utn/opciones", {
     method: "GET",
   });
 };

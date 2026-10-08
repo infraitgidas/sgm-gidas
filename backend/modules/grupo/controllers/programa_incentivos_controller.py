@@ -6,9 +6,11 @@ from modules.grupo.services.programa_incentivos_service import (
     crear_programa_incentivos,
     eliminar_programa_incentivos,
     listar_programas_incentivos,
+    listar_programas_incentivos_paginado,
     obtener_programa_incentivos_por_id,
 )
-from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, parse_pagination_params
+from modules.shared.controllers.responses import error_response, exception_response, paginated_response
 from modules.shared.services.catalogo_auditoria_service import CatalogoAuditoriaService
 
 
@@ -24,8 +26,17 @@ class ProgramaIncentivosController:
     @staticmethod
     def listar(req: Request) -> Response:
         try:
+            if pagination_requested(req.args):
+                params = parse_pagination_params(req.args)
+                programas, total = listar_programas_incentivos_paginado(**params)
+                return paginated_response(
+                    [p.serialize() for p in programas], params["page"], params["per_page"], total,
+                    meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"},
+                )
             programas = listar_programas_incentivos(req.args.get("activos", "true"))
             return jsonify([p.serialize() for p in programas]), 200
+        except ValueError as error:
+            return error_response("VALIDATION_ERROR", message=str(error), status_code=400)
         except Exception as error:
             return exception_response(error, operation="listar programas de incentivos")
 

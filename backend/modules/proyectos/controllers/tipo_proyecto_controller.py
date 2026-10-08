@@ -3,6 +3,7 @@ from flask import g, jsonify, request
 from modules.proyectos.models.proyecto_investigacion import TipoProyecto
 from modules.proyectos.services.tipo_proyecto_service import TipoProyectoService
 from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, catalog_page_response
 from modules.shared.services.catalogo_auditoria_service import CatalogoAuditoriaService
 
 
@@ -10,6 +11,8 @@ class TipoProyectoController:
     @staticmethod
     def get_all():
         try:
+            if pagination_requested(request.args):
+                return catalog_page_response(TipoProyectoService, request.args)
             return jsonify(TipoProyectoService.get_all(request.args.get("activos", "true"))), 200
         except Exception as error:
             return exception_response(error, operation="listar tipos de proyecto")

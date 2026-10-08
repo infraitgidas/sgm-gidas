@@ -1,6 +1,14 @@
+from modules.memorias.services.memoria_periodo_service import (
+    consultar_entidades_memoria, resolver_horas_al_fin,
+)
 from datetime import date
 
 from extension import db
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
+from modules.personal.services.identidad_service import asignar_identidad, conflicto_identidad_por_integridad
+from modules.shared.services.text_validation import has_only_letters_and_spaces
+from modules.personal.services.horas_validation import validar_horas_semanales as _validar_horas
 from modules.shared.exceptions import (
     ConflictError,
     NotFoundError,
@@ -40,37 +48,34 @@ def _validar_id_positivo(valor, campo: str, permitir_none: bool = False):
     if valor is None and permitir_none:
         return valor
 
-    if not isinstance(valor, int) or valor <= 0:
-        raise ValueError(f"El campo '{campo}' debe ser un entero positivo.")
+    if isinstance(valor, bool) or not isinstance(valor, int) or valor <= 0:
+        message = "Debe seleccionar una referencia válida."
+        raise ValueError(message, details={"fields": {campo: message}})
 
     return valor
 
 
 def _validar_user_id(user_id: int):
     if not isinstance(user_id, int) or user_id <= 0:
-        raise ValueError("El user_id es invalido.")
+        raise ValueError("No pudimos procesar la solicitud. Intente nuevamente.")
 
 
 def _validar_nombre(nombre: str):
     if not isinstance(nombre, str):
-        raise ValueError("El nombre y apellido es obligatorio.")
+        raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"nombre_apellido": "Ingrese nombre y apellido."}})
 
     nombre = nombre.strip()
 
     if not nombre:
-        raise ValueError("El nombre y apellido es obligatorio.")
+        raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"nombre_apellido": "Ingrese nombre y apellido."}})
+
+    if not has_only_letters_and_spaces(nombre):
+        raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"nombre_apellido": "Use solo letras y espacios en nombre y apellido."}})
 
     if len(nombre) > 120:
-        raise ValueError("El nombre y apellido no puede superar los 120 caracteres.")
+        raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"nombre_apellido": "Use hasta 120 caracteres para nombre y apellido."}})
 
     return nombre
-
-
-def _validar_horas(horas):
-    if not isinstance(horas, int) or horas <= 0:
-        raise ValueError("Las horas semanales deben ser un numero positivo.")
-
-    return horas
 
 
 def _obtener_historiales_activos(entidad):
@@ -125,8 +130,10 @@ def _resolver_entidad_por_rol(id, rol):
 def _validar_tipo_personal(tipo_personal_id):
     tipo_personal_id = _validar_id_positivo(tipo_personal_id, "tipo_personal_id")
 
-    if not TipoPersonal.query.get(tipo_personal_id):
-        raise ValueError("Tipo de personal invalido.")
+    tipo = db.session.get(TipoPersonal, tipo_personal_id)
+    if not tipo or tipo.deleted_at is not None or not tipo.activo:
+        message = "El tipo de personal seleccionado no existe o está inactivo. Seleccione otro tipo."
+        raise ValueError(message, details={"fields": {"tipo_personal_id": message}})
 
     return tipo_personal_id
 
@@ -135,7 +142,7 @@ def _validar_tipo_formacion(tipo_formacion_id):
     tipo_formacion_id = _validar_id_positivo(tipo_formacion_id, "tipo_formacion_id")
 
     if not TipoFormacion.query.get(tipo_formacion_id):
-        raise ValueError("Tipo de formacion invalido.")
+        raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"tipo_formacion_id": "Seleccione un tipo de formación disponible."}})
 
     return tipo_formacion_id
 
@@ -144,7 +151,7 @@ def _validar_tipo_dedicacion(tipo_dedicacion_id):
     tipo_dedicacion_id = _validar_id_positivo(tipo_dedicacion_id, "tipo_dedicacion_id")
 
     if not TipoDedicacion.query.get(tipo_dedicacion_id):
-        raise ValueError("Tipo de dedicacion invalido.")
+        raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"tipo_dedicacion_id": "Seleccione un tipo de dedicación disponible."}})
 
     return tipo_dedicacion_id
 
@@ -159,8 +166,10 @@ def _validar_grupo_utn(grupo_utn_id, obligatorio=False):
     if grupo_utn_id is None:
         return None
 
-    if not GrupoInvestigacionUtn.query.get(grupo_utn_id):
-        raise ValueError("Grupo UTN invalido.")
+    grupo = db.session.get(GrupoInvestigacionUtn, grupo_utn_id)
+    if not grupo or grupo.deleted_at is not None or not grupo.activo:
+        message = "El grupo seleccionado no existe o está inactivo. Revise el grupo e intente nuevamente."
+        raise ValueError(message, details={"fields": {"grupo_utn_id": message}})
 
     return grupo_utn_id
 
@@ -171,7 +180,7 @@ def _validar_categoria_utn(categoria_utn_id):
     )
 
     if categoria_utn_id and not CategoriaUtn.query.get(categoria_utn_id):
-        raise ValueError("Categoria UTN invalida.")
+        raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"categoria_utn_id": "Seleccione una categoría disponible."}})
 
     return categoria_utn_id
 
@@ -182,7 +191,7 @@ def _validar_programa_incentivos(programa_incentivos_id):
     )
 
     if programa_incentivos_id and not ProgramaIncentivos.query.get(programa_incentivos_id):
-        raise ValueError("Programa de incentivos invalido.")
+        raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"programa_incentivos_id": "Seleccione un programa de incentivos disponible."}})
 
     return programa_incentivos_id
 
@@ -200,33 +209,38 @@ def crear_personal(data, user_id):
     tipo_personal_id = _validar_tipo_personal(data.get("tipo_personal_id"))
     grupo_utn_id = _validar_grupo_utn(data.get("grupo_utn_id"), obligatorio=True)
 
+    try:
+        fecha_alta = validar_fecha_alta_grupo(data.get("fecha_alta_grupo"))
+    except ValueError as error:
+        message = "Ingrese una fecha de alta válida desde el 01/01/2010."
+        raise ValueError(message, details={"fields": {"fecha_alta_grupo": message}}) from error
+
     nuevo = Personal(
         nombre_apellido=nombre,
         horas_semanales=horas,
-        fecha_alta_grupo=validar_fecha_alta_grupo(
-            data.get("fecha_alta_grupo")
-        ),
+        fecha_alta_grupo=fecha_alta,
         tipo_personal_id=tipo_personal_id,
         grupo_utn_id=grupo_utn_id,
         activo=True,
         created_by=user_id
     )
-
-    db.session.add(nuevo)
-    db.session.flush()
-
-    historial = PersonalHorasHistorial(
-        personal_id=nuevo.id,
-        horas_semanales=horas,
-        fecha_inicio=date.today(),
-        fecha_fin=None,
-        created_by=user_id
-    )
-
-    db.session.add(historial)
+    asignar_identidad(nuevo, data, nueva=True)
 
     try:
+        db.session.add(nuevo)
+        db.session.flush()
+        historial = PersonalHorasHistorial(
+            personal_id=nuevo.id,
+            horas_semanales=horas,
+            fecha_inicio=date.today(),
+            fecha_fin=None,
+            created_by=user_id
+        )
+        db.session.add(historial)
         db.session.commit()
+    except IntegrityError as error:
+        db.session.rollback()
+        conflicto_identidad_por_integridad(error)
     except Exception:
         db.session.rollback()
         raise
@@ -241,6 +255,8 @@ def crear_personal(data, user_id):
 def actualizar_personal(id, data, rol, user_id: int):
     _validar_payload(data)
     _validar_user_id(user_id)
+    if "horas_semanales" in data:
+        _validar_horas(data["horas_semanales"])
 
     entidad, historial_model, fk_field = _resolver_entidad_por_rol(id, rol)
     cambios = {}
@@ -250,6 +266,8 @@ def actualizar_personal(id, data, rol, user_id: int):
 
     if entidad.deleted_at is not None:
         raise ConflictError("No se puede modificar un registro eliminado.")
+
+    cambios.update(asignar_identidad(entidad, data))
 
     if "nombre_apellido" in data:
         nuevo_valor = _validar_nombre(data["nombre_apellido"])
@@ -304,7 +322,11 @@ def actualizar_personal(id, data, rol, user_id: int):
         entidad.activo = data["activo"]
 
     if "fecha_alta_grupo" in data:
-        nuevo_valor = validar_fecha_alta_grupo(data["fecha_alta_grupo"])
+        try:
+            nuevo_valor = validar_fecha_alta_grupo(data["fecha_alta_grupo"])
+        except ValueError as error:
+            message = "Ingrese una fecha de alta válida desde el 01/01/2010."
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"fecha_alta_grupo": message}}) from error
         cambio = AuditoriaService.construir_cambio(
             entidad.fecha_alta_grupo,
             nuevo_valor
@@ -414,6 +436,9 @@ def actualizar_personal(id, data, rol, user_id: int):
 
     try:
         db.session.commit()
+    except IntegrityError as error:
+        db.session.rollback()
+        conflicto_identidad_por_integridad(error)
     except Exception:
         db.session.rollback()
         raise
@@ -477,7 +502,7 @@ def restaurar_personal(id, rol):
 # LISTAR
 # =====================================================
 
-def listar_personal(activos="true"):
+def _consulta_personal(activos="true"):
     query = Personal.query
 
     if activos is None:
@@ -494,7 +519,23 @@ def listar_personal(activos="true"):
     else:
         query = query.filter(Personal.deleted_at.is_(None))
 
-    return query.all()
+    return query.order_by(Personal.id.asc())
+
+
+def listar_personal(activos="true"):
+    return _consulta_personal(activos).all()
+
+
+def listar_personal_pagina(page, per_page, activos="true", orden="asc"):
+    query = _consulta_personal(activos).options(
+        selectinload(Personal.historial_horas),
+        selectinload(Personal.tipo_personal),
+        selectinload(Personal.grupo_utn),
+    )
+    if orden == "desc":
+        query = query.order_by(None).order_by(Personal.id.desc())
+    total = query.count()
+    return query.offset((page - 1) * per_page).limit(per_page).all(), total
 
 
 # =====================================================
@@ -525,7 +566,7 @@ def obtener_historial_personal_por_rol(id, rol):
 
 
 def snapshot_personal_para_memoria_version(memoria_version, user_id):
-    personales = Personal.query.filter().all()
+    personales = consultar_entidades_memoria(Personal, memoria_version)
 
     snapshots = []
     for personal in personales:
@@ -539,7 +580,8 @@ def snapshot_personal_para_memoria_version(memoria_version, user_id):
             memoria_version_id=memoria_version.id,
             personal_id=personal.id,
             nombre_apellido=personal.nombre_apellido,
-            horas_semanales=_resolver_horas_activas(personal),
+            fecha_alta_grupo=personal.fecha_alta_grupo,
+            horas_semanales=resolver_horas_al_fin(personal, memoria_version),
             tipo_personal_id=personal.tipo_personal_id,
             tipo_personal_nombre=(
                 personal.tipo_personal.nombre

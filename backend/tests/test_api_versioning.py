@@ -3,6 +3,7 @@ import unittest
 from flask import Blueprint, Flask
 
 from app import create_app
+from modules import blueprints
 
 from modules.shared.routes.status import health_bp
 from modules.shared.routes.versioning import (
@@ -101,6 +102,7 @@ class ApiVersioningTestCase(unittest.TestCase):
         self.assertIn("/api/v1/proyectos", rules)
         self.assertIn("/api/v1/transferencia/transferencias", rules)
         self.assertIn("/api/v1/grupo/cargos/", rules)
+        self.assertIn("/api/v1/grupo/tipos-visita/", rules)
 
     def test_app_no_expone_rutas_legacy(self):
         app = create_app()
@@ -113,50 +115,7 @@ class ApiVersioningTestCase(unittest.TestCase):
         self.assertNotIn("/proyectos", rules)
 
     def test_todos_los_blueprints_conocidos_tienen_prefijo_canonico(self):
-        expected_blueprints = {
-            "actividad_docencia",
-            "adoptante",
-            "articulo_divulgacion_bp",
-            "auth",
-            "autor",
-            "beca",
-            "becario",
-            "cargo",
-            "categoria_utn",
-            "dashboard",
-            "directivo",
-            "distincion_recibida",
-            "documentacion_bibliografica",
-            "equipamiento",
-            "erogacion",
-            "fuente_financiamiento",
-            "grado_academico",
-            "grupo_utn",
-            "health",
-            "investigador",
-            "memoria",
-            "participacion_relevante",
-            "personal",
-            "personal_completo",
-            "planificacion_grupo",
-            "programa_incentivos",
-            "proyecto_investigacion",
-            "registros_propiedad",
-            "rol_actividad",
-            "search",
-            "tipo_contrato",
-            "tipo_dedicacion",
-            "tipo_erogacion",
-            "tipo_formacion",
-            "tipo_personal",
-            "tipo_proyecto",
-            "tipo_registro_propiedad",
-            "tipo_reunion",
-            "trabajo_reunion_cientifica",
-            "trabajos_revistas_referato",
-            "transferencia_socio_productiva",
-            "visita_academica",
-        }
+        expected_blueprints = {blueprint.name for blueprint in blueprints}
 
         self.assertEqual(set(VERSIONED_PREFIXES), expected_blueprints)
 

@@ -33,6 +33,10 @@ tipo(scope opcional): descripcion breve
 
 Tipos admitidos: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
 `build`, `ci`, `chore` y `revert`. Se admiten cambios incompatibles mediante `!`.
+El scope admite nombres en minusculas, numeros, puntos, guiones y guiones bajos.
+Tambien admite varios scopes separados por coma, con espacio opcional, por ejemplo
+`docs(readme, changelog): actualizar documentacion`. Se siguen rechazando tipos
+desconocidos, scopes vacios y mensajes sin descripcion.
 
 ## Entrega elegida para la primera VM
 

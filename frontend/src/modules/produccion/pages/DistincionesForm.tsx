@@ -1,3 +1,5 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { applyFieldErrors } from "@/lib/httpError";
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,22 +19,29 @@ import {
   type Proyecto,
 } from "@/modules/proyectos/services/proyectosServices";
 import { useUct } from "@/modules/grupo/hooks/useUct";
+import { toCivilDateString } from "@/utils/dateTime";
+import { useAuth } from "@/context/AuthContext";
+import { useFormDraft } from "@/modules/shared/hooks/useFormDraft";
+import DraftRecoveryNotice from "@/modules/shared/components/DraftRecoveryNotice";
+import DraftLeaveControls from "@/modules/shared/components/DraftLeaveControls";
 
 export default function DistincionesForm() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { uct } = useUct();
+  const { user } = useAuth();
 
   const isEdit = Boolean(id);
 
-  const { data: proyectos = [] } = useQuery({
-    queryKey: ["proyectos"],
+  const proyectosQuery = useQuery({
+    queryKey: ["proyectos", "activos"],
     queryFn: () => getProyectos(),
     staleTime: 60_000,
   });
+  const proyectos = proyectosQuery.data ?? [];
 
-  const { data: initialData, isLoading } = useQuery({
+  const { data: initialData, isLoading, isError } = useQuery({
     queryKey: ["distincion", id],
     queryFn: () => (id ? getDistincionById(Number(id)) : null),
     enabled: isEdit,
@@ -54,6 +63,17 @@ export default function DistincionesForm() {
     setProyectoId(initialData.proyecto?.id ?? null);
   }, [initialData]);
 
+  const { availableDraft, sourceChanged, restoreDraft, discardDraft, clearDraft, saveStatus, blocker, requestLeave, keepAndLeave, discardAndLeave } = useFormDraft({
+    userId: user?.id,
+    module: "produccion-distinciones",
+    recordId: id,
+    value: { fecha: toCivilDateString(fecha), descripcion, proyectoId },
+    ready: !isEdit || (!isLoading && Boolean(initialData)),
+    autosave: false,
+    hasContent: (draft) => Boolean(draft.fecha || draft.descripcion || draft.proyectoId),
+    onRestore: (draft) => { setFecha(draft.fecha ? new Date(`${draft.fecha}T00:00:00`) : null); setDescripcion(draft.descripcion); setProyectoId(draft.proyectoId); },
+  });
+
   const clearError = (field: string) => {
     setErrors((prev) => {
       const copy = { ...prev };
@@ -70,23 +90,15 @@ export default function DistincionesForm() {
     }
 
     if (!descripcion.trim()) {
-      newErrors.descripcion = "Debe ingresar descripcion";
+      newErrors.descripcion = "Debe ingresar descripción";
     }
 
     if (!proyectoId) {
-      newErrors.proyecto = "Debe seleccionar un proyecto de investigacion";
+      newErrors.proyecto = "Debe seleccionar un proyecto de investigación";
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  };
-
-  const formatDateStr = (date: Date | null) => {
-    if (!date) return null;
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, "0");
-    const d = String(date.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
   };
 
   const mutation = useMutation({
@@ -95,6 +107,7 @@ export default function DistincionesForm() {
         ? actualizarDistincion(Number(id), payload)
         : crearDistincion(payload as DistincionPayload),
     onSuccess: async (saved) => {
+      clearDraft();
       const distincionId = isEdit ? Number(id) : saved.id;
 
       await qc.invalidateQueries({ queryKey: ["distinciones"] });
@@ -105,26 +118,19 @@ export default function DistincionesForm() {
         replace: true,
         state: {
           successMessage: isEdit
-            ? "Distincion actualizada con exito."
-            : "Distincion creada con exito.",
+            ? "Distinción actualizada con éxito."
+            : "Distinción creada con éxito.",
         },
       });
     },
     onError: (error) => {
+      if (applyFieldErrors(error, setErrors, ["fecha","descripcion","proyecto"])) return;
       const backendMessage = getErrorMessage(
         error,
-        "Lo sentimos, no pudimos guardar los cambios. Verifique los datos e intente nuevamente."
+        isEdit
+          ? "Lo sentimos, no pudimos actualizar la distinción. Revise los datos e intente nuevamente."
+          : "Lo sentimos, no pudimos crear la distinción. Revise los datos e intente nuevamente."
       );
-      const lowerMessage = backendMessage.toLowerCase();
-
-      if (lowerMessage.includes("fecha")) {
-        setErrors((prev) => ({ ...prev, fecha: backendMessage }));
-      } else if (lowerMessage.includes("descripcion")) {
-        setErrors((prev) => ({ ...prev, descripcion: backendMessage }));
-      } else if (lowerMessage.includes("proyecto")) {
-        setErrors((prev) => ({ ...prev, proyecto: backendMessage }));
-      }
-
       setErrorMessage(backendMessage);
       setShowError(true);
     },
@@ -132,11 +138,12 @@ export default function DistincionesForm() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mutation.isPending) return;
     if (!validate()) return;
     if (!uct) return;
 
     const payload = {
-      fecha: formatDateStr(fecha)!,
+      fecha: toCivilDateString(fecha)!,
       descripcion: descripcion.trim(),
       proyecto_investigacion_id: proyectoId!,
     };
@@ -159,6 +166,7 @@ export default function DistincionesForm() {
     );
 
     if (Object.keys(changedPayload).length === 0) {
+      clearDraft();
       navigate(`/distinciones/${id}`, {
         replace: true,
         state: {
@@ -172,7 +180,15 @@ export default function DistincionesForm() {
   };
 
   if (isEdit && isLoading) {
-    return <p className="text-slate-500">Cargando distincion...</p>;
+    return <LoadingSkeleton variant="form" label="Cargando distinción..." />;
+  }
+
+  if ((isEdit && isError) || proyectosQuery.isError) {
+    return (
+      <p role="alert" className="text-slate-500">
+        Lo sentimos, no pudimos recuperar la información. Intente nuevamente.
+      </p>
+    );
   }
 
   const inputClass = (field: string) =>
@@ -181,15 +197,18 @@ export default function DistincionesForm() {
   return (
     <section className="w-full">
       <h2 className="text-2xl font-semibold leading-none md:text-3xl">
-        {isEdit ? "Editar distincion" : "Nueva distincion recibida"}
+        {isEdit ? "Editar distinción" : "Nueva distinción recibida"}
       </h2>
+
+      {availableDraft && <DraftRecoveryNotice savedAt={availableDraft.saved_at} sourceChanged={sourceChanged} onRestore={restoreDraft} onDiscard={discardDraft} />}
+      <DraftLeaveControls blocker={blocker} saveStatus={saveStatus} keepAndLeave={keepAndLeave} discardAndLeave={discardAndLeave} />
 
       <form
         noValidate
         onSubmit={submit}
         className="mt-6 space-y-6 rounded-2xl border border-slate-200 bg-white p-6"
       >
-        <Field label="Fecha">
+        <Field required label="Fecha" name="fecha" error={errors.fecha}>
           <Calendar
             value={fecha}
             onChange={(date) => {
@@ -197,53 +216,43 @@ export default function DistincionesForm() {
               if (date) clearError("fecha");
             }}
             className={inputClass("fecha")}
-            helperText={errors.fecha ?? "DD/MM/AAAA"}
+            helperText="DD/MM/AAAA"
           />
         </Field>
 
-        <Field label="Descripcion">
-          <>
-            <textarea
-              className={`${inputClass("descripcion")} min-h-[80px]`}
-              value={descripcion}
-              onChange={(e) => {
-                setDescripcion(e.target.value);
-                if (e.target.value.trim()) clearError("descripcion");
-              }}
-              placeholder="Ej: Reconocimiento por aporte cientifico"
-            />
-            {errors.descripcion && (
-              <p className="mt-1 text-sm text-red-500">{errors.descripcion}</p>
-            )}
-          </>
+        <Field required label="Descripción" name="descripcion" error={errors.descripcion}>
+          <textarea
+            className={`${inputClass("descripcion")} min-h-[80px]`}
+            value={descripcion}
+            onChange={(e) => {
+              setDescripcion(e.target.value);
+              if (e.target.value.trim()) clearError("descripcion");
+            }}
+            placeholder="Ej.: Reconocimiento por aporte científico"
+          />
         </Field>
 
-        <Field label="Proyecto de investigacion">
-          <>
-            <select
-              className={`${inputClass("proyecto")} ${
-                !proyectoId ? "text-slate-400" : "text-slate-900"
-              }`}
-              value={proyectoId ?? ""}
-              onChange={(e) => {
-                const value = e.target.value ? Number(e.target.value) : null;
-                setProyectoId(value);
-                if (value) clearError("proyecto");
-              }}
-            >
-              <option value="" disabled>
-                Seleccionar proyecto
+        <Field required label="Proyecto de investigación" name="proyecto" error={errors.proyecto}>
+          <select
+            className={`${inputClass("proyecto")} ${
+              !proyectoId ? "text-slate-400" : "text-slate-900"
+            }`}
+            value={proyectoId ?? ""}
+            onChange={(e) => {
+              const value = e.target.value ? Number(e.target.value) : null;
+              setProyectoId(value);
+              if (value) clearError("proyecto");
+            }}
+          >
+            <option value="" disabled>
+              Seleccionar proyecto
+            </option>
+            {proyectos.map((p: Proyecto) => (
+              <option key={p.id} value={p.id}>
+                {p.codigoProyecto} - {p.nombreProyecto}
               </option>
-              {proyectos.map((p: Proyecto) => (
-                <option key={p.id} value={p.id}>
-                  {p.codigoProyecto} - {p.nombreProyecto}
-                </option>
-              ))}
-            </select>
-            {errors.proyecto && (
-              <p className="mt-1 text-sm text-red-500">{errors.proyecto}</p>
-            )}
-          </>
+            ))}
+          </select>
         </Field>
 
         <div className="flex justify-between pt-6">
@@ -251,12 +260,12 @@ export default function DistincionesForm() {
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => navigate(-1)}
+            onClick={() => requestLeave(() => navigate(-1))}
           >
             Volver
           </Button>
 
-          <Button type="submit" size="sm" disabled={mutation.isPending || !uct}>
+          <Button type="submit" size="sm" disabled={mutation.isPending || !uct} loading={mutation.isPending} loadingText="Guardando...">
             {mutation.isPending
               ? isEdit
                 ? "Actualizando..."

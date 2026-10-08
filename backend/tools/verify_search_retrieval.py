@@ -24,7 +24,7 @@ from modules.proyectos.models.participacion_relevante import ParticipacionReleva
 from modules.proyectos.models.proyecto_investigacion import ProyectoInvestigacion, TipoProyecto
 from modules.recursos.models.becas import Beca
 from modules.recursos.models.equipamiento import Equipamiento
-from modules.recursos.models.erogacion import Erogacion, TipoErogacion
+from modules.recursos.models.movimiento_financiero import MovimientoFinanciero
 from modules.search.services.search_service import SearchService
 from modules.transferencia.models.transferencia_socio import TipoContrato, TransferenciaSocioProductiva
 
@@ -49,8 +49,7 @@ PROBES = (
     Probe("equipamiento", "Equipamiento", Equipamiento, lambda x: x.denominacion, "/equipamiento/"),
     Probe("documentacion", "Documentación", DocumentacionBibliografica, lambda x: x.titulo, "/documentacion-bibliografica/"),
     Probe("autores", "Autor", Autor, lambda x: x.nombre_apellido, "/autores/"),
-    Probe("tipos-erogacion", "Tipo de Erogación", TipoErogacion, lambda x: x.nombre, "/tipos-erogacion/"),
-    Probe("erogaciones", "Erogación", Erogacion, lambda x: x.tipo_erogacion.nombre, "/erogaciones/"),
+    Probe("movimientos", "Movimiento financiero", MovimientoFinanciero, lambda x: x.categoria_erogacion.nombre if x.categoria_erogacion else x.fuente_financiamiento.nombre, "/movimientos/"),
     Probe("financiamiento", "Fuente de Financiamiento", FuenteFinanciamiento, lambda x: x.nombre, "/fuentes-financiamiento/"),
     Probe("participaciones", "Participación Relevante", ParticipacionRelevante, lambda x: x.nombre_evento, "/participaciones-relevantes/"),
     Probe("registros", "Registro de Propiedad", RegistrosPropiedad, lambda x: x.nombre_articulo, "/registros-propiedad/"),

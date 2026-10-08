@@ -5,10 +5,12 @@ from modules.personal.services.investigador_service import (
     eliminar_investigador,
     restaurar_investigador,
     listar_investigadores,
+    listar_investigadores_paginado,
     obtener_investigador_por_id,
     obtener_historial_investigador
 )
-from modules.shared.controllers.responses import error_response, exception_response
+from modules.shared.controllers.pagination import pagination_requested, parse_pagination_params
+from modules.shared.controllers.responses import error_response, exception_response, paginated_response
 
 
 class InvestigadorController:
@@ -40,11 +42,21 @@ class InvestigadorController:
     @staticmethod
     def listar(req: Request) -> Response:
         try:
+            if pagination_requested(req.args):
+                params = parse_pagination_params(req.args)
+                investigadores, total = listar_investigadores_paginado(**params)
+                return paginated_response(
+                    [i.serialize() for i in investigadores],
+                    params["page"], params["per_page"], total,
+                    meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"},
+                )
             activos = req.args.get("activos")
             investigadores = listar_investigadores(activos)
 
             return jsonify([i.serialize() for i in investigadores]), 200
 
+        except ValueError as error:
+            return error_response("VALIDATION_ERROR", message=str(error), status_code=400)
         except Exception as error:
             return exception_response(error, operation="listar investigadores")
 

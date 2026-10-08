@@ -1,6 +1,7 @@
 from flask import jsonify, request, g
 from modules.produccion.services.distincion_service import DistincionRecibidaService
 from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, filtered_page_response
 
 
 class DistincionRecibidaController:
@@ -14,6 +15,8 @@ class DistincionRecibidaController:
                 "activos": request.args.get("activos", "true")
             }
 
+            if pagination_requested(request.args):
+                return filtered_page_response(DistincionRecibidaService, filtros, request.args)
             return jsonify(
                 DistincionRecibidaService.get_all(filtros)
             ), 200

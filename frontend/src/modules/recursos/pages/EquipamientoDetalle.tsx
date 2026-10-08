@@ -1,3 +1,4 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -9,7 +10,7 @@ import {
   getHistorialEquipamientoById,
   type Equipamiento,
 } from "@/modules/recursos/services/equipamientoServices";
-import { formatFecha } from "@/utils/formatFecha";
+import { formatFecha, formatFechaHora } from "@/utils/dateTime";
 import { useAuditoria } from "@/modules/shared/hooks/useAuditoria";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -63,15 +64,10 @@ export default function EquipamientoDetalle() {
     }
   }, [location.state, navigate, location.pathname]);
 
-  if (isLoading) return <p className="text-slate-500">Cargando...</p>;
+  if (isLoading) return <LoadingSkeleton variant="detail" label="Cargando..." />;
   if (isError || !data) {
-    return <p className="text-slate-500">No se encontro el equipamiento.</p>;
+    return <p className="text-slate-500">No se encontró el equipamiento.</p>;
   }
-
-  const formatFechaHora = (fecha?: string | null) => {
-    if (!fecha) return "-";
-    return new Date(fecha).toLocaleString("es-AR");
-  };
 
   const isDeleted = !!data.deleted_at;
 
@@ -108,19 +104,19 @@ export default function EquipamientoDetalle() {
         <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
             <p>
-              <span className="font-medium text-slate-700">Descripcion breve:</span>{" "}
+              <span className="font-semibold text-slate-800">Descripción breve:</span>{" "}
               {data.descripcion_breve || "-"}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">
-                Fecha de incorporacion:
+              <span className="font-semibold text-slate-800">
+                Fecha de incorporación:
               </span>{" "}
               {formatFecha(data.fecha_incorporacion)}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Monto invertido:</span>{" "}
+              <span className="font-semibold text-slate-800">Monto invertido:</span>{" "}
               {fmtMoney(data.monto_invertido)}
             </p>
           </div>
@@ -128,7 +124,7 @@ export default function EquipamientoDetalle() {
 
         <article className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-slate-700">Auditoria</h3>
+            <h3 className="text-lg font-semibold text-slate-800">Auditoría</h3>
             <p className="mt-1 text-xs text-slate-500">
               {data.denominacion || "-"}
             </p>
@@ -136,25 +132,25 @@ export default function EquipamientoDetalle() {
 
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
             <p>
-              <span className="font-medium text-slate-700">Creado por:</span>{" "}
+              <span className="font-semibold text-slate-800">Creado por:</span>{" "}
               {data.created_by_nombre || auditoria.nombreCreador}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">
-                Fecha de creacion:
+              <span className="font-semibold text-slate-800">
+                Fecha de creación:
               </span>{" "}
               {formatFechaHora(data.created_at)}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">Eliminado por:</span>{" "}
+              <span className="font-semibold text-slate-800">Eliminado por:</span>{" "}
               {data.deleted_by_nombre || auditoria.nombreEliminador}
             </p>
 
             <p>
-              <span className="font-medium text-slate-700">
-                Fecha de eliminacion:
+              <span className="font-semibold text-slate-800">
+                Fecha de eliminación:
               </span>{" "}
               {formatFechaHora(data.deleted_at)}
             </p>

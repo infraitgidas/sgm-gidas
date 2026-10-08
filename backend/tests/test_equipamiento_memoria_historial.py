@@ -1,4 +1,4 @@
-import unittest
+﻿import unittest
 from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -12,6 +12,8 @@ from modules.memorias.services.memoria_service import MemoriaService
 class EquipamientoMemoriaHistorialTestCase(unittest.TestCase):
 
     def setUp(self):
+        self.enterContext(patch("modules.memorias.services.memoria_service.MemoriaService._validar_grupo", return_value=1))
+        self.enterContext(patch("modules.memorias.services.memoria_service.snapshot_contexto_institucional", return_value=None))
         self.add_patcher = patch("modules.recursos.services.equipamiento_service.db.session.add")
         self.commit_patcher = patch("extension.db.session.commit")
         self.rollback_patcher = patch("extension.db.session.rollback")
@@ -27,6 +29,7 @@ class EquipamientoMemoriaHistorialTestCase(unittest.TestCase):
         self.addCleanup(self.rollback_patcher.stop)
         self.addCleanup(self.get_patcher.stop)
 
+    @patch("modules.recursos.services.equipamiento_service.consultar_entidades_memoria", new=lambda model, version, **kwargs: model.query.filter().all())
     def test_snapshot_equipamiento_para_memoria_version_persiste_foto(self):
         version = MemoriaVersion(
             id=41,
@@ -53,6 +56,7 @@ class EquipamientoMemoriaHistorialTestCase(unittest.TestCase):
             "modules.recursos.services.equipamiento_service.Equipamiento",
             new=SimpleNamespace(
                 query=fake_query,
+                grupo_utn_id=1,
                 deleted_at=SimpleNamespace(is_=lambda *_: None)
             )
         ):
@@ -69,6 +73,7 @@ class EquipamientoMemoriaHistorialTestCase(unittest.TestCase):
 
     def test_snapshot_equipamiento_incluye_si_estuvo_activo_durante_el_periodo(self):
         memoria = Memoria(
+            grupo_utn_id=1,
             id=2,
             periodo_inicio=date(2026, 1, 1),
             periodo_fin=date(2026, 12, 31),
@@ -114,6 +119,7 @@ class EquipamientoMemoriaHistorialTestCase(unittest.TestCase):
             "modules.recursos.services.equipamiento_service.Equipamiento",
             new=SimpleNamespace(
                 query=fake_query,
+                grupo_utn_id=1,
                 deleted_at=SimpleNamespace(is_=lambda *_: None)
             )
         ):
@@ -127,6 +133,7 @@ class EquipamientoMemoriaHistorialTestCase(unittest.TestCase):
 
     def test_change_status_a_cerrada_genera_snapshot_equipamiento(self):
         memoria = Memoria(
+            grupo_utn_id=1,
             id=1,
             periodo_inicio=date(2026, 1, 1),
             periodo_fin=date(2026, 12, 31),
@@ -164,7 +171,7 @@ class EquipamientoMemoriaHistorialTestCase(unittest.TestCase):
             "modules.memorias.services.memoria_service.EquipamientoService.snapshot_para_memoria_version"
         ) as mock_snapshot:
             with patch(
-                "modules.memorias.services.memoria_service.ErogacionService.snapshot_para_memoria_version"
+                "modules.memorias.services.memoria_service.MovimientoFinancieroService.snapshot_para_memoria_version"
             ), patch(
                 "modules.memorias.services.memoria_service.TransferenciaSocioProductivaService.snapshot_para_memoria_version"
             ), patch(
@@ -216,6 +223,7 @@ class EquipamientoMemoriaHistorialTestCase(unittest.TestCase):
             "modules.shared.services.auditoria_service.AuditoriaCampo",
             new=SimpleNamespace(
                 query=fake_query,
+                grupo_utn_id=1,
                 entidad=None,
                 registro_id=None,
                 fecha_cambio=SimpleNamespace(desc=lambda: None),
@@ -247,6 +255,7 @@ class EquipamientoMemoriaHistorialTestCase(unittest.TestCase):
             "modules.recursos.services.equipamiento_service.EquipamientoMemoriaVersion",
             new=SimpleNamespace(
                 query=fake_query,
+                grupo_utn_id=1,
                 memoria_version_id=None,
                 deleted_at=SimpleNamespace(is_=lambda *_: None),
                 denominacion=SimpleNamespace(asc=lambda: None)

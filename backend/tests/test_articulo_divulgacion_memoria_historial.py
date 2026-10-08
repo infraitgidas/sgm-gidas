@@ -1,8 +1,9 @@
-import unittest
+﻿import unittest
 from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from modules import models_registry  # noqa: F401
 from modules.shared.models.auditoria_campo import AuditoriaCampo
 from modules.memorias.models.memorias import EstadoMemoria, Memoria, MemoriaVersion
 from modules.produccion.services.articulo_divulgacion_service import ArticuloDivulgacionService
@@ -12,6 +13,8 @@ from modules.memorias.services.memoria_service import MemoriaService
 class ArticuloDivulgacionMemoriaHistorialTestCase(unittest.TestCase):
 
     def setUp(self):
+        self.enterContext(patch("modules.memorias.services.memoria_service.MemoriaService._validar_grupo", return_value=1))
+        self.enterContext(patch("modules.memorias.services.memoria_service.snapshot_contexto_institucional", return_value=None))
         self.add_patcher = patch("modules.produccion.services.articulo_divulgacion_service.db.session.add")
         self.commit_patcher = patch("extension.db.session.commit")
         self.rollback_patcher = patch("extension.db.session.rollback")
@@ -27,6 +30,7 @@ class ArticuloDivulgacionMemoriaHistorialTestCase(unittest.TestCase):
         self.addCleanup(self.rollback_patcher.stop)
         self.addCleanup(self.get_patcher.stop)
 
+    @patch("modules.produccion.services.articulo_divulgacion_service.consultar_entidades_memoria", new=lambda model, version, **kwargs: model.query.filter().all())
     def test_snapshot_articulo_divulgacion_para_memoria_version_persiste_foto(self):
         version = MemoriaVersion(
             id=111,
@@ -66,8 +70,46 @@ class ArticuloDivulgacionMemoriaHistorialTestCase(unittest.TestCase):
         self.assertEqual(snapshots[0].created_by, 27)
         self.mock_add.assert_called()
 
+    def test_create_admite_titulos_repetidos(self):
+        creados = []
+
+        def construir_articulo(**datos):
+            articulo = SimpleNamespace(
+                **datos,
+                serialize=lambda: {
+                    "id": len(creados) + 1,
+                    "titulo": datos["titulo"],
+                }
+            )
+            creados.append(articulo)
+            return articulo
+
+        payload = {
+            "titulo": "Un mismo título de divulgación",
+            "descripcion": "Descripción suficientemente extensa",
+            "fecha_publicacion": "2026-04-15",
+            "grupo_utn_id": 4,
+        }
+
+        with patch(
+            "modules.produccion.services.articulo_divulgacion_service.ArticuloDivulgacion",
+            side_effect=construir_articulo,
+        ), patch.object(
+            ArticuloDivulgacionService,
+            "_validar_grupo",
+            return_value=4,
+        ):
+            primero = ArticuloDivulgacionService.create(payload, user_id=27)
+            segundo = ArticuloDivulgacionService.create(payload, user_id=27)
+
+        self.assertEqual(primero["titulo"], segundo["titulo"])
+        self.assertEqual(len(creados), 2)
+        self.assertEqual(self.mock_add.call_count, 2)
+        self.assertEqual(self.mock_commit.call_count, 2)
+
     def test_change_status_a_cerrada_genera_snapshot_articulos_divulgacion(self):
         memoria = Memoria(
+            grupo_utn_id=1,
             id=1,
             periodo_inicio=date(2026, 1, 1),
             periodo_fin=date(2026, 12, 31),
@@ -104,7 +146,7 @@ class ArticuloDivulgacionMemoriaHistorialTestCase(unittest.TestCase):
         ), patch(
             "modules.memorias.services.memoria_service.EquipamientoService.snapshot_para_memoria_version"
         ), patch(
-            "modules.memorias.services.memoria_service.ErogacionService.snapshot_para_memoria_version"
+            "modules.memorias.services.memoria_service.MovimientoFinancieroService.snapshot_para_memoria_version"
         ), patch(
             "modules.memorias.services.memoria_service.TransferenciaSocioProductivaService.snapshot_para_memoria_version"
         ), patch(

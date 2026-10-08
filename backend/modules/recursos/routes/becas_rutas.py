@@ -4,6 +4,11 @@ from modules.shared.services.middleware import requiere_rol
 
 beca_bp = Blueprint("beca", __name__, url_prefix="/becas")
 
+@beca_bp.route("/proximas-a-vencer", methods=["GET"])
+@requiere_rol("GESTOR")
+def proximas_a_vencer():
+    return BecaController.proximas_a_vencer()
+
 
 # =========================
 # LECTURA (admin, gestor, lectura)

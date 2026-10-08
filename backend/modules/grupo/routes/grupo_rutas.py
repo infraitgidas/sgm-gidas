@@ -26,6 +26,18 @@ def obtener():
     return GrupoUtnController.obtener()
 
 
+@grupo_utn_bp.route("/opciones", methods=["GET"])
+@requiere_rol("ADMIN", "GESTOR", "LECTURA")
+def listar_opciones():
+    return GrupoUtnController.listar_opciones()
+
+
+@grupo_utn_bp.route("/<int:grupo_id>/historial", methods=["GET"])
+@requiere_rol("ADMIN", "GESTOR", "LECTURA")
+def historial(grupo_id):
+    return GrupoUtnController.historial(grupo_id)
+
+
 # -------------------------
 # Actualizar grupo UTN
 # -------------------------

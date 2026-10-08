@@ -1,4 +1,4 @@
-import unittest
+﻿import unittest
 from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -7,15 +7,41 @@ from modules.shared.models.auditoria_campo import AuditoriaCampo
 from modules.memorias.models.memorias import EstadoMemoria, Memoria, MemoriaVersion
 from modules.memorias.services.memoria_service import MemoriaService
 from modules.grupo.services.visita_service import (
+    crear_visita_academica,
     obtener_historial_visita,
     obtener_snapshots_visitas_por_memoria_version,
     snapshot_visitas_para_memoria_version,
 )
+from modules.shared.exceptions import ValidationError
 
 
 class VisitaMemoriaHistorialTestCase(unittest.TestCase):
 
+    def test_tipo_visita_invalido_identifica_el_campo_sin_persistir(self):
+        with patch("modules.grupo.services.visita_service.db.session.add") as add:
+            with self.assertRaises(ValidationError) as caught:
+                crear_visita_academica({"tipo_visita_id": 0})
+            self.assertEqual(caught.exception.details["fields"], {
+                "tipo_visita_id": "Seleccione un tipo de visita válido."
+            })
+            add.assert_not_called()
+
+    def test_fecha_invalida_identifica_el_campo_sin_persistir(self):
+        from modules.grupo.services.visita_service import _validar_fecha
+
+        with self.assertRaises(ValidationError) as caught:
+            _validar_fecha("2026-99-99")
+        self.assertEqual(caught.exception.details["fields"], {
+            "fecha": "Ingrese una fecha válida."
+        })
+
+        with self.assertRaises(ValidationError) as fuera_de_rango:
+            _validar_fecha("2009-12-31")
+        self.assertIn("fecha", fuera_de_rango.exception.details["fields"])
+
     def setUp(self):
+        self.enterContext(patch("modules.memorias.services.memoria_service.MemoriaService._validar_grupo", return_value=1))
+        self.enterContext(patch("modules.memorias.services.memoria_service.snapshot_contexto_institucional", return_value=None))
         self.add_patcher = patch("modules.grupo.services.visita_service.db.session.add")
         self.commit_patcher = patch("extension.db.session.commit")
         self.rollback_patcher = patch("extension.db.session.rollback")
@@ -31,6 +57,7 @@ class VisitaMemoriaHistorialTestCase(unittest.TestCase):
         self.addCleanup(self.rollback_patcher.stop)
         self.addCleanup(self.get_patcher.stop)
 
+    @patch("modules.grupo.services.visita_service.consultar_entidades_memoria", new=lambda model, version, **kwargs: model.query.filter().all())
     def test_snapshot_visitas_para_memoria_version_persiste_foto(self):
         version = MemoriaVersion(
             id=121,
@@ -72,6 +99,7 @@ class VisitaMemoriaHistorialTestCase(unittest.TestCase):
 
     def test_change_status_a_cerrada_genera_snapshot_visitas(self):
         memoria = Memoria(
+            grupo_utn_id=1,
             id=1,
             periodo_inicio=date(2026, 1, 1),
             periodo_fin=date(2026, 12, 31),
@@ -108,7 +136,7 @@ class VisitaMemoriaHistorialTestCase(unittest.TestCase):
         ), patch(
             "modules.memorias.services.memoria_service.EquipamientoService.snapshot_para_memoria_version"
         ), patch(
-            "modules.memorias.services.memoria_service.ErogacionService.snapshot_para_memoria_version"
+            "modules.memorias.services.memoria_service.MovimientoFinancieroService.snapshot_para_memoria_version"
         ), patch(
             "modules.memorias.services.memoria_service.TransferenciaSocioProductivaService.snapshot_para_memoria_version"
         ), patch(

@@ -1,8 +1,10 @@
 """Importa modelos modulares para registrar metadata de SQLAlchemy."""
 
 from modules.auth.models.persona import Persona  # noqa: F401
+from modules.auth.models.login_attempt import LoginAttempt  # noqa: F401
 from modules.auth.models.refresh_token_session import RefreshTokenSession  # noqa: F401
 from modules.auth.models.usuario import RolUsuario, Usuario  # noqa: F401
+from modules.auth.models.usuario_grupo_utn import UsuarioGrupoUtn  # noqa: F401
 from modules.catalogos.models.categoria_utn import CategoriaUtn  # noqa: F401
 from modules.catalogos.models.fuente_financiamiento import FuenteFinanciamiento  # noqa: F401
 from modules.grupo.models.directivos import Cargo, Directivo, DirectivoGrupo  # noqa: F401
@@ -10,6 +12,7 @@ from modules.grupo.models.grupo import GrupoInvestigacionUtn  # noqa: F401
 from modules.grupo.models.programa_actividades import PlanificacionGrupo  # noqa: F401
 from modules.grupo.models.programa_incentivos import ProgramaIncentivos  # noqa: F401
 from modules.grupo.models.visita_grupo import (  # noqa: F401
+    TipoVisita,
     VisitaAcademica,
     VisitaAcademicaMemoriaVersion,
 )
@@ -63,13 +66,13 @@ from modules.produccion.models.trabajo_reunion import (  # noqa: F401
     TipoReunion,
     TrabajoReunionCientifica,
     TrabajoReunionCientificaMemoriaVersion,
-    investigador_x_trabajo_reunion,
 )
 from modules.produccion.models.trabajo_revista import (  # noqa: F401
+    TipoRevista,
     TrabajosRevistasReferato,
     TrabajosRevistasReferatoMemoriaVersion,
-    investigador_x_trabajo_revista,
 )
+from modules.informes.models.informe import Informe, InformeInvestigador, InformeProyecto  # noqa: F401
 from modules.proyectos.models.participacion_relevante import (  # noqa: F401
     ParticipacionRelevante,
     ParticipacionRelevanteMemoriaVersion,
@@ -91,7 +94,14 @@ from modules.recursos.models.erogacion import (  # noqa: F401
     ErogacionMemoriaVersion,
     TipoErogacion,
 )
+from modules.recursos.models.tipo_cambio import TipoCambio  # noqa: F401
+from modules.recursos.models.movimiento_financiero import (  # noqa: F401
+    CategoriaErogacion,
+    MovimientoFinanciero,
+    MovimientoMemoriaVersion,
+)
 from modules.shared.models.auditoria_campo import AuditoriaCampo  # noqa: F401
+from modules.shared.models.form_draft import FormDraft  # noqa: F401
 from modules.shared.models.audit_mixin import AuditMixin  # noqa: F401
 from modules.transferencia.models.transferencia_socio import (  # noqa: F401
     Adoptante,
@@ -101,3 +111,5 @@ from modules.transferencia.models.transferencia_socio import (  # noqa: F401
     TransferenciaSocioProductiva,
     TransferenciaSocioProductivaMemoriaVersion,
 )
+
+from modules.produccion.models.trabajo_autor import TrabajoReunionAutor, TrabajoRevistaAutor  # noqa: F401

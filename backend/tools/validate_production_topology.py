@@ -49,9 +49,14 @@ def validate_config(config: dict) -> list[str]:
                 errors.append("nginx debe publicar el puerto interno 8080")
             host_ip = published.get("host_ip") or "0.0.0.0"
             try:
-                ipaddress.ip_address(host_ip)
+                bind_address = ipaddress.ip_address(host_ip)
             except ValueError:
                 errors.append("NGINX_BIND_ADDRESS no es un binding soportado")
+            else:
+                if not bind_address.is_loopback:
+                    errors.append(
+                        "nginx debe publicar solo en loopback para el origen local"
+                    )
 
     backend_environment = (services.get("backend") or {}).get("environment") or {}
     migrate_environment = (services.get("migrate") or {}).get("environment") or {}
@@ -106,7 +111,7 @@ def main() -> int:
         return 1
 
     print(
-        "Topologia productiva valida: solo proxy publicado, binding controlado "
+        "Topologia productiva valida: solo proxy publicado en loopback "
         "y roles separados."
     )
     return 0

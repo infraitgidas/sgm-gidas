@@ -1,3 +1,5 @@
+import Field from "@/components/Field";
+import { applyFieldErrors, focusFieldErrors } from "@/lib/httpError";
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
@@ -18,33 +20,23 @@ export default function CambiarPasswordPage() {
   const [showPasswordNueva, setShowPasswordNueva] = useState(false);
   const [showPasswordConfirmacion, setShowPasswordConfirmacion] = useState(false);
 
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [exitoso, setExitoso] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setError(null);
-
-    if (!esPrimerLogin && !passwordActual.trim()) {
-      setError("Ingrese su contraseña actual para continuar.");
-      return;
-    }
-
-    if (passwordNueva.length < 6) {
-      setError("La nueva contraseña debe tener al menos 6 caracteres.");
-      return;
-    }
-
-    if (passwordNueva !== passwordConfirmacion) {
-      setError(
-        "La nueva contraseña y la confirmación no coinciden. Revise ambos campos."
-      );
-      return;
-    }
-
-    if (!esPrimerLogin && passwordNueva === passwordActual) {
-      setError("La nueva contraseña debe ser diferente a la actual.");
+    const nextErrors: Record<string, string> = {};
+    if (!esPrimerLogin && !passwordActual.trim()) nextErrors.passwordActual = "Ingrese su contraseña actual.";
+    if (passwordNueva.length < 6) nextErrors.passwordNueva = "Ingrese una contraseña de al menos 6 caracteres.";
+    if (passwordNueva !== passwordConfirmacion) nextErrors.passwordConfirmacion = "La confirmación debe coincidir con la nueva contraseña.";
+    if (!esPrimerLogin && passwordNueva === passwordActual) nextErrors.passwordNueva = "Ingrese una contraseña diferente de la actual.";
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      focusFieldErrors(nextErrors);
       return;
     }
 
@@ -62,6 +54,7 @@ export default function CambiarPasswordPage() {
         nav("/inicio", { replace: true });
       }, 1500);
     } catch (err: unknown) {
+      if (applyFieldErrors(err, setFieldErrors, ["passwordActual","passwordNueva","passwordConfirmacion"])) return;
       setError(
         getErrorMessage(err,
           "Lo sentimos, no pudimos cambiar la contraseña. Verifique los datos e intente nuevamente."
@@ -103,10 +96,8 @@ export default function CambiarPasswordPage() {
 
             <form onSubmit={handleSubmit} noValidate className="space-y-5">
               {!esPrimerLogin && (
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                    Contraseña Actual
-                  </label>
+                <Field label="Contraseña Actual" required name="passwordActual" error={fieldErrors.passwordActual}>
+
 
                   <div className="relative">
                     <input
@@ -130,13 +121,11 @@ export default function CambiarPasswordPage() {
                       )}
                     </button>
                   </div>
-                </div>
+                </Field>
               )}
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                  Nueva Contraseña
-                </label>
+              <Field label="Nueva Contraseña" required name="passwordNueva" error={fieldErrors.passwordNueva}>
+
 
                 <div className="relative">
                   <input
@@ -165,12 +154,10 @@ export default function CambiarPasswordPage() {
                 <p className="text-xs text-slate-400 mt-1">
                   Mínimo 6 caracteres
                 </p>
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                  Confirmar Nueva Contraseña
-                </label>
+              <Field label="Confirmar Nueva Contraseña" required name="passwordConfirmacion" error={fieldErrors.passwordConfirmacion}>
+
 
                 <div className="relative">
                   <input
@@ -196,7 +183,7 @@ export default function CambiarPasswordPage() {
                     )}
                   </button>
                 </div>
-              </div>
+              </Field>
 
               {error && (
                 <div

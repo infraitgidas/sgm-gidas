@@ -1,4 +1,4 @@
-import unittest
+﻿import unittest
 from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,6 +18,8 @@ from modules.memorias.services.memoria_service import MemoriaService
 class InvestigadorMemoriaHistorialTestCase(unittest.TestCase):
 
     def setUp(self):
+        self.enterContext(patch("modules.memorias.services.memoria_service.MemoriaService._validar_grupo", return_value=1))
+        self.enterContext(patch("modules.memorias.services.memoria_service.snapshot_contexto_institucional", return_value=None))
         self.add_patcher = patch("extension.db.session.add")
         self.commit_patcher = patch("extension.db.session.commit")
         self.rollback_patcher = patch("extension.db.session.rollback")
@@ -41,6 +43,11 @@ class InvestigadorMemoriaHistorialTestCase(unittest.TestCase):
             estado=EstadoMemoria.CERRADA,
             created_by=1
         )
+        version.memoria = Memoria(
+            grupo_utn_id=6,
+            periodo_inicio=date(2026, 1, 1),
+            periodo_fin=date(2026, 12, 31),
+        )
         investigador = SimpleNamespace(
             id=5,
             nombre_apellido="Ana Perez",
@@ -54,7 +61,7 @@ class InvestigadorMemoriaHistorialTestCase(unittest.TestCase):
             categoria_utn=SimpleNamespace(nombre="Categoria I"),
             programa_incentivos=SimpleNamespace(nombre="Programa A"),
             grupo_utn=SimpleNamespace(nombre_sigla_grupo="GIDAS"),
-            historial_horas=[SimpleNamespace(horas_semanales=30, fecha_fin=None)]
+            historial_horas=[SimpleNamespace(id=1, horas_semanales=30, fecha_inicio=date(2020, 1, 1), fecha_fin=None)]
         )
 
         fake_query = SimpleNamespace(
@@ -65,6 +72,7 @@ class InvestigadorMemoriaHistorialTestCase(unittest.TestCase):
             "modules.personal.services.investigador_service.Investigador",
             new=SimpleNamespace(
                 query=fake_query,
+                grupo_utn_id=1,
                 deleted_at=SimpleNamespace(is_=lambda *_: None)
             )
         ):
@@ -82,6 +90,7 @@ class InvestigadorMemoriaHistorialTestCase(unittest.TestCase):
 
     def test_snapshot_investigadores_incluye_si_estuvo_activo_durante_el_periodo(self):
         memoria = Memoria(
+            grupo_utn_id=1,
             id=2,
             periodo_inicio=date(2026, 1, 1),
             periodo_fin=date(2026, 12, 31),
@@ -110,7 +119,7 @@ class InvestigadorMemoriaHistorialTestCase(unittest.TestCase):
             categoria_utn=SimpleNamespace(nombre="Categoria I"),
             programa_incentivos=SimpleNamespace(nombre="Programa A"),
             grupo_utn=SimpleNamespace(nombre_sigla_grupo="GIDAS"),
-            historial_horas=[SimpleNamespace(horas_semanales=30, fecha_fin=None)]
+            historial_horas=[SimpleNamespace(id=1, horas_semanales=30, fecha_inicio=date(2020, 1, 1), fecha_fin=None)]
         )
         investigador_fuera_periodo = SimpleNamespace(
             id=7,
@@ -126,7 +135,7 @@ class InvestigadorMemoriaHistorialTestCase(unittest.TestCase):
             categoria_utn=SimpleNamespace(nombre="Categoria II"),
             programa_incentivos=SimpleNamespace(nombre="Programa B"),
             grupo_utn=SimpleNamespace(nombre_sigla_grupo="GIDAS"),
-            historial_horas=[SimpleNamespace(horas_semanales=15, fecha_fin=None)]
+            historial_horas=[SimpleNamespace(id=1, horas_semanales=15, fecha_inicio=date(2020, 1, 1), fecha_fin=None)]
         )
 
         fake_query = SimpleNamespace(
@@ -142,6 +151,7 @@ class InvestigadorMemoriaHistorialTestCase(unittest.TestCase):
             "modules.personal.services.investigador_service.Investigador",
             new=SimpleNamespace(
                 query=fake_query,
+                grupo_utn_id=1,
                 deleted_at=SimpleNamespace(is_=lambda *_: None)
             )
         ):
@@ -155,6 +165,7 @@ class InvestigadorMemoriaHistorialTestCase(unittest.TestCase):
 
     def test_change_status_a_cerrada_genera_snapshot_investigadores(self):
         memoria = Memoria(
+            grupo_utn_id=1,
             id=1,
             periodo_inicio=date(2026, 1, 1),
             periodo_fin=date(2026, 12, 31),
@@ -191,7 +202,7 @@ class InvestigadorMemoriaHistorialTestCase(unittest.TestCase):
         ), patch(
             "modules.memorias.services.memoria_service.EquipamientoService.snapshot_para_memoria_version"
         ), patch(
-            "modules.memorias.services.memoria_service.ErogacionService.snapshot_para_memoria_version"
+            "modules.memorias.services.memoria_service.MovimientoFinancieroService.snapshot_para_memoria_version"
         ), patch(
             "modules.memorias.services.memoria_service.TransferenciaSocioProductivaService.snapshot_para_memoria_version"
         ), patch(
@@ -244,6 +255,7 @@ class InvestigadorMemoriaHistorialTestCase(unittest.TestCase):
             "modules.shared.services.auditoria_service.AuditoriaCampo",
             new=SimpleNamespace(
                 query=fake_query,
+                grupo_utn_id=1,
                 entidad=None,
                 registro_id=None,
                 fecha_cambio=SimpleNamespace(desc=lambda: None),
@@ -275,6 +287,7 @@ class InvestigadorMemoriaHistorialTestCase(unittest.TestCase):
             "modules.personal.services.investigador_service.InvestigadorMemoriaVersion",
             new=SimpleNamespace(
                 query=fake_query,
+                grupo_utn_id=1,
                 memoria_version_id=None,
                 deleted_at=SimpleNamespace(is_=lambda *_: None),
                 nombre_apellido=SimpleNamespace(asc=lambda: None)

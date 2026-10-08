@@ -1,6 +1,7 @@
 from flask import g, jsonify, request
 
-from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, parse_pagination_params, table_page_response
+from modules.shared.controllers.responses import exception_response, paginated_response
 from modules.shared.exceptions import ValidationError
 from modules.transferencia.services.transferencia_service import TransferenciaSocioProductivaService
 
@@ -14,6 +15,20 @@ class TransferenciaSocioProductivaController:
                 "tipo_contrato_id": request.args.get("tipo_contrato_id", type=int),
                 "activos": request.args.get("activos", "true"),
             }
+            if request.args.get("view") == "table":
+                return table_page_response(TransferenciaSocioProductivaService, filtros, request.args)
+            if pagination_requested(request.args):
+                try:
+                    params = parse_pagination_params(request.args)
+                except ValueError as error:
+                    raise ValidationError(str(error)) from error
+                data, total = TransferenciaSocioProductivaService.get_page(
+                    filtros, params["page"], params["per_page"], params["orden"]
+                )
+                return paginated_response(
+                    data, params["page"], params["per_page"], total,
+                    meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"},
+                )
             return jsonify(TransferenciaSocioProductivaService.get_all(filtros)), 200
         except Exception as error:
             return exception_response(error, operation="listar transferencias")

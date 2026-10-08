@@ -2,11 +2,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
     getAdoptantes,
     getAdoptanteById,
+    getHistorialAdoptanteById,
     createAdoptante,
     updateAdoptante,
     deleteAdoptante,
     type Adoptante,
     type AdoptantePayload,
+    type HistorialAdoptanteItem,
 } from "@/modules/transferencia/services/adoptantesServices";
 
 // ─── Queries ─────────────────────────────────────────────────
@@ -26,6 +28,15 @@ export function useAdoptante(id: number | undefined) {
         queryKey: ["adoptantes", id],
         queryFn: () => getAdoptanteById(id!),
         enabled: !!id,
+    });
+}
+
+export function useAdoptanteHistorial(id: number | undefined) {
+    return useQuery<HistorialAdoptanteItem[]>({
+        queryKey: ["adoptantes", id, "historial"],
+        queryFn: () => getHistorialAdoptanteById(id!),
+        enabled: id !== undefined && id > 0,
+        refetchOnMount: "always",
     });
 }
 

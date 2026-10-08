@@ -1,9 +1,14 @@
-from datetime import datetime
+from modules.memorias.services.memoria_periodo_service import (
+    consultar_entidades_memoria, registro_puntual_en_memoria,
+)
+from datetime import date, datetime
+import math
 
 from modules.recursos.models.erogacion import Erogacion, TipoErogacion, ErogacionMemoriaVersion
 from modules.catalogos.models.fuente_financiamiento import FuenteFinanciamiento
 from modules.grupo.models.grupo import GrupoInvestigacionUtn
 from modules.shared.services.auditoria_service import AuditoriaService
+from modules.shared.services.date_time import INSTITUTIONAL_MIN_DATE
 from modules.memorias.services.memoria_periodo_service import esta_en_periodo_memoria
 from extension import db
 from modules.shared.exceptions import ConflictError, NotFoundError, ValidationError
@@ -70,8 +75,16 @@ class ErogacionService:
 
     @staticmethod
     def vaLidar_numero_erogacion(numero, grupo_id, erogacion_id=None):
+        if isinstance(numero, bool) or (isinstance(numero, float) and not numero.is_integer()) or (isinstance(numero, str) and not numero.strip().isdigit()):
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"numero_erogacion": "Ingrese un número entero positivo."}})
+        try:
+            numero_int = int(numero)
+        except (TypeError, ValueError):
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"numero_erogacion": "Ingrese un número entero positivo."}})
+        if numero_int <= 0:
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"numero_erogacion": "Ingrese un número entero positivo."}})
         query = Erogacion.query.filter(
-            Erogacion.numero_erogacion == numero,
+            Erogacion.numero_erogacion == numero_int,
             Erogacion.grupo_utn_id == grupo_id,
             Erogacion.deleted_at.is_(None)
         )
@@ -80,29 +93,43 @@ class ErogacionService:
 
         existe = query.first()
         if existe:
-            raise ConflictError("Ya existe una erogacion activa con ese numero en el grupo")
-        
-        numero_int = int(numero)  # Validar que sea un número entero
-        if numero_int <= 0:
-            raise ValidationError("El numero de erogacion debe ser un entero positivo")
+            raise ConflictError("Ya existe una erogación con ese número. Ingrese otro e intente nuevamente.", details={"fields": {"numero_erogacion": "Ingrese un número que no esté en uso."}})
+        return numero_int
+
+    @staticmethod
+    def _validar_monto(valor, campo):
+        try:
+            monto = float(valor)
+        except (TypeError, ValueError):
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {campo: "Ingrese un monto numérico válido."}})
+        if not math.isfinite(monto) or monto < 0:
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {campo: "Ingrese un monto mayor o igual a cero."}})
+        return monto
+
+    @staticmethod
+    def _validar_fecha(valor):
+        try:
+            fecha = datetime.strptime(valor, "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"fecha": "Ingrese una fecha válida."}})
+        if fecha < INSTITUTIONAL_MIN_DATE or fecha > date.today():
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"fecha": "Ingrese una fecha desde el 01/01/2010 que no sea futura."}})
+        return fecha
         
     @staticmethod
     def create(data: dict, user_id: int):
-        if not data:
-            raise ValidationError("El body es obligatorio")
+        if not isinstance(data, dict) or not data:
+            raise ValidationError("Envíe los datos de la erogación e intente nuevamente.")
 
-        numero = data.get("numero_erogacion")
-        ErogacionService.vaLidar_numero_erogacion(numero, data.get("grupo_utn_id"))
+        numero = ErogacionService.vaLidar_numero_erogacion(data.get("numero_erogacion"), data.get("grupo_utn_id"))
         grupo_id = data.get("grupo_utn_id")
 
-        if not numero:
-            raise ValidationError("El numero de erogacion es obligatorio")
         if not grupo_id:
-            raise ValidationError("El grupo es obligatorio")
+            raise ValidationError("El grupo ya no está disponible. Recargue el formulario e intente nuevamente.")
 
         grupo = db.session.get(GrupoInvestigacionUtn, grupo_id)
         if not grupo or grupo.deleted_at is not None:
-            raise NotFoundError("Grupo invalido")
+            raise NotFoundError("El grupo ya no está disponible. Recargue el formulario e intente nuevamente.")
 
         existe = Erogacion.query.filter(
             Erogacion.numero_erogacion == numero,
@@ -110,34 +137,25 @@ class ErogacionService:
             Erogacion.deleted_at.is_(None)
         ).first()
         if existe:
-            raise ConflictError("Ya existe una erogacion activa con ese numero en el grupo")
+            raise ConflictError("Ya existe una erogación con ese número. Ingrese otro e intente nuevamente.", details={"fields": {"numero_erogacion": "Ingrese un número que no esté en uso."}})
 
-        try:
-            egresos = float(data["egresos"])
-            ingresos = float(data["ingresos"])
-        except Exception:
-            raise ValidationError("Ingresos y egresos deben ser numericos")
-
-        if egresos < 0 or ingresos < 0:
-            raise ValidationError("Ingresos y egresos no pueden ser negativos")
+        egresos = ErogacionService._validar_monto(data.get("egresos"), "egresos")
+        ingresos = ErogacionService._validar_monto(data.get("ingresos"), "ingresos")
         if egresos == 0 and ingresos == 0:
-            raise ValidationError("Egresos e ingresos no pueden ser ambos 0")
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"egresos": "Ingrese un monto en egresos o ingresos.", "ingresos": "Ingrese un monto en egresos o ingresos."}})
 
         tipo = db.session.get(TipoErogacion, data.get("tipo_erogacion_id"))
         if not tipo:
-            raise NotFoundError("Tipo de erogacion invalido")
+            raise NotFoundError("El tipo de erogación ya no está disponible. Elija otro e intente nuevamente.", details={"fields": {"tipo_erogacion_id": "Seleccione un tipo disponible."}})
 
         fuente = db.session.get(
             FuenteFinanciamiento,
             data.get("fuente_financiamiento_id")
         )
         if not fuente:
-            raise NotFoundError("Fuente de financiamiento invalida")
+            raise NotFoundError("La fuente de financiamiento ya no está disponible. Elija otra e intente nuevamente.", details={"fields": {"fuente_financiamiento_id": "Seleccione una fuente disponible."}})
 
-        fecha = (
-            datetime.strptime(data.get("fecha"), "%Y-%m-%d").date()
-            if data.get("fecha") else datetime.today().date()
-        )
+        fecha = ErogacionService._validar_fecha(data.get("fecha")) if data.get("fecha") else date.today()
 
         erogacion = Erogacion(
             numero_erogacion=numero,
@@ -157,10 +175,45 @@ class ErogacionService:
     @staticmethod
     def update(erogacion_id: int, data: dict, user_id: int):
         erogacion = ErogacionService._get_activa_or_404(erogacion_id)
+        if not isinstance(data, dict) or not data:
+            raise ValidationError("Envíe los cambios de la erogación e intente nuevamente.")
+        nuevo_egreso = ErogacionService._validar_monto(data["egresos"], "egresos") if "egresos" in data else erogacion.egresos
+        nuevo_ingreso = ErogacionService._validar_monto(data["ingresos"], "ingresos") if "ingresos" in data else erogacion.ingresos
+        if nuevo_egreso == 0 and nuevo_ingreso == 0:
+            raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"egresos": "Ingrese un monto en egresos o ingresos.", "ingresos": "Ingrese un monto en egresos o ingresos."}})
+        nuevo_numero = (
+            ErogacionService.vaLidar_numero_erogacion(
+                data["numero_erogacion"], erogacion.grupo_utn_id, erogacion.id
+            ) if "numero_erogacion" in data else erogacion.numero_erogacion
+        )
+        nueva_fecha = ErogacionService._validar_fecha(data["fecha"]) if "fecha" in data else erogacion.fecha
+        nuevo_tipo_id = erogacion.tipo_erogacion_id
+        if "tipo_erogacion_id" in data:
+            tipo = db.session.get(TipoErogacion, data["tipo_erogacion_id"])
+            if not tipo or tipo.deleted_at is not None:
+                raise NotFoundError("El tipo de erogación ya no está disponible. Elija otro e intente nuevamente.", details={"fields": {"tipo_erogacion_id": "Seleccione un tipo disponible."}})
+            nuevo_tipo_id = tipo.id
+        nueva_fuente_id = erogacion.fuente_financiamiento_id
+        if "fuente_financiamiento_id" in data:
+            fuente = db.session.get(FuenteFinanciamiento, data["fuente_financiamiento_id"])
+            if not fuente or fuente.deleted_at is not None:
+                raise NotFoundError("La fuente de financiamiento ya no está disponible. Elija otra e intente nuevamente.", details={"fields": {"fuente_financiamiento_id": "Seleccione una fuente disponible."}})
+            nueva_fuente_id = fuente.id
         cambios = {}
 
+        for campo, nuevo_valor in (
+            ("numero_erogacion", nuevo_numero),
+            ("fecha", nueva_fecha),
+            ("tipo_erogacion_id", nuevo_tipo_id),
+            ("fuente_financiamiento_id", nueva_fuente_id),
+        ):
+            if campo in data:
+                cambio = AuditoriaService.construir_cambio(getattr(erogacion, campo), nuevo_valor)
+                if cambio:
+                    cambios[campo] = cambio
+                    setattr(erogacion, campo, nuevo_valor)
+
         if "egresos" in data:
-            nuevo_egreso = float(data["egresos"])
             cambio = AuditoriaService.construir_cambio(
                 erogacion.egresos,
                 nuevo_egreso
@@ -170,7 +223,6 @@ class ErogacionService:
                 erogacion.egresos = nuevo_egreso
 
         if "ingresos" in data:
-            nuevo_ingreso = float(data["ingresos"])
             cambio = AuditoriaService.construir_cambio(
                 erogacion.ingresos,
                 nuevo_ingreso
@@ -178,9 +230,6 @@ class ErogacionService:
             if cambio:
                 cambios["ingresos"] = cambio
                 erogacion.ingresos = nuevo_ingreso
-
-        if erogacion.egresos == 0 and erogacion.ingresos == 0:
-            raise ValidationError("Egresos e ingresos no pueden ser ambos 0")
 
         if cambios:
             erogacion.mark_updated(user_id)
@@ -203,11 +252,11 @@ class ErogacionService:
 
     @staticmethod
     def snapshot_para_memoria_version(memoria_version, user_id):
-        erogaciones = Erogacion.query.filter().all()
+        erogaciones = consultar_entidades_memoria(Erogacion, memoria_version)
 
         snapshots = []
         for erogacion in erogaciones:
-            if not esta_en_periodo_memoria(memoria_version, erogacion.fecha):
+            if not registro_puntual_en_memoria(memoria_version, erogacion, erogacion.fecha):
                 continue
             snapshot = ErogacionMemoriaVersion(
                 memoria_version_id=memoria_version.id,

@@ -24,10 +24,10 @@ import {
   BookOpen,
   Loader2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function normalizeRolForForm(rol: UsuarioRol): Rol {
-  return rol === "LECTOR" ? "LECTURA" : rol;
+  return rol;
 }
 
 function isSameRol(a: UsuarioRol, b: Rol) {
@@ -45,7 +45,6 @@ function getRolConfig(rol: string) {
       };
 
     case "LECTURA":
-    case "LECTOR":
       return {
         label: "Lector",
         icon: BookOpen,
@@ -78,6 +77,8 @@ export default function UsuariosHome() {
   const queryClient = useQueryClient();
 
   const [usuarioAEliminar, setUsuarioAEliminar] = useState<Usuario | null>(null);
+  const editDialogRef = useRef<HTMLDialogElement>(null);
+  const deleteDialogRef = useRef<HTMLDialogElement>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [usuarioAEditar, setUsuarioAEditar] = useState<Usuario | null>(null);
   const [editForm, setEditForm] = useState({
@@ -91,6 +92,30 @@ export default function UsuariosHome() {
     rol?: string;
     general?: string;
   }>({});
+
+  useEffect(() => {
+    const dialog = editDialogRef.current;
+    if (!usuarioAEditar || !dialog) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog.showModal();
+    dialog.querySelector<HTMLElement>("input")?.focus();
+    return () => {
+      if (dialog.open) dialog.close();
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [usuarioAEditar]);
+
+  useEffect(() => {
+    const dialog = deleteDialogRef.current;
+    if (!usuarioAEliminar || !dialog) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog.showModal();
+    dialog.querySelector<HTMLElement>("button")?.focus();
+    return () => {
+      if (dialog.open) dialog.close();
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [usuarioAEliminar]);
 
   if (!isAdmin()) {
     return (
@@ -175,7 +200,7 @@ export default function UsuariosHome() {
     } else if (nombreUsuario.length < 3) {
       errors.nombre_usuario = "El nombre debe tener al menos 3 caracteres";
     } else if (!isValidUsername(nombreUsuario)) {
-      errors.nombre_usuario = "Solo letras, numeros, puntos, guiones y guiones bajos";
+      errors.nombre_usuario = "Solo letras, números, puntos, guiones y guiones bajos";
     }
 
     if (!mail) {
@@ -197,6 +222,18 @@ export default function UsuariosHome() {
     }
 
     setEditErrors(errors);
+    const firstInvalidField = errors.nombre_usuario
+      ? "editar-usuario-nombre"
+      : errors.mail
+        ? "editar-usuario-email"
+        : errors.rol
+          ? "editar-usuario-rol"
+          : null;
+    if (firstInvalidField) {
+      window.requestAnimationFrame(() => {
+        document.getElementById(firstInvalidField)?.focus();
+      });
+    }
     return Object.keys(errors).length === 0;
   }
 
@@ -239,8 +276,7 @@ export default function UsuariosHome() {
   const total = usuarios?.length || 0;
   const admins = usuarios?.filter((u) => u.rol === "ADMIN").length || 0;
   const gestores = usuarios?.filter((u) => u.rol === "GESTOR").length || 0;
-  const lectores =
-    usuarios?.filter((u) => u.rol === "LECTURA" || u.rol === "LECTOR").length || 0;
+  const lectores = usuarios?.filter((u) => u.rol === "LECTURA").length || 0;
 
   return (
     <section className="w-full">
@@ -441,10 +477,10 @@ export default function UsuariosHome() {
       </div>
 
       {usuarioAEditar && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <dialog ref={editDialogRef} aria-labelledby="editar-usuario-title" onCancel={(event) => { event.preventDefault(); if (!editarMutation.isPending) handleCerrarEditar(); }} className="fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl p-0 shadow-xl backdrop:bg-black/50">
           <div className="bg-white rounded-2xl p-6 max-w-lg w-full mx-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Editar usuario</h3>
+              <h3 id="editar-usuario-title" className="text-lg font-semibold">Editar usuario</h3>
               <button
                 onClick={handleCerrarEditar}
                 className="p-1 hover:bg-slate-100 rounded"
@@ -456,11 +492,14 @@ export default function UsuariosHome() {
 
             <div className="space-y-4">
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label htmlFor="editar-usuario-nombre" className="mb-2 block text-sm font-medium">
                   Nombre de usuario
                 </label>
                 <input
+                  id="editar-usuario-nombre"
                   type="text"
+                  aria-invalid={Boolean(editErrors.nombre_usuario)}
+                  aria-describedby={editErrors.nombre_usuario ? "editar-usuario-nombre-error" : undefined}
                   className={`input ${editErrors.nombre_usuario ? "border-rose-300" : ""}`}
                   value={editForm.nombre_usuario}
                   onChange={(event) => {
@@ -479,16 +518,19 @@ export default function UsuariosHome() {
                   disabled={editarMutation.isPending}
                 />
                 {editErrors.nombre_usuario && (
-                  <p className="mt-1 text-sm text-rose-600">
+                  <p id="editar-usuario-nombre-error" role="alert" className="mt-1 text-sm text-rose-600">
                     {editErrors.nombre_usuario}
                   </p>
                 )}
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium">Email</label>
+                <label htmlFor="editar-usuario-email" className="mb-2 block text-sm font-medium">Email</label>
                 <input
+                  id="editar-usuario-email"
                   type="email"
+                  aria-invalid={Boolean(editErrors.mail)}
+                  aria-describedby={editErrors.mail ? "editar-usuario-email-error" : undefined}
                   className={`input ${editErrors.mail ? "border-rose-300" : ""}`}
                   value={editForm.mail}
                   onChange={(event) => {
@@ -507,46 +549,63 @@ export default function UsuariosHome() {
                   disabled={editarMutation.isPending}
                 />
                 {editErrors.mail && (
-                  <p className="mt-1 text-sm text-rose-600">{editErrors.mail}</p>
+                  <p id="editar-usuario-email-error" role="alert" className="mt-1 text-sm text-rose-600">{editErrors.mail}</p>
                 )}
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium">Rol</label>
-                <select
-                  className={`input ${editErrors.rol ? "border-rose-300" : ""}`}
-                  value={editForm.rol}
-                  onChange={(event) => {
-                    setEditForm((prev) => ({
-                      ...prev,
-                      rol: event.target.value as Rol,
-                    }));
-                    if (editErrors.rol) {
-                      setEditErrors((prev) => ({
+                <label htmlFor="editar-usuario-rol" className="mb-2 block text-sm font-medium">Rol</label>
+                {usuarioAEditar.id === user?.id ? (
+                  <input
+                    id="editar-usuario-rol"
+                    type="text"
+                    readOnly
+                    value={getRolConfig(editForm.rol).label}
+                    aria-invalid={Boolean(editErrors.rol)}
+                    aria-describedby={editErrors.rol
+                      ? "editar-usuario-rol-ayuda editar-usuario-rol-error"
+                      : "editar-usuario-rol-ayuda"}
+                    className={`input ${editErrors.rol ? "border-rose-300" : ""}`}
+                  />
+                ) : (
+                  <select
+                    id="editar-usuario-rol"
+                    aria-invalid={Boolean(editErrors.rol)}
+                    aria-describedby={editErrors.rol ? "editar-usuario-rol-error" : undefined}
+                    className={`input ${editErrors.rol ? "border-rose-300" : ""}`}
+                    value={editForm.rol}
+                    onChange={(event) => {
+                      setEditForm((prev) => ({
                         ...prev,
-                        rol: undefined,
-                        general: undefined,
+                        rol: event.target.value as Rol,
                       }));
-                    }
-                  }}
-                  disabled={editarMutation.isPending || usuarioAEditar.id === user?.id}
-                >
-                  <option value="ADMIN">Administrador</option>
-                  <option value="GESTOR">Gestor</option>
-                  <option value="LECTURA">Lector</option>
-                </select>
+                      if (editErrors.rol) {
+                        setEditErrors((prev) => ({
+                          ...prev,
+                          rol: undefined,
+                          general: undefined,
+                        }));
+                      }
+                    }}
+                    disabled={editarMutation.isPending}
+                  >
+                    <option value="ADMIN">Administrador</option>
+                    <option value="GESTOR">Gestor</option>
+                    <option value="LECTURA">Lector</option>
+                  </select>
+                )}
                 {usuarioAEditar.id === user?.id && (
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p id="editar-usuario-rol-ayuda" className="mt-1 text-xs text-slate-500">
                     No puede modificar el rol de su propia cuenta.
                   </p>
                 )}
                 {editErrors.rol && (
-                  <p className="mt-1 text-sm text-rose-600">{editErrors.rol}</p>
+                  <p id="editar-usuario-rol-error" role="alert" className="mt-1 text-sm text-rose-600">{editErrors.rol}</p>
                 )}
               </div>
 
               {editErrors.general && (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                   {editErrors.general}
                 </div>
               )}
@@ -579,14 +638,14 @@ export default function UsuariosHome() {
               </Button>
             </div>
           </div>
-        </div>
+        </dialog>
       )}
 
       {usuarioAEliminar && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <dialog ref={deleteDialogRef} aria-labelledby="eliminar-usuario-title" aria-describedby="eliminar-usuario-description" onCancel={(event) => { event.preventDefault(); if (!eliminarMutation.isPending) handleCerrarModal(); }} className="fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl p-0 shadow-xl backdrop:bg-black/50">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">¿Eliminar usuario?</h3>
+              <h3 id="eliminar-usuario-title" className="text-lg font-semibold">¿Eliminar usuario?</h3>
               <button
                 onClick={handleCerrarModal}
                 className="p-1 hover:bg-slate-100 rounded"
@@ -595,7 +654,7 @@ export default function UsuariosHome() {
               </button>
             </div>
 
-            <p className="text-slate-600 mb-6">
+            <p id="eliminar-usuario-description" className="text-slate-600 mb-6">
               Estás a punto de eliminar al usuario{" "}
               <strong>{usuarioAEliminar.nombre_usuario}</strong>.
             </p>
@@ -625,7 +684,7 @@ export default function UsuariosHome() {
               </Button>
             </div>
           </div>
-        </div>
+        </dialog>
       )}
     </section>
   );

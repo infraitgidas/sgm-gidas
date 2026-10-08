@@ -492,10 +492,119 @@ de CD queda diferido hasta que exista una necesidad operativa y se definan runne
 aprobaciones y secretos del host.
 
 HTTPS permanece como etapa obligatoria antes de habilitar datos reales para
-usuarios remotos. Deben definirse DNS o IP estable, autoridad certificadora,
-ubicacion del proxy TLS, puertos y distribucion de confianza. Hasta entonces, el
-firewall debe limitar HTTP a la red autorizada o el proxy debe enlazarse a
-`127.0.0.1` para validacion mediante tunel SSH.
+usuarios remotos. La arquitectura elegida termina TLS en el Nginx instalado en la
+VM Ubuntu y mantiene el Nginx de Docker Compose en `127.0.0.1:8080`. PostgreSQL,
+Redis, backend y frontend permanecen sin puertos publicados.
+
+La plantilla versionada se encuentra en:
+
+```text
+nginx/gidas.external.conf.example
+```
+
+El bloque HTTPS y la redireccion HTTP estan comentados deliberadamente. No deben
+activarse hasta que el laboratorio provea y confirme:
+
+- nombre DNS definitivo;
+- certificado, cadena completa y clave privada correspondiente al DNS;
+- autoridad certificadora publica o institucional;
+- puertos permitidos por el firewall;
+- mecanismo y responsable de renovacion.
+
+### 14.1 Preparacion del host
+
+Instalar Nginx en Ubuntu y copiar la plantilla fuera del repositorio:
+
+```bash
+sudo install -m 0644 nginx/gidas.external.conf.example /etc/nginx/sites-available/gidas.conf
+sudo ln -s /etc/nginx/sites-available/gidas.conf /etc/nginx/sites-enabled/gidas.conf
+```
+
+En `.env.production`, conservar el proxy de Compose limitado al host:
+
+```env
+NGINX_BIND_ADDRESS=127.0.0.1
+NGINX_PORT=8080
+```
+
+Antes de habilitar TLS se puede validar HTTP desde la propia VM o mediante un
+tunel SSH. Si se permite HTTP desde la LAN durante la puesta en marcha, debe ser
+temporal y estar restringido por firewall.
+
+### 14.2 Activacion cuando exista DNS
+
+1. Reemplazar `gidas.laboratorio.example` en la copia instalada de la plantilla.
+2. Instalar el certificado y la clave fuera del repositorio, por ejemplo bajo
+   `/etc/nginx/tls/gidas/`. La clave debe ser legible solo por root y el proceso
+   autorizado.
+3. Reemplazar las rutas `ssl_certificate` y `ssl_certificate_key`.
+4. Descomentar el bloque `server` que escucha en 443, sin habilitar todavia HSTS.
+5. Configurar en `backend/.env.production` el origen exacto, sin slash final:
+
+```env
+APP_ENV=production
+FRONTEND_URL=https://gidas.laboratorio.example
+FRONTEND_URLS=https://gidas.laboratorio.example
+HSTS_ENABLED=False
+```
+
+Si HTTPS utiliza un puerto distinto de 443, ese puerto debe aparecer tambien en
+`FRONTEND_URL` y `FRONTEND_URLS`. `VITE_API_BASE_URL=/api/v1` se mantiene relativo
+para que frontend y API compartan origen.
+
+Validar y recargar el proxy externo:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Primero comprobar directamente HTTPS. Solo despues de confirmar certificado,
+cadena, DNS, frontend, API y autenticacion se debe comentar el `location` HTTP y
+descomentar `return 301 https://$host$request_uri;`.
+
+### 14.3 Validacion de aceptacion
+
+Desde un equipo cliente de la LAN:
+
+```bash
+curl -I https://gidas.laboratorio.example/
+curl -fsS https://gidas.laboratorio.example/api/v1/health/live
+curl -fsS https://gidas.laboratorio.example/api/v1/health/ready
+```
+
+Ademas se deben comprobar manualmente login, refresh, navegacion, logout, descarga
+de exportaciones y errores del proxy. La cookie de refresh debe incluir `Secure`,
+`HttpOnly`, `SameSite=Lax` y el path previsto. HTTP debe redirigir sin servir la
+aplicacion ni la API en claro.
+
+Luego de validar HTTPS en todos los clientes se puede habilitar HSTS en backend y
+en el proxy externo. `includeSubDomains` no debe utilizarse sin confirmar primero
+que todos los subdominios afectados funcionan exclusivamente por HTTPS.
+
+Cuando se use una autoridad certificadora institucional, su certificado raiz debe
+estar instalado como confiable en todos los clientes. Un certificado autofirmado
+solo es aceptable para una validacion temporal controlada, nunca como cierre de
+produccion con datos reales.
+
+### 14.4 Renovacion y rollback
+
+El laboratorio debe definir responsable y mecanismo de renovacion. Despues de cada
+renovacion se debe ejecutar `sudo nginx -t`, recargar Nginx y volver a comprobar la
+fecha, hostname y cadena desde un cliente. La clave y los certificados reales no
+se copian al repositorio, a la imagen ni a los logs.
+
+Si la activacion falla antes de habilitar HSTS:
+
+1. volver a comentar la redireccion HTTP;
+2. volver a comentar el bloque HTTPS defectuoso o restaurar la configuracion previa;
+3. ejecutar `sudo nginx -t` y recargar Nginx;
+4. limitar nuevamente el acceso a la LAN autorizada o a un tunel SSH;
+5. corregir DNS, cadena o permisos antes de reintentar.
+
+Si HSTS ya fue entregado a los navegadores, volver a HTTP no constituye un rollback
+seguro. Por ese motivo HSTS permanece desactivado hasta completar la aceptacion
+extremo a extremo.
 
 ## 15. Registro recomendado de cada despliegue
 

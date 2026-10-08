@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { getInstitutionalMinDate } from "@/utils/dateTime";
+import { calendarValidationMessage } from "@/utils/calendarValidation";
+import { formatDateInput, replaceDateDigit } from "@/utils/dateInput";
 
 type DatePickerProps = {
   label?: string;
@@ -10,6 +13,7 @@ type DatePickerProps = {
   className?: string; // para pasar "input" o estilos propios
   helperText?: string; // ej: "DD/MM/YYYY"
   disabled?: boolean;
+  institutionalRange?: boolean;
 };
 
 const MONTHS_ES = [
@@ -28,17 +32,6 @@ function fmt(date: Date | null) {
 
 function stripTime(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
-
-function maskDateInput(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 8);
-  const day = digits.slice(0, 2);
-  const month = digits.slice(2, 4);
-  const year = digits.slice(4, 8);
-
-  if (digits.length <= 2) return day;
-  if (digits.length <= 4) return `${day}/${month}`;
-  return `${day}/${month}/${year}`;
 }
 
 function parseDateInput(value: string) {
@@ -80,14 +73,20 @@ export default function DatePicker({
   maxDate,
   placeholder = "DD/MM/AAAA",
   className = "input",
-  helperText = "DD/MM/AAAA",
+  helperText,
   disabled = false,
+  institutionalRange = true,
 }: DatePickerProps) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<Date>(() => value ?? new Date());
   const [temp, setTemp] = useState<Date | null>(value ?? null);
   const [inputValue, setInputValue] = useState(() => fmt(value));
+  const [inputError, setInputError] = useState("");
+  const inputId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const resolvedHelperText =
+    helperText ??
+    (institutionalRange ? "Desde 01/01/2010 · DD/MM/AAAA" : "DD/MM/AAAA");
 
   // cerrar al click fuera
   useEffect(() => {
@@ -124,14 +123,28 @@ export default function DatePicker({
     return cells;
   }, [view]);
 
-  const isDateDisabled = (d: Date) =>
-    (minDate && d < stripTime(minDate)) || (maxDate && d > stripTime(maxDate));
+  const effectiveMinDate = useMemo(() => {
+    if (!institutionalRange) return minDate;
+    const institutionalMinDate = getInstitutionalMinDate();
+    return minDate && minDate > institutionalMinDate
+      ? minDate
+      : institutionalMinDate;
+  }, [institutionalRange, minDate]);
 
-  function commitTypedValue(nextValue: string) {
-    const maskedValue = maskDateInput(nextValue);
+  const isDateDisabled = (d: Date) =>
+    (effectiveMinDate && d < stripTime(effectiveMinDate)) ||
+    (maxDate && d > stripTime(maxDate));
+
+  function commitTypedValue(nextValue: string, input?: HTMLInputElement, cursor?: number) {
+    const maskedValue = formatDateInput(nextValue);
     setInputValue(maskedValue);
+    if (input && cursor !== undefined) {
+      const nextCursor = formatDateInput(nextValue.slice(0, cursor)).length;
+      requestAnimationFrame(() => input.setSelectionRange(nextCursor, nextCursor));
+    }
 
     if (!maskedValue) {
+      setInputError("");
       setTemp(null);
       onChange(null);
       return;
@@ -140,7 +153,9 @@ export default function DatePicker({
     if (maskedValue.length < 10) return;
 
     const parsed = parseDateInput(maskedValue);
-    if (!parsed || isDateDisabled(parsed)) return;
+    const message = calendarValidationMessage(maskedValue, parsed, effectiveMinDate, maxDate);
+    setInputError(message);
+    if (!parsed || message) return;
 
     const normalized = stripTime(parsed);
     setTemp(normalized);
@@ -150,20 +165,25 @@ export default function DatePicker({
 
   return (
     <div ref={rootRef} className="relative w-full">
-      {label && <label className="block text-sm font-medium mb-2">{label}</label>}
+      {label && <label htmlFor={inputId} className="block text-sm font-medium mb-2">{label}</label>}
 
       <div className="relative">
         <input
           type="text"
-          className={className}
+          id={inputId}
+          aria-label={label ?? "Fecha"}
+          aria-invalid={Boolean(inputError)}
+          aria-describedby={`${inputId}-feedback`}
+          className={`${className} ${inputError ? "!border-red-500 !ring-2 !ring-red-500" : ""}`}
           value={inputValue}
           placeholder={placeholder}
           autoComplete="off"
           inputMode="numeric"
           maxLength={10}
-          onChange={(event) => commitTypedValue(event.target.value)}
+          onChange={(event) => commitTypedValue(event.target.value, event.target, event.target.selectionStart ?? undefined)}
           onBlur={(event) => {
             const parsed = parseDateInput(event.currentTarget.value);
+            setInputError(calendarValidationMessage(event.currentTarget.value, parsed, effectiveMinDate, maxDate));
             if (parsed && !isDateDisabled(parsed)) {
               const normalized = stripTime(parsed);
               setInputValue(fmt(normalized));
@@ -176,17 +196,32 @@ export default function DatePicker({
             setInputValue(fmt(value));
           }}
           onKeyDown={(event) => {
+            if (/^\d$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+              const input = event.currentTarget;
+              if (input.selectionStart === input.selectionEnd) {
+                const replacement = replaceDateDigit(inputValue, input.selectionStart ?? 0, event.key);
+                if (replacement) {
+                  event.preventDefault();
+                  commitTypedValue(replacement.value);
+                  requestAnimationFrame(() => input.setSelectionRange(replacement.cursor, replacement.cursor));
+                  return;
+                }
+              }
+            }
+
             if (event.key === "ArrowDown") {
               event.preventDefault();
               if (!disabled) setOpen(true);
             }
 
             if (event.key === "Enter") {
+              event.preventDefault();
               event.currentTarget.blur();
               setOpen(false);
             }
 
             if (event.key === "Escape") {
+              setInputError("");
               setInputValue(fmt(value));
               setOpen(false);
             }
@@ -206,7 +241,11 @@ export default function DatePicker({
           </svg>
         </button>
       </div>
-      {helperText && <p className="mt-1 text-xs text-slate-500">{helperText}</p>}
+      {(inputError || resolvedHelperText) && (
+        <p id={`${inputId}-feedback`} role={inputError ? "alert" : undefined} className={`mt-1 text-xs ${inputError ? "text-red-600" : "text-slate-500"}`}>
+          {inputError || resolvedHelperText}
+        </p>
+      )}
 
       {/* Popover calendario */}
       {open && (
@@ -276,6 +315,7 @@ export default function DatePicker({
               type="button"
               className="px-3 py-1.5 text-sm rounded bg-black text-white hover:opacity-90"
               onClick={() => {
+                setInputError("");
                 onChange(temp ?? null);
                 setInputValue(fmt(temp ?? null));
                 setOpen(false);

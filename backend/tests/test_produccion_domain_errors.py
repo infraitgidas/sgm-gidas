@@ -1,14 +1,67 @@
 import unittest
+from datetime import date
 from unittest.mock import patch
 
 from app import create_app
 from modules.shared.exceptions import ConflictError, NotFoundError, ValidationError
+from modules.produccion.services.articulo_divulgacion_service import ArticuloDivulgacionService
+from modules.produccion.services.distincion_service import DistincionRecibidaService
+from modules.produccion.services.trabajo_reunion_service import TrabajoReunionCientificaService
+from modules.produccion.services.trabajo_revista_service import TrabajosRevistasReferatoService
+from modules.produccion.services.actividad_docencia_service import ActividadDocenciaService
+from modules.produccion.services.documentacion_service import DocumentacionBibliograficaService
+from modules.produccion.services.registro_propiedad_service import RegistrosPropiedadService
 
 
 class ProduccionDomainErrorsTestCase(unittest.TestCase):
 
+    def test_docencia_documentacion_y_registro_identifican_campo(self):
+        cases = (
+            (lambda: ActividadDocenciaService._validar_texto("", "curso"), "curso"),
+            (lambda: ActividadDocenciaService._parse_fecha("2009-12-31", "fecha_inicio"), "fecha_inicio"),
+            (lambda: DocumentacionBibliograficaService._normalizar_texto("", "Titulo"), "titulo"),
+            (lambda: DocumentacionBibliograficaService._parse_fecha("2009-12-31"), "fecha"),
+            (lambda: RegistrosPropiedadService._validar_texto("", "nombre_articulo"), "nombre_articulo"),
+            (lambda: RegistrosPropiedadService._validar_fecha("2009-12-31"), "fecha_registro"),
+        )
+        for validate, field in cases:
+            with self.subTest(field=field), self.assertRaises(ValidationError) as caught:
+                validate()
+            self.assertIn(field, caught.exception.details["fields"])
+
+    def test_trabajos_identifican_titulo_y_fecha(self):
+        cases = (
+            (lambda: TrabajoReunionCientificaService._validar_texto("", "titulo_trabajo"), "titulo_trabajo"),
+            (lambda: TrabajoReunionCientificaService._validar_fecha("2009-12-31"), "fecha_presentacion"),
+            (lambda: TrabajosRevistasReferatoService._validar_texto("", "titulo_trabajo"), "titulo_trabajo"),
+            (lambda: TrabajosRevistasReferatoService._validar_fecha_publicacion("2009-12-31"), "fecha_publicacion"),
+        )
+        for validate, field in cases:
+            with self.subTest(field=field), self.assertRaises(ValidationError) as caught:
+                validate()
+            self.assertIn(field, caught.exception.details["fields"])
+
+    def test_articulo_identifica_texto_y_fecha(self):
+        for validate, value, field in (
+            (lambda value: ArticuloDivulgacionService._validar_texto(value, "titulo", min_len=5), "", "titulo"),
+            (ArticuloDivulgacionService._validar_fecha, date(2009, 12, 31), "fecha_publicacion"),
+        ):
+            with self.subTest(field=field), self.assertRaises(ValidationError) as caught:
+                validate(value)
+            self.assertIn(field, caught.exception.details["fields"])
+
+    def test_distincion_identifica_descripcion_y_fecha(self):
+        for validate, value, field in (
+            (lambda value: DistincionRecibidaService._validar_texto(value, "descripcion"), "", "descripcion"),
+            (DistincionRecibidaService._validar_fecha, "2009-12-31", "fecha"),
+        ):
+            with self.subTest(field=field), self.assertRaises(ValidationError) as caught:
+                validate(value)
+            self.assertIn(field, caught.exception.details["fields"])
+
     def setUp(self):
-        self.app = create_app()
+        with patch("app.register_tenant_request_scope"):
+            self.app = create_app()
         self.app.testing = True
         self.client = self.app.test_client()
 

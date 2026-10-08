@@ -8,7 +8,7 @@ export function useTrabajosReunion(
   activos: "true" | "false" | "all" = "true",
   orden: "asc" | "desc" = "asc"
 ) {
-  const { data, isLoading, isError } = useQuery<TrabajoReunion[]>({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery<TrabajoReunion[]>({
     queryKey: ["trabajos-reunion", activos, orden],
     queryFn: () =>
       getTrabajosReunion({
@@ -21,6 +21,8 @@ export function useTrabajosReunion(
   return {
     list: data ?? [],
     isLoading,
+    isFetching,
     isError,
+    refetch,
   };
 }

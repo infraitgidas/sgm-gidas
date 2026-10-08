@@ -1,4 +1,5 @@
 import { allowsNotFound, type HttpRequestInit } from "./httpPolicy";
+import { createSingleFlight } from "@/modules/auth/utils/singleFlight";
 
 const RAW_BASE =
   import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL ?? "";
@@ -16,7 +17,6 @@ const LEGACY_PATH_PREFIXES: Array<[string, string]> = [
   ["/distinciones", "/produccion/distinciones"],
   ["/documentacion-bibliografica", "/produccion/documentacion-bibliografica"],
   ["/equipamiento", "/recursos/equipamiento"],
-  ["/erogaciones", "/recursos/erogaciones"],
   ["/fuente-financiamiento", "/catalogos/fuente-financiamiento"],
   ["/grado-academico", "/produccion/grado-academico"],
   ["/grupos-utn", "/grupo/grupo-utn"],
@@ -36,6 +36,7 @@ const LEGACY_PATH_PREFIXES: Array<[string, string]> = [
   ["/tipo-registro-propiedad", "/produccion/tipo-registro-propiedad"],
   ["/tipos-proyecto", "/proyectos/tipos-proyecto"],
   ["/tipos-reunion-cientifica", "/produccion/tipos-reunion-cientifica"],
+  ["/tipos-revista", "/produccion/tipos-revista"],
   ["/trabajos-reunion-cientifica", "/produccion/trabajos-reunion-cientifica"],
   ["/trabajos-revistas", "/produccion/trabajos-revistas"],
   ["/transferencias", "/transferencia/transferencias"],
@@ -101,11 +102,12 @@ export class HttpError extends Error {
 
 export type RefreshSessionResponse<TUser = unknown> = {
   access_token: string;
+  access_expires_at: string;
+  session_expires_at: string;
+  session_warning_seconds: number;
   user?: TUser;
   usuario?: TUser;
 };
-
-let refreshPromise: Promise<RefreshSessionResponse | null> | null = null;
 
 export async function withAuthCookieLock<T>(
   operation: () => Promise<T>
@@ -117,16 +119,10 @@ export async function withAuthCookieLock<T>(
   return operation();
 }
 
-export async function refreshSession<TUser = unknown>(): Promise<
-  RefreshSessionResponse<TUser> | null
-> {
-  if (refreshPromise) {
-    return refreshPromise as Promise<RefreshSessionResponse<TUser> | null>;
-  }
-
-  const generationAtStart = sessionGeneration;
-  const performRefresh = async (): Promise<RefreshSessionResponse<TUser> | null> => {
-    if (generationAtStart !== sessionGeneration) return null;
+const runRefreshSingleFlight = createSingleFlight(
+  async (generationAtStart: number): Promise<RefreshSessionResponse | null> => {
+    const performRefresh = async (): Promise<RefreshSessionResponse | null> => {
+      if (generationAtStart !== sessionGeneration) return null;
 
     try {
       const res = await fetch(`${BASE}/auth/refresh`, {
@@ -138,11 +134,14 @@ export async function refreshSession<TUser = unknown>(): Promise<
       if (generationAtStart !== sessionGeneration) return null;
 
       if (!res.ok) {
-        accessToken = null;
-        return null;
+        if (res.status === 401) {
+          accessToken = null;
+          return null;
+        }
+        throw new HttpError(res.status, "No pudimos renovar la sesión. Intente nuevamente.");
       }
 
-      const data = (await res.json()) as RefreshSessionResponse<TUser>;
+      const data = (await res.json()) as RefreshSessionResponse;
       if (generationAtStart !== sessionGeneration) return null;
 
       if (typeof data.access_token === "string" && data.access_token) {
@@ -150,23 +149,23 @@ export async function refreshSession<TUser = unknown>(): Promise<
         return data;
       }
 
-      accessToken = null;
-      return null;
-    } catch {
-      if (generationAtStart === sessionGeneration) accessToken = null;
-      return null;
+      throw new HttpError(502, "No pudimos verificar la respuesta de sesión. Intente nuevamente.");
+    } catch (error) {
+      if (generationAtStart !== sessionGeneration) return null;
+      throw error;
     }
-  };
+    };
 
-  refreshPromise = (async () => {
-    try {
-      return await withAuthCookieLock(performRefresh);
-    } finally {
-      refreshPromise = null;
-    }
-  })();
+    return withAuthCookieLock(performRefresh);
+  }
+);
 
-  return refreshPromise as Promise<RefreshSessionResponse<TUser> | null>;
+export async function refreshSession<TUser = unknown>(): Promise<
+  RefreshSessionResponse<TUser> | null
+> {
+  return runRefreshSingleFlight(sessionGeneration) as Promise<
+    RefreshSessionResponse<TUser> | null
+  >;
 }
 
 function buildHeaders(init?: RequestInit) {

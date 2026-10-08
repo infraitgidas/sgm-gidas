@@ -1,5 +1,6 @@
 from flask import Blueprint, request
 from modules.personal.controllers.personal_controller import PersonalController
+from modules.personal.controllers.personal_completo_controller import PersonalCompletoController
 from modules.shared.services.middleware import requiere_rol
 
 personal_bp = Blueprint(
@@ -17,6 +18,11 @@ def crear():
 @requiere_rol("ADMIN", "GESTOR", "LECTURA")
 def listar():
     return PersonalController.listar(request)
+
+@personal_bp.route("/all", methods=["GET"])
+@requiere_rol("ADMIN", "GESTOR", "LECTURA")
+def listar_completo():
+    return PersonalCompletoController.listar()
 
 @personal_bp.route("/<string:rol>/<int:id>", methods=["GET"])
 @requiere_rol("ADMIN", "GESTOR", "LECTURA")

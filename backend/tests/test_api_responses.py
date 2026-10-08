@@ -64,7 +64,7 @@ class ApiResponsesTestCase(unittest.TestCase):
         self.assertEqual(status_code, 422)
         self.assertIsNone(response.get_json()["data"])
         self.assertEqual(response.get_json()["error"]["code"], "VALIDATION_ERROR")
-        self.assertEqual(response.get_json()["error"]["details"], {"campo": "nombre"})
+        self.assertEqual(response.get_json()["error"]["details"], {})
         self.assertIn("Verifique los datos", response.get_json()["error"]["message"])
 
     def test_health_endpoint_usa_contrato_uniforme(self):
@@ -93,7 +93,7 @@ class ApiResponsesTestCase(unittest.TestCase):
         self.assertEqual(response.get_json()["error"], {
             "code": "VALIDATION_ERROR",
             "message": "El periodo es obligatorio",
-            "details": {"campo": "periodo"},
+            "details": {},
         })
 
     def test_exception_response_respeta_estado_not_found(self):

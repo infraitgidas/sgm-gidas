@@ -1,3 +1,4 @@
+import type { AutorReferencia, IntegranteAutor } from "@/modules/produccion/services/trabajoAutoresServices";
 import { http } from "@/lib/http";
 
 export interface TrabajoRevista {
@@ -12,21 +13,19 @@ export interface TrabajoRevista {
   deleted_by_nombre?: string | null;
   deleted_at: string | null | undefined;
   activo?: boolean;
+  enlace?: string | null;
   titulo_trabajo: string;
   nombre_revista: string;
   editorial: string;
   issn: string;
   pais: string;
-  fecha: string;
+  fecha_publicacion: string;
   grupo: string | null;
-  tipo_reunion?: {
+  tipo_revista?: {
     id: number;
     nombre: string;
   } | null;
-  investigadores?: {
-    id: number;
-    nombre_apellido: string;
-  }[];
+  autores: IntegranteAutor[];
 }
 
 export interface HistorialTrabajoRevistaItem {
@@ -40,13 +39,15 @@ export interface HistorialTrabajoRevistaItem {
 }
 
 export interface TrabajoRevistaPayload {
+  autores: AutorReferencia[];
+  enlace?: string | null;
   titulo_trabajo: string;
   nombre_revista: string;
   editorial: string;
   issn: string;
   pais: string;
-  fecha: string;
-  tipo_reunion_id?: number | null;
+  fecha_publicacion: string;
+  tipo_revista_id?: number | null;
   grupo_utn_id?: number | null;
 }
 
@@ -70,15 +71,16 @@ const normalizeTrabajoRevista = (item: TrabajoRevistaBackend): TrabajoRevista =>
   deleted_by_nombre: item.deleted_by_nombre ?? null,
   deleted_at: item.deleted_at ?? null,
   activo: item.activo ?? true,
+  enlace: item.enlace ?? null,
   titulo_trabajo: item.titulo_trabajo ?? "",
   nombre_revista: item.nombre_revista ?? "",
   editorial: item.editorial ?? "",
   issn: item.issn ?? "",
   pais: item.pais ?? "",
-  fecha: item.fecha ?? "",
+  fecha_publicacion: item.fecha_publicacion ?? "",
   grupo: item.grupo ?? null,
-  tipo_reunion: item.tipo_reunion ?? null,
-  investigadores: Array.isArray(item.investigadores) ? item.investigadores : [],
+  tipo_revista: item.tipo_revista ?? null,
+  autores: Array.isArray(item.autores) ? item.autores : [],
 });
 
 export const getTrabajosRevistas = async (
@@ -154,14 +156,16 @@ export const updateTrabajoRevista = async (
   data: Partial<TrabajoRevistaPayload>
 ): Promise<TrabajoRevista> => {
   const body: Record<string, unknown> = {};
+  if ("autores" in data) body.autores = data.autores;
 
+  if ("enlace" in data) body.enlace = data.enlace;
   if ("titulo_trabajo" in data) body.titulo_trabajo = data.titulo_trabajo;
   if ("nombre_revista" in data) body.nombre_revista = data.nombre_revista;
   if ("editorial" in data) body.editorial = data.editorial;
   if ("issn" in data) body.issn = data.issn;
   if ("pais" in data) body.pais = data.pais;
-  if ("fecha" in data) body.fecha = data.fecha;
-  if ("tipo_reunion_id" in data) body.tipo_reunion_id = data.tipo_reunion_id;
+  if ("fecha_publicacion" in data) body.fecha_publicacion = data.fecha_publicacion;
+  if ("tipo_revista_id" in data) body.tipo_revista_id = data.tipo_revista_id;
   if ("grupo_utn_id" in data) body.grupo_utn_id = data.grupo_utn_id;
 
   const response = await http<TrabajoRevistaBackend>(`/trabajos-revistas/${id}`, {
@@ -175,26 +179,4 @@ export const updateTrabajoRevista = async (
 export const deleteTrabajoRevista = async (id: number) =>
   http<{ message: string }>(`/trabajos-revistas/${id}`, {
     method: "DELETE",
-  });
-
-export const vincularInvestigadoresRevista = async (
-  trabajoId: number,
-  investigadoresIds: number[]
-) =>
-  http<{ message: string }>(`/trabajos-revistas/${trabajoId}/investigadores/`, {
-    method: "POST",
-    body: JSON.stringify({
-      investigadores_ids: investigadoresIds,
-    }),
-  });
-
-export const desvincularInvestigadoresRevista = async (
-  trabajoId: number,
-  investigadoresIds: number[]
-) =>
-  http<{ message: string }>(`/trabajos-revistas/${trabajoId}/investigadores/`, {
-    method: "DELETE",
-    body: JSON.stringify({
-      investigadores_ids: investigadoresIds,
-    }),
   });

@@ -1,7 +1,9 @@
+from modules.shared.services.catalog_name_validation import validar_nombre_descriptivo
 import builtins
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from sqlalchemy import func
 from sqlalchemy import extract, or_
+from sqlalchemy.orm import joinedload, selectinload
 from extension import db
 from modules.recursos.models.becas import (
     Beca,
@@ -10,6 +12,7 @@ from modules.recursos.models.becas import (
 from modules.personal.models.personal import Becario
 from modules.catalogos.models.fuente_financiamiento import FuenteFinanciamiento
 from modules.shared.services.auditoria_service import AuditoriaService
+from modules.shared.services.date_time import validate_institutional_date
 from modules.memorias.services.memoria_periodo_service import validar_fecha_alta_grupo
 from modules.shared.exceptions import ConflictError, NotFoundError, ValidationError as ValueError
 
@@ -21,6 +24,13 @@ from modules.shared.exceptions import ConflictError, NotFoundError, ValidationEr
 def _get_beca_activa_or_404(beca_id: int):
     beca = db.session.get(Beca, beca_id)
     if not beca or beca.deleted_at is not None:
+        raise NotFoundError("Beca no encontrada.")
+    return beca
+
+
+def _get_beca_or_404(beca_id: int):
+    beca = db.session.get(Beca, beca_id)
+    if not beca:
         raise NotFoundError("Beca no encontrada.")
     return beca
 
@@ -38,10 +48,22 @@ def _validar_nombre_beca(nombre):
         raise ValueError("El nombre de la beca es obligatorio.")
 
     nombre = " ".join(nombre.strip().split())
+    validar_nombre_descriptivo(nombre, "nombre_beca")
     if not nombre:
         raise ValueError("El nombre de la beca es obligatorio.")
 
     return nombre
+
+
+def _validar_descripcion_beca(descripcion):
+    if descripcion in (None, ""):
+        return None
+    if not isinstance(descripcion, str):
+        raise ValueError("La descripción de la beca debe ser texto.")
+    descripcion = descripcion.strip()
+    if len(descripcion) > 2000:
+        raise ValueError("La descripción de la beca no puede superar 2000 caracteres.")
+    return descripcion or None
 
 
 def _validar_fuente_financiamiento(fuente_financiamiento_id):
@@ -57,7 +79,9 @@ def _validar_fuente_financiamiento(fuente_financiamiento_id):
 
 def _parsear_fecha(valor, campo):
     try:
-        return datetime.strptime(valor, "%Y-%m-%d").date()
+        return validate_institutional_date(
+            datetime.strptime(valor, "%Y-%m-%d").date(), campo
+        )
     except (TypeError, builtins.ValueError):
         raise ValueError(f"Formato de {campo} invalido.")
 
@@ -91,22 +115,112 @@ def _validar_beca_unica(nombre_beca, fuente_financiamiento_id, beca_id=None):
 class BecaService:
 
     @staticmethod
-    def get_all(activos="true"):
-        query = Beca.query
+    def proximas_a_vencer(hoy: date | None = None):
+        """Vínculos vigentes que finalizan en los próximos 29 días civiles."""
+        hoy = hoy or date.today()
+        filas = (
+            db.session.query(Beca_Becario, Beca, Becario)
+            .join(Beca, Beca.id == Beca_Becario.id_beca)
+            .join(Becario, Becario.id == Beca_Becario.id_becario)
+            .filter(
+                Beca.deleted_at.is_(None),
+                Becario.deleted_at.is_(None),
+                Beca_Becario.deleted_at.is_(None),
+                Beca_Becario.fecha_inicio <= hoy,
+                Beca_Becario.fecha_fin >= hoy,
+                Beca_Becario.fecha_fin < hoy + timedelta(days=30),
+            )
+            .order_by(Beca_Becario.fecha_fin.asc(), Becario.id.asc(), Beca.id.asc())
+            .all()
+        )
+        return [
+            {
+                "vinculacion_id": relacion.id,
+                "becario_id": becario.id,
+                "becario": becario.nombre_apellido,
+                "beca_id": beca.id,
+                "beca": beca.nombre_beca,
+                "fecha_fin": relacion.fecha_fin.isoformat(),
+                "dias_restantes": (relacion.fecha_fin - hoy).days,
+            }
+            for relacion, beca, becario in filas
+        ]
+
+    @staticmethod
+    def _becas_activas_query(anio: int):
+        if anio is None or not 1 <= anio <= 9999:
+            raise ValueError("Debe proporcionar un año válido.")
+
+        inicio = date(anio, 1, 1)
+        fin = date(anio, 12, 31)
+        return (
+            Beca.query.options(
+                joinedload(Beca.fuente_financiamiento),
+                selectinload(Beca.becarios).joinedload(Beca_Becario.becario)
+                .load_only(Becario.id, Becario.nombre_apellido, Becario.deleted_at).lazyload("*"),
+            )
+            .join(Beca_Becario, Beca_Becario.id_beca == Beca.id)
+            .join(Becario, Becario.id == Beca_Becario.id_becario)
+            .filter(
+                Beca.deleted_at.is_(None),
+                Becario.deleted_at.is_(None),
+                Beca_Becario.deleted_at.is_(None),
+                Beca_Becario.fecha_inicio <= fin,
+                or_(Beca_Becario.fecha_fin.is_(None), Beca_Becario.fecha_fin >= inicio),
+            )
+            .distinct()
+            .order_by(Beca.nombre_beca.asc(), Beca.id.asc())
+        )
+
+    @staticmethod
+    def get_becas_activas_en_anio(anio: int, page: int | None = None, per_page: int | None = None):
+        query = BecaService._becas_activas_query(anio)
+        total = query.count() if page is not None else None
+        becas = (query.offset((page - 1) * per_page).limit(per_page).all()
+                 if page is not None else query.all())
+        data = [beca.serialize() for beca in becas]
+        return (data, total) if page is not None else data
+
+    @staticmethod
+    def _list_query(activos="true", orden="asc"):
+        query = Beca.query.options(
+            joinedload(Beca.fuente_financiamiento),
+            selectinload(Beca.becarios).joinedload(Beca_Becario.becario)
+            .load_only(Becario.id, Becario.nombre_apellido, Becario.deleted_at).lazyload("*"),
+        )
         if activos == "true":
             query = query.filter(Beca.deleted_at.is_(None))
         elif activos == "false":
             query = query.filter(Beca.deleted_at.isnot(None))
-        becas = query.order_by(Beca.nombre_beca.asc()).all()
-        return [b.serialize() for b in becas]
+        nombre = Beca.nombre_beca.desc() if orden == "desc" else Beca.nombre_beca.asc()
+        id_ = Beca.id.desc() if orden == "desc" else Beca.id.asc()
+        return query.order_by(nombre, id_)
+
+    @staticmethod
+    def get_all(activos="true"):
+        return [b.serialize() for b in BecaService._list_query(activos).all()]
+
+    @staticmethod
+    def get_page(page, per_page, activos="true", orden="asc", q=""):
+        query = BecaService._list_query(activos, orden)
+        term = q.strip()[:100]
+        if term:
+            escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            query = query.filter(or_(
+                Beca.nombre_beca.ilike(f"%{escaped}%", escape="\\"),
+                Beca.descripcion.ilike(f"%{escaped}%", escape="\\"),
+            ))
+        total = query.count()
+        rows = query.offset((page - 1) * per_page).limit(per_page).all()
+        return [b.serialize() for b in rows], total
 
     @staticmethod
     def get_by_id(beca_id):
-        return _get_beca_activa_or_404(beca_id).serialize()
+        return _get_beca_or_404(beca_id).serialize()
 
     @staticmethod
     def get_historial(beca_id):
-        beca = _get_beca_activa_or_404(beca_id)
+        beca = _get_beca_or_404(beca_id)
         return AuditoriaService.obtener_historial_entidad(
             entidad="beca",
             registro_id=beca.id
@@ -125,7 +239,7 @@ class BecaService:
 
         nueva_beca = Beca(
             nombre_beca=nombre_beca,
-            descripcion=data.get("descripcion"),
+            descripcion=_validar_descripcion_beca(data.get("descripcion")),
             fecha_alta_grupo=validar_fecha_alta_grupo(
                 data.get("fecha_alta_grupo")
             ),
@@ -152,7 +266,7 @@ class BecaService:
 
         descripcion = beca.descripcion
         if "descripcion" in data:
-            descripcion = data["descripcion"]
+            descripcion = _validar_descripcion_beca(data["descripcion"])
 
         fuente_financiamiento_id = beca.fuente_financiamiento_id
         if "fuente_financiamiento_id" in data:
@@ -240,6 +354,8 @@ class BecaService:
                 raise ValueError(
                     "La fecha_fin no puede ser anterior a la fecha_inicio."
                 )
+        else:
+            raise ValueError("La fecha_fin es obligatoria para registrar el plazo de la beca.")
 
         monto_percibido = data.get("monto_percibido")
         if monto_percibido is not None:
@@ -322,12 +438,21 @@ class BecaService:
 # =====================================================
 
     @staticmethod
-    def get_becarios_de_beca(beca_id):
+    def get_becarios_de_beca(beca_id, page: int | None = None, per_page: int | None = None):
 
         beca = _get_beca_activa_or_404(beca_id)
 
+        query = Beca_Becario.query.filter(
+            Beca_Becario.id_beca == beca.id, Beca_Becario.deleted_at.is_(None)
+        ).options(
+            joinedload(Beca_Becario.becario)
+            .load_only(Becario.id, Becario.nombre_apellido).lazyload("*"),
+        ).order_by(Beca_Becario.id.asc())
+        total = query.count() if page is not None else None
+        relaciones = (query.offset((page - 1) * per_page).limit(per_page).all()
+                      if page is not None else query.all())
         resultado = []
-        for r in beca.becarios:
+        for r in relaciones:
             if r.deleted_at is None:
                 resultado.append({
                     "id_becario": r.becario.id,
@@ -337,7 +462,7 @@ class BecaService:
                     "monto_percibido": r.monto_percibido
                 })
 
-        return resultado
+        return (resultado, total) if page is not None else resultado
     
     
     # =========================
@@ -350,7 +475,11 @@ class BecaService:
             raise ValueError("Debe proporcionar un año.")
 
         relaciones = (
-            Beca_Becario.query
+            Beca_Becario.query.options(
+                joinedload(Beca_Becario.becario).lazyload("*"),
+                joinedload(Beca_Becario.becario).joinedload(Becario.tipo_formacion),
+                joinedload(Beca_Becario.becario).joinedload(Becario.grupo_utn).lazyload("*"),
+            )
             .join(Beca, Beca.id == Beca_Becario.id_beca)
             .join(Becario, Becario.id == Beca_Becario.id_becario)
             .filter(

@@ -6,7 +6,7 @@ from sqlalchemy import func
 
 
 def seed_roles():
-    roles = ["ADMIN", "GESTOR", "LECTOR"]
+    roles = ["ADMIN", "GESTOR", "LECTURA"]
 
     for nombre in roles:
         existe = RolUsuario.query.filter_by(nombre=nombre).first()

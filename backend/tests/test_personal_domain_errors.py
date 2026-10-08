@@ -1,14 +1,47 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app import create_app
 from modules.shared.exceptions import ConflictError, NotFoundError, ValidationError
+from modules.personal.services.personal_service import _validar_nombre
+from modules.personal.services.investigador_service import _validar_nombre as _validar_nombre_investigador
+from modules.personal.services.becario_service import _validar_nombre as _validar_nombre_becario, _validar_proyectos_ids, _sincronizar_becas
 
 
 class PersonalDomainErrorsTestCase(unittest.TestCase):
 
+    def test_variantes_de_personal_identifican_nombre_y_proyectos(self):
+        for validar in (_validar_nombre_investigador, _validar_nombre_becario):
+            with self.assertRaises(ValidationError) as caught:
+                validar("")
+            self.assertIn("nombre_apellido", caught.exception.details["fields"])
+        with self.assertRaises(ValidationError) as caught:
+            _validar_proyectos_ids([1, 1])
+        self.assertIn("proyectos", caught.exception.details["fields"])
+
+    def test_beca_invalida_identifica_selector(self):
+        with self.app.app_context(), patch("modules.personal.services.becario_service.db.session.get", return_value=SimpleNamespace(deleted_at=None)), self.assertRaises(ValidationError) as caught:
+            _sincronizar_becas(None, [{"beca_id": 1, "fecha_inicio": "invalida"}], 1)
+        self.assertIn("becas", caught.exception.details["fields"])
+
+    def test_nombre_invalido_indica_campo_editable(self):
+        for nombre in (None, "", "22", "Ana 22", "Ana-María", "Ana_", "x" * 121):
+            with self.subTest(nombre=nombre), self.assertRaises(ValidationError) as caught:
+                _validar_nombre(nombre)
+            self.assertIn("nombre_apellido", caught.exception.details["fields"])
+
+    def test_nombres_de_personas_solo_admiten_letras_y_espacios(self):
+        for validar in (_validar_nombre, _validar_nombre_investigador, _validar_nombre_becario):
+            for invalido in ("22", "Ana 22", "Ana-María", "Ana!", "Ana\tMaría"):
+                with self.subTest(validar=validar.__module__, nombre=invalido), self.assertRaises(ValidationError) as caught:
+                    validar(invalido)
+                self.assertIn("nombre_apellido", caught.exception.details["fields"])
+            self.assertEqual(validar("Ana María"), "Ana María")
+
     def setUp(self):
-        self.app = create_app()
+        with patch("app.register_tenant_request_scope"):
+            self.app = create_app()
         self.app.testing = True
         self.client = self.app.test_client()
 

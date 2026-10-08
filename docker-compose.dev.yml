@@ -2,7 +2,7 @@
 # docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres:16.15-alpine3.24
     container_name: gidas_dev_db
     env_file: !override
       - ./backend/${BACKEND_ENV_FILE:-.env}
@@ -87,7 +87,7 @@ services:
       retries: 12
       start_period: 10s
   nginx:
-    image: nginxinc/nginx-unprivileged:1.27-alpine
+    image: nginxinc/nginx-unprivileged:1.31-alpine3.24
     container_name: gidas_dev_proxy
     restart: unless-stopped
     ports: !override
@@ -103,7 +103,7 @@ services:
       - gidas_network
 volumes:
   postgres_data:
-    name: ${POSTGRES_VOLUME:-gidas_dev_postgres_data}
+    name: ${POSTGRES_DEV_PG16_VOLUME:-gidas_dev_postgres16_data}
 
 networks:
   gidas_network:

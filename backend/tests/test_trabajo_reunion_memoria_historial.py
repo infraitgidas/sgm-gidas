@@ -1,4 +1,4 @@
-import unittest
+﻿import unittest
 from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -12,6 +12,8 @@ from modules.produccion.services.trabajo_reunion_service import TrabajoReunionCi
 class TrabajoReunionMemoriaHistorialTestCase(unittest.TestCase):
 
     def setUp(self):
+        self.enterContext(patch("modules.memorias.services.memoria_service.MemoriaService._validar_grupo", return_value=1))
+        self.enterContext(patch("modules.memorias.services.memoria_service.snapshot_contexto_institucional", return_value=None))
         self.add_patcher = patch("modules.produccion.services.trabajo_reunion_service.db.session.add")
         self.commit_patcher = patch("extension.db.session.commit")
         self.rollback_patcher = patch("extension.db.session.rollback")
@@ -27,6 +29,7 @@ class TrabajoReunionMemoriaHistorialTestCase(unittest.TestCase):
         self.addCleanup(self.rollback_patcher.stop)
         self.addCleanup(self.get_patcher.stop)
 
+    @patch("modules.produccion.services.trabajo_reunion_service.consultar_entidades_memoria", new=lambda model, version, **kwargs: model.query.filter().all())
     def test_snapshot_trabajo_reunion_para_memoria_version_persiste_foto(self):
         version = MemoriaVersion(
             id=71,
@@ -36,18 +39,19 @@ class TrabajoReunionMemoriaHistorialTestCase(unittest.TestCase):
             created_by=1
         )
         trabajo = SimpleNamespace(
+            enlace=None,
             id=5,
             titulo_trabajo="Arquitectura institucional",
             nombre_reunion="Congreso Nacional",
             procedencia="UTN",
-            fecha_inicio=date(2026, 3, 20),
+            fecha_presentacion=date(2026, 3, 20),
             tipo_reunion_id=2,
             tipo_reunion_cientifica=SimpleNamespace(nombre="Congreso"),
             grupo_utn_id=4,
             grupo_utn=SimpleNamespace(nombre_sigla_grupo="GIDAS"),
-            investigadores=[
-                SimpleNamespace(nombre_apellido="Ana Perez", deleted_at=None),
-                SimpleNamespace(nombre_apellido="Luis Diaz", deleted_at=None)
+            autorias=[
+                SimpleNamespace(serialize=lambda: {"id": 1, "rol": "investigador", "tipo": "Investigador", "nombre_apellido": "Ana Perez"}),
+                SimpleNamespace(serialize=lambda: {"id": 1, "rol": "becario", "tipo": "Becario", "nombre_apellido": "Luis Diaz"})
             ]
         )
 
@@ -71,14 +75,15 @@ class TrabajoReunionMemoriaHistorialTestCase(unittest.TestCase):
         self.assertEqual(snapshots[0].trabajo_reunion_id, 5)
         self.assertEqual(snapshots[0].tipo_reunion_nombre, "Congreso")
         self.assertEqual(
-            snapshots[0].investigadores_participantes,
-            "Ana Perez, Luis Diaz"
+            [a["nombre_apellido"] for a in snapshots[0].autores],
+            ["Ana Perez", "Luis Diaz"]
         )
         self.assertEqual(snapshots[0].created_by, 23)
         self.mock_add.assert_called()
 
     def test_change_status_a_cerrada_genera_snapshot_trabajo_reunion(self):
         memoria = Memoria(
+            grupo_utn_id=1,
             id=1,
             periodo_inicio=date(2026, 1, 1),
             periodo_fin=date(2026, 12, 31),
@@ -115,7 +120,7 @@ class TrabajoReunionMemoriaHistorialTestCase(unittest.TestCase):
         ), patch(
             "modules.memorias.services.memoria_service.EquipamientoService.snapshot_para_memoria_version"
         ), patch(
-            "modules.memorias.services.memoria_service.ErogacionService.snapshot_para_memoria_version"
+            "modules.memorias.services.memoria_service.MovimientoFinancieroService.snapshot_para_memoria_version"
         ), patch(
             "modules.memorias.services.memoria_service.TransferenciaSocioProductivaService.snapshot_para_memoria_version"
         ), patch(
@@ -201,7 +206,7 @@ class TrabajoReunionMemoriaHistorialTestCase(unittest.TestCase):
                 query=fake_query,
                 memoria_version_id=None,
                 deleted_at=SimpleNamespace(is_=lambda *_: None),
-                fecha_inicio=SimpleNamespace(desc=lambda: None),
+                fecha_presentacion=SimpleNamespace(desc=lambda: None),
                 id=SimpleNamespace(desc=lambda: None)
             )
         ):

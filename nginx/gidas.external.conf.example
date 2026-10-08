@@ -1,17 +1,67 @@
+# Plantilla alternativa para instalar Nginx TLS en el host.
+# Con Cloudflare Tunnel apuntando directamente a http://127.0.0.1:8080,
+# no se instala ni se utiliza este proxy externo.
+#
+# Para usar esta alternativa, Compose debe publicar en 127.0.0.1:8080. Reemplazar
+# hostname y rutas TLS por los valores reales antes de instalar la configuracion.
+# La clave privada debe permanecer fuera del repositorio, con permisos minimos.
+# Validar en el host con `sudo nginx -t` antes de recargar el servicio.
+
 server {
     listen 80;
-    server_name gidas.example.com;
+    listen [::]:80;
+    server_name gidas.laboratorio.example;
+    server_tokens off;
 
     client_max_body_size 20M;
 
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
+    # La redireccion solo corresponde a esta alternativa con TLS en el host.
+    return 301 https://$host$request_uri;
+}
 
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Request-ID $request_id;
-    }
+# Terminacion TLS alternativa en el host.
+server {
+     listen 443 ssl;
+     listen [::]:443 ssl;
+     server_name gidas.laboratorio.example;
+     server_tokens off;
+     ssl_certificate /etc/nginx/tls/gidas/fullchain.pem;
+     ssl_certificate_key /etc/nginx/tls/gidas/privkey.pem;
+     ssl_protocols TLSv1.2 TLSv1.3;
+     ssl_session_cache shared:GIDAS_TLS:10m;
+     ssl_session_timeout 1d;
+     ssl_session_tickets off;
+     # Habilitar HSTS solo tras validar HTTPS para el hostname y sus subdominios.
+     # add_header Strict-Transport-Security "max-age=31536000" always;
+     add_header X-Frame-Options "SAMEORIGIN";
+     add_header X-Content-Type-Options "nosniff";
+     add_header X-XSS-Protection "1; mode=block";
+
+     # Compresion gzip dinamica (M1). Complementar con gzip_static cuando
+     # el build del frontend genere archivos .gz precomprimidos.
+     gzip on;
+     gzip_vary on;
+     gzip_min_length 1024;
+     gzip_proxied any;
+     gzip_types text/plain text/css application/javascript application/json
+                image/svg+xml application/font-woff2;
+
+     client_max_body_size 20M;
+
+     location / {
+         proxy_pass http://127.0.0.1:8080;
+         proxy_http_version 1.1;
+
+         proxy_set_header Host $host;
+         proxy_set_header X-Real-IP $remote_addr;
+         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+         # Dentro del bloque 443 siempre es HTTPS: usar literal, no variable.
+         proxy_set_header X-Forwarded-Proto https;
+         proxy_set_header X-Request-ID $request_id;
+
+         proxy_connect_timeout 10s;
+         # Mantener este limite por debajo del timeout de Cloudflare (125 s).
+         proxy_send_timeout 120s;
+         proxy_read_timeout 120s;
+     }
 }

@@ -21,7 +21,15 @@ def valid_config():
                     "POSTGRES_APP_USER": "gidas_app",
                 }
             },
-            "nginx": {"ports": [{"published": "443", "target": 8080}]},
+            "nginx": {
+                "ports": [
+                    {
+                        "host_ip": "127.0.0.1",
+                        "published": "8080",
+                        "target": 8080,
+                    }
+                ]
+            },
         }
     }
 
@@ -89,6 +97,29 @@ class ProductionTopologyTestCase(unittest.TestCase):
         errors = validate_config(config)
 
         self.assertIn("NGINX_BIND_ADDRESS no es un binding soportado", errors)
+
+    def test_rechaza_binding_publico_de_nginx(self):
+        for host_ip in ("0.0.0.0", "192.168.1.50", "::"):
+            with self.subTest(host_ip=host_ip):
+                config = valid_config()
+                config["services"]["nginx"]["ports"][0]["host_ip"] = host_ip
+
+                errors = validate_config(config)
+
+                self.assertIn(
+                    "nginx debe publicar solo en loopback para el origen local",
+                    errors,
+                )
+
+    def test_rechaza_publicacion_sin_host_ip_explicito(self):
+        config = valid_config()
+        del config["services"]["nginx"]["ports"][0]["host_ip"]
+
+        errors = validate_config(config)
+
+        self.assertIn(
+            "nginx debe publicar solo en loopback para el origen local", errors
+        )
 
 
 if __name__ == "__main__":

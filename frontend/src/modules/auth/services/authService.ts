@@ -6,7 +6,7 @@ import {
   setAccessToken,
   withAuthCookieLock,
 } from "@/lib/http";
-import { getErrorMessage } from "@/lib/httpError";
+import type { SessionTiming } from "@/modules/auth/utils/sessionTiming";
 
 export type Rol = "ADMIN" | "GESTOR" | "LECTURA";
 
@@ -22,22 +22,22 @@ export type User = {
 export type AuthResponse = {
   user: User;
   token: string;
+  sessionTiming: SessionTiming;
 };
 
 type BackendLoginResponse = {
   access_token: string;
+  access_expires_at: string;
+  session_expires_at: string;
+  session_warning_seconds: number;
   user?: User;
   usuario?: User;
 };
 
 const AUTH_CHANNEL = "gidas_auth_events";
 const LEGACY_AUTH_KEY = "gidas_auth_current_session";
-const LOGIN_ERROR_MESSAGE =
-  "Lo sentimos, no pudimos iniciar sesión. Verifique su usuario y contraseña e intente nuevamente.";
 const CONNECTION_ERROR_MESSAGE =
   "Lo sentimos, no pudimos conectar con el servidor. Intente nuevamente en unos minutos.";
-const CHANGE_PASSWORD_ERROR_MESSAGE =
-  "Lo sentimos, no pudimos cambiar la contraseña. Verifique los datos e intente nuevamente.";
 
 export async function restoreSession(): Promise<AuthResponse | null> {
   removeLegacyAuthStorage();
@@ -45,7 +45,7 @@ export async function restoreSession(): Promise<AuthResponse | null> {
   const user = response?.user ?? response?.usuario;
   if (!response?.access_token || !user) return null;
 
-  return { user, token: response.access_token };
+  return toAuthResponse(response, user);
 }
 
 export async function login(
@@ -63,17 +63,11 @@ export async function login(
       }),
     }, true);
   } catch (error) {
-    if (error instanceof HttpError && error.status === 401) {
-      throw new Error(LOGIN_ERROR_MESSAGE);
-    }
-
+    if (error instanceof HttpError) throw error;
     throw new Error(CONNECTION_ERROR_MESSAGE);
   }
 
-  const auth: AuthResponse = {
-    user: responseBack.user ?? responseBack.usuario!,
-    token: responseBack.access_token,
-  };
+  const auth = toAuthResponse(responseBack, responseBack.user ?? responseBack.usuario!);
 
   if (!auth.user || !auth.token) {
     clearAccessToken();
@@ -82,6 +76,28 @@ export async function login(
 
   setAccessToken(auth.token);
   return auth;
+}
+
+export async function renewSession(): Promise<AuthResponse | null> {
+  const response = await refreshSession<User>();
+  const user = response?.user ?? response?.usuario;
+  if (!response?.access_token || !user) return null;
+  return toAuthResponse(response, user);
+}
+
+function toAuthResponse(
+  response: BackendLoginResponse,
+  user: User
+): AuthResponse {
+  return {
+    user,
+    token: response.access_token,
+    sessionTiming: {
+      accessExpiresAt: response.access_expires_at,
+      sessionExpiresAt: response.session_expires_at,
+      warningSeconds: response.session_warning_seconds,
+    },
+  };
 }
 
 export async function register(
@@ -114,7 +130,7 @@ type CambiarPasswordParams = {
 export async function cambiarPassword({
   passwordNueva,
   passwordActual,
-}: CambiarPasswordParams): Promise<void> {
+}: CambiarPasswordParams): Promise<AuthResponse> {
   const body: Record<string, string> = {
     password_nueva: passwordNueva,
     password_confirmacion: passwordNueva,
@@ -125,13 +141,18 @@ export async function cambiarPassword({
   }
 
   try {
-    await http("/auth/cambiar-password", {
+    const response = await http<BackendLoginResponse>("/auth/cambiar-password", {
       method: "POST",
       body: JSON.stringify(body),
     });
+    const user = response.user ?? response.usuario;
+    if (!response.access_token || !user) throw new Error(CONNECTION_ERROR_MESSAGE);
+    const auth = toAuthResponse(response, user);
+    setAccessToken(auth.token);
+    return auth;
   } catch (error) {
     if (error instanceof HttpError) {
-      throw new Error(getErrorMessage(error, CHANGE_PASSWORD_ERROR_MESSAGE));
+      throw error;
     }
 
     throw new Error(CONNECTION_ERROR_MESSAGE);

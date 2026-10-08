@@ -1,8 +1,10 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import Button from "@/components/Button";
 import HistorialCambiosCard from "@/components/HistorialCambiosCard";
+import { formatFechaHora } from "@/utils/dateTime";
 import SuccessToast from "@/components/SuccessToast";
 import {
   getActividadDocenciaById,
@@ -13,6 +15,10 @@ import { useRolesActividadDocencia } from "@/modules/produccion/hooks/useActivid
 import { useAuditoria } from "@/modules/shared/hooks/useAuditoria";
 import { toTitleCase } from "@/utils/format";
 import { useAuth } from "@/context/AuthContext";
+import {
+  getActividadDocenciaHistoryCatalogName,
+  presentActividadDocenciaHistoryItems,
+} from "@/modules/produccion/utils/actividadDocenciaHistory";
 import {
   navigateBackFromMemoriaContext,
   stripSuccessMessageState,
@@ -55,9 +61,9 @@ export default function ActividadDocenciaDetalle() {
     }
   }, [location.state, navigate, location.pathname]);
 
-  if (isLoading) return <p className="text-slate-500">Cargando...</p>;
+  if (isLoading) return <LoadingSkeleton variant="detail" label="Cargando..." />;
   if (!data)
-    return <p className="text-slate-500">No se encontro la actividad.</p>;
+    return <p className="text-slate-500">No se encontró la actividad.</p>;
 
   const isDeleted = !!data.deleted_at;
 
@@ -68,11 +74,6 @@ export default function ActividadDocenciaDetalle() {
     const mes = String(date.getMonth() + 1).padStart(2, "0");
     const anio = date.getFullYear();
     return `${dia}/${mes}/${anio}`;
-  };
-
-  const formatFechaHora = (fecha?: string | null) => {
-    if (!fecha) return "-";
-    return new Date(fecha).toLocaleString("es-AR");
   };
 
   const investigadorNombre =
@@ -95,26 +96,8 @@ export default function ActividadDocenciaDetalle() {
       return "-";
     }
 
-    if (item.tipo === "historial_grado" && typeof value === "object" && value) {
-      const record = value as {
-        grado_academico?: string;
-        fecha_inicio?: string | null;
-        fecha_fin?: string | null;
-        activo?: boolean;
-      };
-
-      return [
-        record.grado_academico ? `Grado: ${record.grado_academico}` : null,
-        record.fecha_inicio || record.fecha_fin
-          ? `Periodo: ${formatFecha(record.fecha_inicio)} - ${formatFecha(
-              record.fecha_fin
-            )}`
-          : null,
-        record.activo !== undefined ? `Activo: ${record.activo ? "Si" : "No"}` : null,
-      ]
-        .filter(Boolean)
-        .join(" | ");
-    }
+    const catalogName = getActividadDocenciaHistoryCatalogName(value);
+    if (catalogName) return catalogName;
 
     const asNumber =
       typeof value === "number"
@@ -178,34 +161,34 @@ export default function ActividadDocenciaDetalle() {
       <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
         <div className="space-y-2 text-sm text-slate-500 md:text-base">
           <p>
-            <span className="font-medium text-slate-700">Investigador:</span>{" "}
+            <span className="font-semibold text-slate-800">Investigador:</span>{" "}
             {toTitleCase(investigadorNombre) || "-"}
           </p>
 
           <p>
-            <span className="font-medium text-slate-700">Fecha de inicio:</span>{" "}
+            <span className="font-semibold text-slate-800">Fecha de inicio:</span>{" "}
             {formatFecha(data.fecha_inicio)}
           </p>
 
           <p>
-            <span className="font-medium text-slate-700">
+            <span className="font-semibold text-slate-800">
               Fecha de finalizacion:
             </span>{" "}
             {formatFecha(data.fecha_fin)}
           </p>
 
           <p>
-            <span className="font-medium text-slate-700">Grado academico:</span>{" "}
+            <span className="font-semibold text-slate-800">Grado academico:</span>{" "}
             {toTitleCase(gradoActualNombre) || "-"}
           </p>
 
           <p>
-            <span className="font-medium text-slate-700">Institucion:</span>{" "}
+            <span className="font-semibold text-slate-800">Institución:</span>{" "}
             {toTitleCase(data.institucion) || "-"}
           </p>
 
           <p>
-            <span className="font-medium text-slate-700">
+            <span className="font-semibold text-slate-800">
               Rol en la actividad:
             </span>{" "}
             {toTitleCase(rolActividadNombre) || "-"}
@@ -215,7 +198,7 @@ export default function ActividadDocenciaDetalle() {
 
       <article className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
         <div className="mb-4">
-          <h3 className="text-lg font-semibold text-slate-700">Auditoria</h3>
+          <h3 className="text-lg font-semibold text-slate-800">Auditoría</h3>
 
           <p className="mt-1 text-xs text-slate-500">
             {toTitleCase(data.curso) || "-"} - {toTitleCase(investigadorNombre) || "-"}
@@ -224,25 +207,25 @@ export default function ActividadDocenciaDetalle() {
 
         <div className="space-y-2 text-sm text-slate-500 md:text-base">
           <p>
-            <span className="font-medium text-slate-700">Creado por:</span>{" "}
+            <span className="font-semibold text-slate-800">Creado por:</span>{" "}
             {auditoria.nombreCreador}
           </p>
 
           <p>
-            <span className="font-medium text-slate-700">
-              Fecha de creacion:
+            <span className="font-semibold text-slate-800">
+              Fecha de creación:
             </span>{" "}
             {formatFechaHora(data.created_at)}
           </p>
 
           <p>
-            <span className="font-medium text-slate-700">Eliminado por:</span>{" "}
+            <span className="font-semibold text-slate-800">Eliminado por:</span>{" "}
             {auditoria.nombreEliminador}
           </p>
 
           <p>
-            <span className="font-medium text-slate-700">
-              Fecha de eliminacion:
+            <span className="font-semibold text-slate-800">
+              Fecha de eliminación:
             </span>{" "}
             {formatFechaHora(data.deleted_at)}
           </p>
@@ -253,7 +236,7 @@ export default function ActividadDocenciaDetalle() {
         subtitle={`${toTitleCase(data.curso) || "-"} - ${
           toTitleCase(investigadorNombre) || "-"
         }`}
-        items={historialCambios}
+        items={presentActividadDocenciaHistoryItems(historialCambios)}
         isLoading={isLoadingHistorial}
         updatedAt={data.updated_at}
         updatedByName={data.updated_by_nombre}

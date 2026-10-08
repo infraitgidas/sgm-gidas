@@ -8,7 +8,7 @@ export function useTrabajosRevistas(
   activos: "true" | "false" | "all" = "true",
   orden: "asc" | "desc" = "asc"
 ) {
-  const { data, isLoading, isError } = useQuery<TrabajoRevista[]>({
+  const query = useQuery<TrabajoRevista[]>({
     queryKey: ["trabajos-revistas", activos, orden],
     queryFn: () =>
       getTrabajosRevistas({
@@ -19,8 +19,10 @@ export function useTrabajosRevistas(
   });
 
   return {
-    list: data ?? [],
-    isLoading,
-    isError,
+    list: query.data ?? [],
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    isError: query.isError,
+    refetch: query.refetch,
   };
 }

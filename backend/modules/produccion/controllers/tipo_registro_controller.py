@@ -3,12 +3,15 @@ from modules.produccion.services.tipo_registro_service import TipoRegistroPropie
 from modules.produccion.models.registro_patente import TipoRegistroPropiedad
 from modules.shared.services.catalogo_auditoria_service import CatalogoAuditoriaService
 from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, catalog_page_response
 
 class TipoRegistroPropiedadController:
 
     @staticmethod
     def get_all():
         try:
+            if pagination_requested(request.args):
+                return catalog_page_response(TipoRegistroPropiedadService, request.args)
             return jsonify(
                 TipoRegistroPropiedadService.get_all(request.args.get("activos", "true"))
             ), 200

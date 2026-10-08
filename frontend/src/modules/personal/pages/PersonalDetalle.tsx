@@ -1,3 +1,4 @@
+import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
@@ -5,6 +6,7 @@ import { ChevronDown } from "lucide-react";
 import Button from "@/components/Button";
 import SuccessToast from "@/components/SuccessToast";
 import HistorialCambiosCard from "@/components/HistorialCambiosCard";
+import { formatFechaHora } from "@/utils/dateTime";
 import {
   getHistorialPersonalByRolAndId,
   getPersonalCompletoByRolAndId,
@@ -76,13 +78,14 @@ export default function PersonalDetalle() {
   });
 
   const auditoria = useAuditoria(data);
+  const successAnnouncement = <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{successMessage}</p>;
 
   if (isLoading) {
-    return <p className="text-slate-500">Cargando...</p>;
+    return <>{successAnnouncement}<LoadingSkeleton variant="detail" label="Cargando..." /></>;
   }
 
   if (isError || !data) {
-    return <p className="text-slate-500">No se encontro el registro.</p>;
+    return <>{successAnnouncement}<p className="text-slate-500">No se encontró el registro.</p></>;
   }
 
   const relaciones = data.relaciones || {};
@@ -108,11 +111,6 @@ export default function PersonalDetalle() {
       .join(", ");
   };
 
-  const formatFechaHora = (fecha?: string | null) => {
-    if (!fecha) return "-";
-    return new Date(fecha).toLocaleString("es-AR");
-  };
-
   const formatFecha = (fecha?: string | null) => {
     if (!fecha) return "Actual";
     const d = new Date(`${fecha}T00:00:00`);
@@ -128,9 +126,7 @@ export default function PersonalDetalle() {
   };
 
   const handleEditar = () => {
-    if (rol === "becario") navigate(`/becarios/${id}/editar`);
-    else if (rol === "investigador") navigate(`/investigadores/${id}/editar`);
-    else navigate(`/personal/${rol}/${id}/editar`);
+    navigate(`/personal/${rol}/${id}/editar`);
   };
 
   const getCatalogName = (
@@ -181,6 +177,7 @@ export default function PersonalDetalle() {
 
   return (
     <>
+      {successAnnouncement}
       <section className="flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <div className="flex flex-col gap-2">
@@ -216,9 +213,11 @@ export default function PersonalDetalle() {
 
         <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
+            <p><span className="font-semibold text-slate-800">DNI:</span> {data.dni || "Sin registrar"}</p>
+            <p><span className="font-semibold text-slate-800">CUIL:</span> {data.cuil || "Sin registrar"}</p>
             {relaciones.tipo_personal?.nombre && (
               <p>
-                <span className="font-medium text-slate-700">
+                <span className="font-semibold text-slate-800">
                   Tipo de Personal:
                 </span>{" "}
                 {relaciones.tipo_personal.nombre}
@@ -227,8 +226,8 @@ export default function PersonalDetalle() {
 
             {relaciones.tipo_formacion?.nombre && (
               <p>
-                <span className="font-medium text-slate-700">
-                  Grado de Formacion:
+                <span className="font-semibold text-slate-800">
+                  Grado de Formación:
                 </span>{" "}
                 {relaciones.tipo_formacion.nombre}
               </p>
@@ -236,8 +235,8 @@ export default function PersonalDetalle() {
 
             {relaciones.categoria_utn?.nombre && (
               <p>
-                <span className="font-medium text-slate-700">
-                  Categoria UTN:
+                <span className="font-semibold text-slate-800">
+                  Categoría UTN:
                 </span>{" "}
                 {relaciones.categoria_utn.nombre}
               </p>
@@ -245,7 +244,7 @@ export default function PersonalDetalle() {
 
             {relaciones.programa_incentivos?.nombre && (
               <p>
-                <span className="font-medium text-slate-700">
+                <span className="font-semibold text-slate-800">
                   Programa de Incentivos:
                 </span>{" "}
                 {relaciones.programa_incentivos.nombre}
@@ -254,7 +253,7 @@ export default function PersonalDetalle() {
 
             {relaciones.tipo_dedicacion?.nombre && (
               <p>
-                <span className="font-medium text-slate-700">
+                <span className="font-semibold text-slate-800">
                   Tipo de Dedicacion:
                 </span>{" "}
                 {relaciones.tipo_dedicacion.nombre}
@@ -263,14 +262,14 @@ export default function PersonalDetalle() {
 
             {(relaciones.proyectos?.length ?? 0) > 0 && (
               <p>
-                <span className="font-medium text-slate-700">Proyectos:</span>{" "}
+                <span className="font-semibold text-slate-800">Proyectos:</span>{" "}
                 {renderArray(relaciones.proyectos)}
               </p>
             )}
 
             {(relaciones.actividades_docencia?.length ?? 0) > 0 && (
               <p>
-                <span className="font-medium text-slate-700">
+                <span className="font-semibold text-slate-800">
                   Actividades de Docencia:
                 </span>{" "}
                 {renderArray(relaciones.actividades_docencia)}
@@ -279,8 +278,8 @@ export default function PersonalDetalle() {
 
             {(relaciones.trabajos_reunion_cientifica?.length ?? 0) > 0 && (
               <p>
-                <span className="font-medium text-slate-700">
-                  Trabajos en Reunion Cientifica:
+                <span className="font-semibold text-slate-800">
+                  Trabajos en Reunión Científica:
                 </span>{" "}
                 {renderArray(relaciones.trabajos_reunion_cientifica)}
               </p>
@@ -288,7 +287,7 @@ export default function PersonalDetalle() {
 
             {(relaciones.participaciones_relevantes?.length ?? 0) > 0 && (
               <p>
-                <span className="font-medium text-slate-700">
+                <span className="font-semibold text-slate-800">
                   Participaciones Relevantes:
                 </span>{" "}
                 {renderArray(relaciones.participaciones_relevantes)}
@@ -298,7 +297,7 @@ export default function PersonalDetalle() {
             {"horas_semanales" in data && (
               <div className="flex flex-col gap-2">
                 <p className="flex items-center gap-2">
-                  <span className="font-medium text-slate-700">
+                  <span className="font-semibold text-slate-800">
                     Horas Semanales:
                   </span>
                   {data.horas_semanales}
@@ -326,7 +325,7 @@ export default function PersonalDetalle() {
                     <div className="ml-4 space-y-1 border-l border-slate-200 pl-4 text-sm text-slate-600">
                       {data.historial_horas.map((h: HistorialHorasItem) => (
                         <p key={h.id}>
-                          Horas: {h.horas_semanales} - Periodo:{" "}
+                          Horas: {h.horas_semanales} - Período:{" "}
                           {formatFecha(h.fecha_inicio)} - {formatFecha(h.fecha_fin)}
                         </p>
                       ))}
@@ -338,7 +337,7 @@ export default function PersonalDetalle() {
             {Array.isArray(data.becas) && (
               <div className="flex flex-col gap-2">
                 <p>
-                  <span className="font-medium text-slate-700">Becas:</span>{" "}
+                  <span className="font-semibold text-slate-800">Becas:</span>{" "}
                   {data.becas.length === 0 ? "No percibe beca" : ""}
                 </p>
 
@@ -347,7 +346,7 @@ export default function PersonalDetalle() {
                     {data.becas.map((b, index: number) => (
                       <div key={b.id ?? index}>
                         <p>
-                          <span className="font-medium text-slate-700">
+                          <span className="font-semibold text-slate-800">
                             {b.nombre_beca}
                           </span>
                         </p>
@@ -375,6 +374,9 @@ export default function PersonalDetalle() {
                   ![
                     "id",
                     "nombre_apellido",
+                    "dni",
+                    "cuil",
+                    "identidad_id",
                     "activo",
                     "rol",
                     "relaciones",
@@ -407,7 +409,7 @@ export default function PersonalDetalle() {
                   if (nombreRelacion) {
                     return (
                       <p key={key}>
-                        <span className="font-medium text-slate-700">
+                        <span className="font-semibold text-slate-800">
                           {formatearLabel(relacionKey)}:
                         </span>{" "}
                         {nombreRelacion}
@@ -419,7 +421,7 @@ export default function PersonalDetalle() {
 
                 return (
                   <p key={key}>
-                    <span className="font-medium text-slate-700">
+                    <span className="font-semibold text-slate-800">
                       {formatearLabel(key)}:
                     </span>{" "}
                     {String(value) ?? "-"}
@@ -431,28 +433,28 @@ export default function PersonalDetalle() {
 
         <article className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-slate-700">Auditoria</h3>
+            <h3 className="text-lg font-semibold text-slate-800">Auditoría</h3>
             <p className="mt-1 text-xs text-slate-500">{data.nombre_apellido}</p>
           </div>
 
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
             <p>
-              <span className="font-medium text-slate-700">Creado por:</span>{" "}
+              <span className="font-semibold text-slate-800">Creado por:</span>{" "}
               {auditoria.nombreCreador}
             </p>
             <p>
-              <span className="font-medium text-slate-700">
-                Fecha de creacion:
+              <span className="font-semibold text-slate-800">
+                Fecha de creación:
               </span>{" "}
               {formatFechaHora(data.created_at)}
             </p>
             <p>
-              <span className="font-medium text-slate-700">Eliminado por:</span>{" "}
+              <span className="font-semibold text-slate-800">Eliminado por:</span>{" "}
               {auditoria.nombreEliminador}
             </p>
             <p>
-              <span className="font-medium text-slate-700">
-                Fecha de eliminacion:
+              <span className="font-semibold text-slate-800">
+                Fecha de eliminación:
               </span>{" "}
               {formatFechaHora(data.deleted_at)}
             </p>
@@ -484,7 +486,7 @@ export default function PersonalDetalle() {
       <SuccessToast
         open={showSuccess}
         message={successMessage}
-        onClose={() => setShowSuccess(false)}
+        onClose={() => { setShowSuccess(false); setSuccessMessage(""); }}
       />
     </>
   );

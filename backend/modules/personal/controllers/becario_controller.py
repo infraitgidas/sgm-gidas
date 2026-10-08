@@ -5,10 +5,12 @@ from modules.personal.services.becario_service import (
     crear_becario,
     eliminar_becario,
     listar_becarios,
+    listar_becarios_paginado,
     obtener_becario_por_id,
     obtener_historial_becario,
 )
-from modules.shared.controllers.responses import exception_response
+from modules.shared.controllers.pagination import pagination_requested, parse_pagination_params
+from modules.shared.controllers.responses import error_response, exception_response, paginated_response
 
 
 class BecarioController:
@@ -24,8 +26,18 @@ class BecarioController:
     @staticmethod
     def listar(req: Request) -> Response:
         try:
+            if pagination_requested(req.args):
+                params = parse_pagination_params(req.args)
+                becarios, total = listar_becarios_paginado(**params)
+                return paginated_response(
+                    [becario.serialize() for becario in becarios],
+                    params["page"], params["per_page"], total,
+                    meta={"activos": params["activos"], "orden": params["orden"], "source": "legacy-list"},
+                )
             becarios = listar_becarios(req.args.get("activos"))
             return jsonify([becario.serialize() for becario in becarios]), 200
+        except ValueError as error:
+            return error_response("VALIDATION_ERROR", message=str(error), status_code=400)
         except Exception as error:
             return exception_response(error, operation="listar becarios")
 

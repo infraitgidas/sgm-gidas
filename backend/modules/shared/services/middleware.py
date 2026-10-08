@@ -7,6 +7,10 @@ from modules.shared.controllers.responses import error_response
 
 
 def _authenticate_request():
+    if (getattr(g, "tenant_request_marker", None)
+            == id(request._get_current_object())
+            and getattr(g, "current_user_payload", None) is not None):
+        return g.current_user_payload, None
     auth_header = request.headers.get("Authorization")
 
     if not auth_header:

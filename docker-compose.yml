@@ -5,7 +5,8 @@ services:
     restart: unless-stopped
     init: true
     mem_limit: 1g
-    cpus: "1.0"
+    cpus: 1.0
+    stop_grace_period: 30s
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gidas_db}
       POSTGRES_USER: ${POSTGRES_ADMIN_USER:-gidas_admin}
@@ -30,13 +31,14 @@ services:
         max-file: ${LOG_MAX_FILES:-5}
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:7.4.9-alpine
     container_name: ${COMPOSE_SERVICE_PREFIX:-gidas}_redis
     restart: unless-stopped
-    user: redis
     init: true
     mem_limit: 256m
     cpus: "0.25"
+    stop_grace_period: 5s
+    user: redis
     command: ["redis-server", "--appendonly", "no", "--save", "", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
     expose:
       - "6379"
@@ -91,12 +93,12 @@ services:
     logging: *default_logging
 
   backend:
+    init: true
     build:
       context: ./backend
       target: production
     container_name: ${COMPOSE_SERVICE_PREFIX:-gidas}_backend
     restart: unless-stopped
-    init: true
     stop_grace_period: 45s
     mem_limit: 768m
     cpus: "0.5"
@@ -143,7 +145,8 @@ services:
     restart: unless-stopped
     init: true
     mem_limit: 256m
-    cpus: "0.5"
+    cpus: 0.5
+    stop_grace_period: 10s
     depends_on:
       backend:
         condition: service_healthy
@@ -201,19 +204,20 @@ services:
     logging: *default_logging
 
   nginx:
-    image: nginxinc/nginx-unprivileged:1.27-alpine
+    image: nginxinc/nginx-unprivileged:1.31-alpine3.24
     container_name: ${COMPOSE_SERVICE_PREFIX:-gidas}_proxy
     restart: unless-stopped
     init: true
     mem_limit: 256m
     cpus: "0.25"
+    stop_grace_period: 10s
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
     ports:
-      - "${NGINX_BIND_ADDRESS:-0.0.0.0}:${NGINX_PORT:-8080}:8080"
+      - "${NGINX_BIND_ADDRESS:-127.0.0.1}:${NGINX_PORT:-8080}:8080"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:

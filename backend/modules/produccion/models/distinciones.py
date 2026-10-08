@@ -49,7 +49,7 @@ class DistincionRecibidaMemoriaVersion(db.Model, AuditMixin):
         db.ForeignKey("proyecto_investigacion.id"),
         nullable=True
     )
-    proyecto_codigo = db.Column(db.Integer, nullable=True)
+    proyecto_codigo = db.Column(db.String(50), nullable=True)
     proyecto_nombre = db.Column(db.Text, nullable=True)
 
     memoria_version = db.relationship("MemoriaVersion", lazy="joined")

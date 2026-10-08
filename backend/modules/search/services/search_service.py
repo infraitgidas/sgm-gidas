@@ -1,5 +1,6 @@
 from sqlalchemy import or_
-from sqlalchemy.orm import joinedload
+from contextvars import ContextVar
+from sqlalchemy.orm import joinedload, selectinload
 from datetime import datetime
 from extension import db
 from modules.catalogos.models.fuente_financiamiento import FuenteFinanciamiento
@@ -10,7 +11,7 @@ from modules.produccion.models.actividad_docencia import ActividadDocencia, Inve
 from modules.produccion.models.articulo_divulgacion import ArticuloDivulgacion
 from modules.recursos.models.equipamiento import Equipamiento
 from modules.transferencia.models.transferencia_socio import TipoContrato, TransferenciaSocioProductiva
-from modules.recursos.models.erogacion import Erogacion, TipoErogacion
+from modules.recursos.models.movimiento_financiero import CategoriaErogacion, MovimientoFinanciero
 from modules.produccion.models.registro_patente import RegistrosPropiedad, TipoRegistroPropiedad
 from modules.produccion.models.documentacion_autores import DocumentacionBibliografica, Autor
 from modules.personal.models.tipo_personal import TipoPersonal
@@ -21,6 +22,9 @@ from modules.recursos.models.becas import Beca, Beca_Becario
 from modules.grupo.models.visita_grupo import VisitaAcademica
 from modules.shared.exceptions import ValidationError
 import unicodedata
+
+
+_page_ids = ContextVar("search_page_ids", default=None)
 
 
 class SearchService:
@@ -73,10 +77,38 @@ class SearchService:
     def bounded_results(query, model, eliminados: str, max_scan_per_model: int):
         query = SearchService.apply_deleted_filter(query, model, eliminados)
 
+        page_ids = _page_ids.get()
+        if page_ids is not None:
+            ids = page_ids.get(model, ())
+            if not ids:
+                return []
+            return query.filter(model.id.in_(ids)).all()
+
         if hasattr(model, "id"):
             query = query.order_by(model.id.asc())
 
         return query.limit(max_scan_per_model).all()
+
+    @staticmethod
+    def search_page(query_text: str, *, orden="alf_asc", eliminados="false",
+                    page=1, per_page=9, max_scan_per_model=300):
+        from modules.search.services.search_pagination import _specs, page_hits
+
+        term = SearchService.normalize_text(query_text.strip())
+        hits, total = page_hits(term, orden, eliminados, page, per_page)
+        if not hits:
+            return [], total
+        labels = {kind: model for model, kind, *_ in _specs(term)}
+        ids = {}
+        for kind, record_id in hits:
+            ids.setdefault(labels[kind], []).append(record_id)
+        token = _page_ids.set(ids)
+        try:
+            results = SearchService.search(query_text, orden, eliminados, max_scan_per_model)
+        finally:
+            _page_ids.reset(token)
+        by_key = {(item["tipo"], item["id"]): item for item in results}
+        return [by_key[(kind, record_id)] for kind, record_id in hits if (kind, record_id) in by_key], total
 
     # ==================================================
     # SEARCH PRINCIPAL
@@ -118,7 +150,7 @@ class SearchService:
                     "titulo": p.nombre_apellido,
                     "subtitulo": p.tipo_personal.nombre if p.tipo_personal else None,
                     "fecha": None,
-                    "url": f"/personal/{p.id}"
+                    "url": f"/personal/personal/{p.id}"
                 }))
 
         # ==================================================
@@ -246,7 +278,7 @@ class SearchService:
                 joinedload(Investigador.participaciones_proyecto)
                     .joinedload(InvestigadorProyecto.proyecto),
                 joinedload(Investigador.participaciones_relevantes),
-                joinedload(Investigador.trabajos_reunion_cientifica)
+                selectinload(Investigador.autorias_reunion)
             ),
             Investigador,
             eliminados,
@@ -582,9 +614,9 @@ class SearchService:
         # ==================================================
 
         tipos_erogacion = SearchService.bounded_results(
-            db.session.query(TipoErogacion)
-            .options(joinedload(TipoErogacion.erogaciones)),
-            TipoErogacion,
+            db.session.query(CategoriaErogacion)
+            .options(joinedload(CategoriaErogacion.movimientos)),
+            CategoriaErogacion,
             eliminados,
             max_scan_per_model,
         )
@@ -598,7 +630,7 @@ class SearchService:
             if query_normalized in tipo_norm:
 
                 erogaciones = sorted(
-                    tipo.erogaciones,
+                    tipo.movimientos,
                     key=lambda e: e.fecha if hasattr(e, "fecha") else None,
                     reverse=True
                 )
@@ -606,29 +638,31 @@ class SearchService:
                 erogaciones_data = [
                     {
                         "id": e.id,
-                        "numero_erogacion": e.numero_erogacion,
-                        "ingresos": e.ingresos,
-                        "egresos": e.egresos,
+                        "numero_movimiento": e.numero_movimiento,
+                        "titulo": f"Movimiento {e.numero_movimiento}",
+                        "tipo_movimiento": e.tipo_movimiento,
+                        "monto": str(e.monto),
+                        "moneda": e.moneda,
                         "fecha": e.fecha,
-                        "url": f"/erogaciones/{e.id}"
+                        "url": f"/movimientos/{e.id}"
                     }
                     for e in erogaciones[:5]  # recientes
                 ]
 
-                total_egresos = sum(e.egresos or 0 for e in tipo.erogaciones)
-                total_ingresos = sum(e.ingresos or 0 for e in tipo.erogaciones)
+                total_egresos = sum((e.monto_equivalente_ars or e.monto) for e in tipo.movimientos if e.tipo_movimiento == "EGRESO" and e.deleted_at is None)
+                total_ingresos = sum((e.monto_equivalente_ars or e.monto) for e in tipo.movimientos if e.tipo_movimiento == "INGRESO" and e.deleted_at is None)
 
                 resultados.append(SearchService.with_status(tipo, {
-                    "tipo": "Tipo de Erogación",
+                    "tipo": "Categoría de Erogación",
                     "id": tipo.id,
                     "titulo": tipo.nombre,
                     "subtitulo": "Clasificación de gastos",
                     "fecha": None,
-                    "url": f"/tipos-erogacion/{tipo.id}",
+                    "url": "/movimientos",
                     "extra": {
-                        "cantidad_erogaciones": len(tipo.erogaciones),
-                        "total_egresos": total_egresos,
-                        "total_ingresos": total_ingresos,
+                        "cantidad_erogaciones": len(tipo.movimientos),
+                        "total_egresos": str(total_egresos),
+                        "total_ingresos": str(total_ingresos),
                         "erogaciones_recientes": erogaciones_data
                     }
                 }))
@@ -681,7 +715,10 @@ class SearchService:
 
         participaciones = SearchService.bounded_results(
             db.session.query(ParticipacionRelevante)
-            .options(joinedload(ParticipacionRelevante.investigador)),
+            .options(
+                joinedload(ParticipacionRelevante.investigador),
+                joinedload(ParticipacionRelevante.becario),
+            ),
             ParticipacionRelevante,
             eliminados,
             max_scan_per_model,
@@ -693,10 +730,14 @@ class SearchService:
 
             evento_norm = SearchService.normalize_text(pr.nombre_evento)
             forma_norm = SearchService.normalize_text(pr.forma_participacion)
+            participante_norm = SearchService.normalize_text(
+                pr.participante.nombre_apellido if pr.participante else ""
+            )
 
             if (
                 query_normalized in evento_norm
                 or query_normalized in forma_norm
+                or query_normalized in participante_norm
             ):
 
                 resultados.append(SearchService.with_status(pr, {
@@ -707,7 +748,8 @@ class SearchService:
                     "fecha": pr.fecha,
                     "url": f"/participaciones-relevantes/{pr.id}",
                     "extra": {
-                        "investigador": pr.investigador.nombre_apellido if pr.investigador else None
+                        "participante": pr.participante.nombre_apellido if pr.participante else None,
+                        "categoria": "Investigador" if pr.participante_rol == "investigador" else "Becario",
                     }
                 }))
                 
@@ -940,7 +982,7 @@ class SearchService:
             db.session.query(TrabajoReunionCientifica)
             .options(
                 joinedload(TrabajoReunionCientifica.tipo_reunion_cientifica),
-                joinedload(TrabajoReunionCientifica.investigadores),
+                selectinload(TrabajoReunionCientifica.autorias),
                 joinedload(TrabajoReunionCientifica.grupo_utn)
             ),
             TrabajoReunionCientifica,
@@ -955,16 +997,16 @@ class SearchService:
             titulo_norm = SearchService.normalize_text(tr.titulo_trabajo)
             reunion_norm = SearchService.normalize_text(tr.nombre_reunion)
             procedencia_norm = SearchService.normalize_text(tr.procedencia)
-            investigadores_norm = [
-                SearchService.normalize_text(inv.nombre_apellido)
-                for inv in tr.investigadores
+            autores_norm = [
+                SearchService.normalize_text(autor.integrante.nombre_apellido)
+                for autor in tr.autorias
             ]
             
             if (
                 query_normalized in titulo_norm
                 or query_normalized in reunion_norm
                 or query_normalized in procedencia_norm
-                or any(query_normalized in inv for inv in investigadores_norm)
+                or any(query_normalized in inv for inv in autores_norm)
             ):
 
                 resultados.append(SearchService.with_status(tr, {
@@ -972,7 +1014,7 @@ class SearchService:
                     "id": tr.id,
                     "titulo": tr.titulo_trabajo,
                     "subtitulo": tr.nombre_reunion,
-                    "fecha": tr.fecha_inicio,
+                    "fecha": tr.fecha_presentacion,
                     "url": f"/trabajos-reunion/{tr.id}",
                     "extra": {
                         "tipo_reunion": (
@@ -984,13 +1026,7 @@ class SearchService:
                             tr.grupo_utn.nombre_unidad_academica
                             if tr.grupo_utn else None
                         ),
-                        "investigadores": [
-                            {
-                                "id": inv.id,
-                                "nombre": inv.nombre_apellido
-                            }
-                            for inv in tr.investigadores
-                        ]
+                        "autores": [autor.serialize() for autor in tr.autorias]
                     }
                 }))
                 
@@ -1003,8 +1039,8 @@ class SearchService:
             db.session.query(TrabajosRevistasReferato)
             .options(
                 joinedload(TrabajosRevistasReferato.grupo_utn),
-                joinedload(TrabajosRevistasReferato.tipo_reunion),
-                joinedload(TrabajosRevistasReferato.investigadores)
+                joinedload(TrabajosRevistasReferato.tipo_revista),
+                selectinload(TrabajosRevistasReferato.autorias)
             ),
             TrabajosRevistasReferato,
             eliminados,
@@ -1020,9 +1056,9 @@ class SearchService:
             editorial_norm = SearchService.normalize_text(tr.editorial)
             issn_norm = SearchService.normalize_text(tr.issn)
             pais_norm = SearchService.normalize_text(tr.pais)
-            investigadores_norm = [
-                SearchService.normalize_text(inv.nombre_apellido)
-                for inv in tr.investigadores
+            autores_norm = [
+                SearchService.normalize_text(autor.integrante.nombre_apellido)
+                for autor in tr.autorias
             ]
 
             if (
@@ -1031,7 +1067,7 @@ class SearchService:
                 or query_normalized in editorial_norm
                 or query_normalized in issn_norm
                 or query_normalized in pais_norm
-                or any(query_normalized in inv for inv in investigadores_norm)
+                or any(query_normalized in inv for inv in autores_norm)
             ):
 
                 resultados.append(SearchService.with_status(tr, {
@@ -1039,21 +1075,15 @@ class SearchService:
                     "id": tr.id,
                     "titulo": tr.titulo_trabajo,
                     "subtitulo": tr.nombre_revista,
-                    "fecha": tr.fecha,
+                    "fecha": tr.fecha_publicacion,
                     "url": f"/trabajos-revistas/{tr.id}",
                     "extra": {
                         "editorial": tr.editorial,
                         "issn": tr.issn,
                         "pais": tr.pais,
                         "grupo": tr.grupo_utn.nombre_sigla_grupo if tr.grupo_utn else None,
-                        "tipo_reunion": tr.tipo_reunion.nombre if tr.tipo_reunion else None,
-                        "investigadores": [
-                            {
-                                "id": inv.id,
-                                "nombre": inv.nombre_apellido
-                            }
-                            for inv in tr.investigadores
-                        ]
+                        "tipo_revista": tr.tipo_revista.nombre if tr.tipo_revista else None,
+                        "autores": [autor.serialize() for autor in tr.autorias]
                     }
                 }))
 
@@ -1155,26 +1185,27 @@ class SearchService:
         # EROGACIONES
         # ==================================================
         erogaciones = SearchService.bounded_results(
-            db.session.query(Erogacion).options(
-                joinedload(Erogacion.tipo_erogacion),
-                joinedload(Erogacion.fuente_financiamiento),
-                joinedload(Erogacion.grupo_utn),
-            ), Erogacion, eliminados, max_scan_per_model,
+            db.session.query(MovimientoFinanciero).options(
+                joinedload(MovimientoFinanciero.categoria_erogacion),
+                joinedload(MovimientoFinanciero.fuente_financiamiento),
+                joinedload(MovimientoFinanciero.grupo_utn),
+            ), MovimientoFinanciero, eliminados, max_scan_per_model,
         )
         for erogacion in erogaciones:
             valores = [
-                str(erogacion.numero_erogacion or ""),
-                erogacion.tipo_erogacion.nombre if erogacion.tipo_erogacion else "",
+                str(erogacion.numero_movimiento or ""),
+                erogacion.categoria_erogacion.nombre if erogacion.categoria_erogacion else "",
                 erogacion.fuente_financiamiento.nombre if erogacion.fuente_financiamiento else "",
+                erogacion.tipo_movimiento,
             ]
             if any(query_normalized in SearchService.normalize_text(valor) for valor in valores):
                 resultados.append(SearchService.with_status(erogacion, {
-                    "tipo": "Erogación",
+                    "tipo": "Movimiento financiero",
                     "id": erogacion.id,
-                    "titulo": f"Erogación {erogacion.numero_erogacion}",
-                    "subtitulo": erogacion.tipo_erogacion.nombre if erogacion.tipo_erogacion else None,
+                    "titulo": f"Movimiento {erogacion.numero_movimiento}",
+                    "subtitulo": erogacion.categoria_erogacion.nombre if erogacion.categoria_erogacion else erogacion.fuente_financiamiento.nombre if erogacion.fuente_financiamiento else None,
                     "fecha": erogacion.fecha,
-                    "url": f"/erogaciones/{erogacion.id}",
+                    "url": f"/movimientos/{erogacion.id}",
                 }))
 
         # ==================================================

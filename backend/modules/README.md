@@ -1,5 +1,30 @@
 # Backend modular
 
+## Errores accionables (ISS-09)
+
+Se mantiene el contrato `{data: null, error: {code, message, details}}`.
+Los manejadores globales y `exception_response` convierten las excepciones de
+dominio en 400/401/403/404/409 y las fallas inesperadas en 500. Los errores HTTP
+400/422, 401, 403, 404, 409 y 500 usan el mismo sobre seguro.
+
+`details.fields` conserva las claves estables del contrato API con mensajes
+públicos en español. `shared/services/error_messages.py` traduce los nombres
+internos conocidos de las validaciones heredadas; no infiere campos desde SQL,
+claves desconocidas o palabras ambiguas. Los validadores nuevos deben declarar
+`details.fields` explícitamente. Se eliminan detalles internos no documentados.
+El estado público de dependencias del healthcheck conserva su contrato.
+
+`details.request_id` coincide con `X-Request-ID` y con el identificador registrado
+en los logs de petición y error. Una excepción inesperada siempre muestra el
+mensaje seguro, sin SQL, trazas ni información de conexión.
+
+## Contrato transversal de fechas institucionales
+
+`modules.shared.services.date_time.validate_institutional_date` establece el
+01/01/2010 como límite inferior de los hechos vinculados con la vida del grupo.
+Los services deben invocarlo después de parsear el payload y pueden conservar o
+restringir fechas futuras según la regla de negocio del dominio.
+
 Este directorio organiza el backend como monolito modular. Cada modulo agrupa
 archivos por responsabilidad tecnica interna:
 
@@ -36,6 +61,18 @@ Toda respuesta servida desde `/api/v1` debe incluir el header:
 ```text
 API-Version: v1
 ```
+
+### Contrato temporal
+
+- Las columnas `Date` se serializan como fechas civiles `YYYY-MM-DD`, sin zona
+  horaria ni conversion de dia.
+- Las columnas `DateTime` de auditoria representan instantes UTC y se serializan
+  en ISO 8601 con sufijo `Z`.
+- Los datetimes historicos almacenados sin zona se interpretan como UTC al salir
+  por la API, de acuerdo con el uso de `datetime.utcnow()` del modelo.
+- La serializacion comun reside en
+  `modules.shared.services.date_time.serialize_temporal` y debe reutilizarse en
+  historiales y nuevos modelos auditables.
 
 Regla de compatibilidad:
 
@@ -165,12 +202,18 @@ El limite general se configura con:
 - `PAGINATION_DEFAULT_PER_PAGE`: por defecto `9`, alineado a homes.
 - `PAGINATION_MAX_PER_PAGE`: por defecto `100`.
 
-Durante la migracion incremental, un endpoint existente puede mantener su lista
-plana si el cliente no envia `page` ni `per_page`. Cuando el cliente envia alguno
-de esos parametros, el endpoint debe responder con `data`, `meta` y `error`.
+Los listados existentes conservan su lista plana si el cliente no envia `page`
+ni `per_page`. Cuando envia alguno de esos parametros, cada controlador obtiene
+el total con `count` y limita las filas en SQL antes de serializar. Responde con
+`data`, `meta` (`page`, `per_page`, `total`, `total_pages`) y `error`. Las rutas
+que ya tenian `meta.activos`, `meta.orden` y `meta.source = "legacy-list"`
+conservan esas claves por compatibilidad; `source` ya no indica que la pagina
+se calcule en memoria. El hook global `after_request` fue retirado. Nuevos
+listados deben implementar la paginacion en su propio service.
 
-Los listados que todavia devuelven una lista JSON plana quedan cubiertos
-por `register_legacy_list_pagination(app)`: si reciben `page` o `per_page`, la
-respuesta se adapta al contrato paginado. Este mecanismo da compatibilidad
-transversal para todos los endpoints GET de listado mientras cada modulo se
-optimiza progresivamente a paginacion a nivel de query.
+Esta regla cubre catalogos, grupo, memorias y sus snapshots, personal,
+produccion, proyectos, recursos, transferencia, usuarios, selectores UCT,
+borradores e historiales. Los permisos y el alcance UCT se aplican antes del
+conteo y del limite; el orden estable evita duplicados entre paginas. Los
+historiales mantienen tres eventos por pagina donde corresponde. La busqueda
+global conserva su payload propio y pagina candidatos mediante una union SQL.
