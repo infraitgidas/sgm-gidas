@@ -2,8 +2,9 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libpq-dev \
+RUN (sed -i 's|http://|https://|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || sed -i 's|http://|https://|g' /etc/apt/sources.list 2>/dev/null) \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -18,7 +19,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update \
+RUN (sed -i 's|http://|https://|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || sed -i 's|http://|https://|g' /etc/apt/sources.list 2>/dev/null) \
+    && apt-get update \
     && apt-get install -y --no-install-recommends curl libpq5 \
     && rm -rf /var/lib/apt/lists/* \
     && addgroup --system app \
@@ -42,7 +44,8 @@ CMD ["/app/entrypoint.sh"]
 FROM runtime AS development
 
 USER root
-RUN apt-get update \
+RUN (sed -i 's|http://|https://|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || sed -i 's|http://|https://|g' /etc/apt/sources.list 2>/dev/null) \
+    && apt-get update \
     && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 USER app

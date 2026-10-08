@@ -122,7 +122,7 @@ class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: 
 }
 
 // Definición de rutas
-const router = createBrowserRouter([
+const routes = [
   { path: "/", element: <Landing /> },
   // rutas públicas (sin login)
   { path: "/login", element: <Login /> },
@@ -331,10 +331,14 @@ const router = createBrowserRouter([
       { path: "*", element: <NotFound /> },
     ],
   },
-]);
+];
 
 // Cliente de React Query
 const queryClient = new QueryClient();
+
+const router = createBrowserRouter(routes, {
+  basename: import.meta.env.VITE_BASE_PATH?.replace(/\/+$/, "") || "/",
+});
 
 // Renderizado de la aplicación
 createRoot(document.getElementById("root")!).render(
@@ -348,3 +352,4 @@ createRoot(document.getElementById("root")!).render(
     </AuthProvider>
   </QueryClientProvider>
 );
+
