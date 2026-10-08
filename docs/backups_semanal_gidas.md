@@ -150,3 +150,29 @@ docker compose --env-file .env.production exec -T db \
   `.env.backup`.
 - No se adjunta el dump si el correo excede límites (el de Outlook 365 es 25 MB);
   a este volumen (~390 KB) no hay riesgo.
+
+---
+
+## 10. Verificación 2026-10-08 (tras el upgrade a v1.1.0-beta.1)
+
+Recontrol de la cadena completa después de la actualización de producción. **Resultado:
+todo operativo.**
+
+| Punto verificado | Evidencia |
+|---|---|
+| Cron instalado | `0 3 * * 6` → `bash /home/infra/scripts/backup_db.sh`, log en `gidas-backups/backup.log` |
+| Corridas históricas | 5 seguidas exitosas: 05/09, 12/09, 19/09, 26/09 y 03/10 (dump + email) |
+| Destinatarios | `gidas@frlp.utn.edu.ar`, `infra@frlp.utn.edu.ar` |
+| Política de retención | 4 semanas, purga automática observada en cada corrida |
+| Configuración secreta | `/home/infra/gidas/.env.backup` con permisos `600` y dueño `infra` |
+| Autenticación SMTP | `smtp.office365.com:587` con STARTTLS + login como `infrait@frlp.utn.edu.ar` → OK (prueba sin envío) |
+| Script ejecutado por el cron | idéntico al del repo (`diff` limpio) |
+| Dump con la base ya migrada | `gidas-weekly-20261008-092846.dump`, 472 KB, **1104 objetos TOC** (907 antes del upgrade), con las tablas nuevas (`tipo_cambio`, `login_attempt`, logros del PID) |
+| Envío real | Mail de prueba con ese dump enviado a ambos destinatarios, `exit=0` |
+
+**Próxima verificación:** el sábado 11/10 a las 03:00 corre la primera corrida automática
+sobre la versión nueva. Confirmar en `backup.log` que figure `Dump ok` y `Email enviado ok`.
+
+**Deuda operativa detectada:** el cron apunta a `/home/infra/scripts/backup_db.sh`, una copia
+fuera del repo. Hoy es idéntica al archivo versionado, pero una edición en el repo no llegaría
+al cron. Unificar apuntando al script del repo o agregar el diff al preflight.

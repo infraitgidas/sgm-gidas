@@ -61,6 +61,8 @@ LAN, preflight, imágenes y backups) y qué es suyo (código, releases y decisio
 | `scripts/smoke-vm-deployment.sh` | Smoke test post-despliegue: migrate, liveness, readiness y frontend | Operación, guardia |
 | `scripts/backup_db.sh` + `scripts/send_mail.py` | Dump de la base y envío del backup por SMTP | Operación |
 | `scripts/run-bcra-sync.sh` + `scripts/bcra-sync.cron.example` | Sincronización de cotizaciones BCRA y ejemplo de cron (18:00 AR), disponibles desde `v1.1.0-beta.1` y aún no instalados | Operación |
+| `docs/bcra_sincronizacion_tipos_cambio.md` | Qué hace la sincronización de tipos de cambio del BCRA: API y serie usadas, variables de entorno, tabla `tipo_cambio`, cómo instalar el cron (ruta corregida), cómo verificarla y decisiones pendientes | Operación, desarrollo |
+| `docs/backups_semanal_gidas.md` | Backup semanal con envío por correo: proceso, archivos, restauración y **sección 10 con la verificación del 2026-10-08 post-upgrade** (cron, SMTP, dump y mail de prueba) | Operación |
 
 ## 6. Seguimiento y tareas
 
@@ -80,7 +82,8 @@ LAN, preflight, imágenes y backups) y qué es suyo (código, releases y decisio
 
 ## Próximo paso
 
-Pendientes abiertos tras la ventana: coordinar el push de los commits de la VM y de la estación
-de trabajo (nuestro `main` quedó en `2c011a8`, la estación en `infra-estacion`), decidir con
-desarrollo la instalación del cron de BCRA, y verificar el backup automático del próximo
-sábado con el stack ya actualizado.
+Pendientes abiertos tras la ventana: decidir con desarrollo la instalación del cron de BCRA
+(hoy no está instalado y `tipo_cambio` tiene 0 filas), confirmar la primera corrida automática
+de backups sobre la versión nueva (sábado 11/10, 03:00, ver `backup.log`), y revisar el resto
+de tareas en `tasks/pendient/`. La verificación manual de la cadena de backups y su envío por
+correo quedó hecha el 2026-10-08 (incluye un mail de prueba con el dump post-upgrade).
