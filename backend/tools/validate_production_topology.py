@@ -3,6 +3,7 @@
 import argparse
 import ipaddress
 import json
+import os
 import subprocess
 from urllib.parse import urlsplit
 
@@ -21,7 +22,7 @@ def _database_username(database_url: str) -> str | None:
     return urlsplit(database_url).username
 
 
-def validate_config(config: dict) -> list[str]:
+def validate_config(config: dict, allow_lan_bind: bool = False) -> list[str]:
     errors: list[str] = []
     services = config.get("services") or {}
 
@@ -53,9 +54,10 @@ def validate_config(config: dict) -> list[str]:
             except ValueError:
                 errors.append("NGINX_BIND_ADDRESS no es un binding soportado")
             else:
-                if not bind_address.is_loopback:
+                if not bind_address.is_loopback and not allow_lan_bind:
                     errors.append(
-                        "nginx debe publicar solo en loopback para el origen local"
+                        "nginx debe publicar solo en loopback para el origen local "
+                        "(GIDAS_ALLOW_LAN_BIND=1 habilita el acceso LAN de laboratorio)"
                     )
 
     backend_environment = (services.get("backend") or {}).get("environment") or {}
@@ -104,16 +106,27 @@ def main() -> int:
     parser.add_argument("--env-file", default=".env.production")
     args = parser.parse_args()
 
-    errors = validate_config(render_compose(args.env_file))
+    # GIDAS_ALLOW_LAN_BIND=1: el laboratorio necesita publicar en 0.0.0.0 para
+    # atender sgm.gidas.local:8080 desde la LAN. Es una excepcion explicita del
+    # operador de infraestructura, no el valor por defecto.
+    allow_lan_bind = os.environ.get("GIDAS_ALLOW_LAN_BIND") == "1"
+
+    errors = validate_config(render_compose(args.env_file), allow_lan_bind)
     if errors:
         for error in errors:
             print(f"ERROR: {error}")
         return 1
 
-    print(
-        "Topologia productiva valida: solo proxy publicado en loopback "
-        "y roles separados."
-    )
+    if allow_lan_bind:
+        print(
+            "Topologia productiva valida (GIDAS_ALLOW_LAN_BIND=1): proxy "
+            "publicado en la LAN por decision del operador y roles separados."
+        )
+    else:
+        print(
+            "Topologia productiva valida: solo proxy publicado en loopback "
+            "y roles separados."
+        )
     return 0
 
 
