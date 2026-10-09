@@ -35,7 +35,7 @@ pierden y qué hay que preservar).
 | Tema | Decisión | Motivo |
 |---|---|---|
 | Rollback de datos | **Solo restore de dump** | Varios downgrades borran tablas con datos (ver §Riesgos) |
-| `flask db downgrade` | **Prohibido en esta release** | 4 de 22 migraciones hacen `DELETE`/`DROP` en su rama inversa |
+| `flask db downgrade` | **Prohibido en esta release** | 15 de 22 migraciones tienen `downgrade()` destructivo (corrección 2026-10-08: el conteo anterior daba 4 porque sólo miraba SQL textual y no `op.drop_table`/`op.drop_column`) |
 | Volumen PostgreSQL | **Nunca `docker compose down -v`** | `-v` borra `gidas_prod_postgres_data` y con él toda la base |
 | Consistencia del dump | Parar escritores (`backend`, `migrate`) antes del `pg_dump` | Evita dump a medio escribir durante una transacción |
 | Snapshot de volumen | Sí, además del dump, con la base detenida | Copia byte-a-byte: recupera aunque el dump esté corrupto |

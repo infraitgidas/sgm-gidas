@@ -29,7 +29,8 @@ cron (sáb 03:00)
          ├─► docker compose exec db pg_dump -Fc  →  gidas-weekly-<fecha>.dump
          ├─► retención (conserva últimas 4 semanas)
          └─► send_mail.py <dump>  →  SMTP smtp.office365.com:587 (STARTTLS)
-                                      → gidas@frlp.utn.edu.ar, infra@frlp.utn.edu.ar
+                                      → gidas@frlp.utn.edu.ar, infra@frlp.utn.edu.ar,
+                                        infrait@frlp.utn.edu.ar
 ```
 
 ---
@@ -90,7 +91,7 @@ SMTP_HOST=smtp.office365.com
 SMTP_PORT=587
 SMTP_SENDER=infrait@frlp.utn.edu.ar
 SMTP_APP_PASSWORD=********   # app-password de Outlook 365 (permisos 600)
-SMTP_TO=gidas@frlp.utn.edu.ar,infra@frlp.utn.edu.ar
+SMTP_TO=gidas@frlp.utn.edu.ar,infra@frlp.utn.edu.ar,infrait@frlp.utn.edu.ar
 
 BACKUP_DIR=/home/infra/gidas-backups
 RETENTION_WEEKS=4
@@ -170,9 +171,35 @@ todo operativo.**
 | Dump con la base ya migrada | `gidas-weekly-20261008-092846.dump`, 472 KB, **1104 objetos TOC** (907 antes del upgrade), con las tablas nuevas (`tipo_cambio`, `login_attempt`, logros del PID) |
 | Envío real | Mail de prueba con ese dump enviado a ambos destinatarios, `exit=0` |
 
-**Próxima verificación:** el sábado 11/10 a las 03:00 corre la primera corrida automática
+**Próxima verificación:** el sábado 10/10 a las 03:00 corre la primera corrida automática
 sobre la versión nueva. Confirmar en `backup.log` que figure `Dump ok` y `Email enviado ok`.
 
 **Deuda operativa detectada:** el cron apunta a `/home/infra/scripts/backup_db.sh`, una copia
 fuera del repo. Hoy es idéntica al archivo versionado, pero una edición en el repo no llegaría
 al cron. Unificar apuntando al script del repo o agregar el diff al preflight.
+
+---
+
+## 11. Destinatarios: se sumó la casilla operativa (2026-10-09)
+
+Diagnóstico a pedido de infraestructura: el backup semanal "no llegaba" a
+`infrait@frlp.utn.edu.ar`. Verificación de la cadena:
+
+- Sondeo SMTP: `LOGIN 235` OK y los tres buzones existen (`250 2.1.5 Recipient OK`)
+  para `gidas@`, `infra@` e `infrait@`; `infra@` no rebota.
+- Envío de un mensaje mínimo a `infrait@`: aceptado por Office 365 con id de cola
+  `PH0PR02MB8359F41F8F15E8AFE09484D0BB922@PH0PR02MB8359.namprd02.prod.outlook.com` y
+  **recibido** en la casilla.
+
+**Causa:** `infrait@frlp.utn.edu.ar` es el **remitente** del canal, no un destinatario. Los
+envíos iban sólo a `gidas@` e `infra@`, así que en esa casilla los mensajes aparecían en
+*Enviados*, nunca en *Recibidos*. No hubo falla de entrega.
+
+**Cambio aplicado:** `SMTP_TO` en `/home/infra/gidas/.env.backup` (permisos `600` conservados)
+ahora incluye `infrait@frlp.utn.edu.ar`. Respaldo previo en
+`/home/infra/gidas-backups/.env.backup.bak-20261009`. Validado ejecutando el mismo
+`send_mail.py` que usa el cron, con un adjunto mínimo: `Email enviado a: gidas@..., infra@...,
+infrait@...`, `exit=0`. La corrida del sábado 10/10 será la primera con los tres destinatarios.
+
+> Lectura correcta del log: `Email enviado ok` prueba **aceptación del SMTP** (250), no
+> entrega. La confirmación de entrega requiere mirar el buzón; el script no puede darla.
