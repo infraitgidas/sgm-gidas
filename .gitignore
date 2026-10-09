@@ -21,3 +21,7 @@ skills-lock.json
 
 # Backups locales de archivos de configuracion
 /backups/
+
+# Archivos de secretos sueltos (no versionar credenciales)
+/secrets*.yml
+/secrets*.yaml
