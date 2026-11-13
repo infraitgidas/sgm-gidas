@@ -101,6 +101,13 @@ class PasswordResetTests(unittest.TestCase):
         with patch("modules.auth.services.password_reset_service.encrypt_payload", side_effect=RuntimeError("internal secret")):
             self.assertEqual(client.post("/request", json={"email": "reset@example.com"}).json, known.json)
 
+    def test_email_identifies_sgm_gidas(self):
+        _, message, _ = self.request()
+        payload = decrypt_payload(message.payload_encrypted)
+        self.assertIn("SGM-GIDAS", payload["subject"])
+        self.assertIn("SGM-GIDAS", payload["text"])
+        self.assertIn("SGM-GIDAS", payload["html"])
+
     def test_policy_and_email_normalization(self):
         self.assertEqual(normalize_email(" USER@Example.COM "), "user@example.com")
         for value in (None, "bad", "x\n@example.com", "x" * 121 + "@test.com"):
