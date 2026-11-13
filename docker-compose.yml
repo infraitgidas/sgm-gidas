@@ -205,7 +205,8 @@ services:
 
   frontend_sgm:
     # Frontend de la SGM para el Portal GIDAS (subpath /sgm-gidas/).
-    # Build manual (fuera del frontend LAN): base y API apuntan al subpath.
+    # La SPA vive bajo /sgm-gidas/, pero la API es same-origin en la raiz:
+    # la cookie gidas_refresh tiene path /api/v1/auth y solo se envia ahi.
     # NO publica puerto; el nginx (proxy) lo enruta en location /sgm-gidas/.
     build:
       context: ./frontend
@@ -213,8 +214,8 @@ services:
       target: production
       args:
         VITE_APP_ENV: ${VITE_APP_ENV:-production}
-        VITE_API_BASE_URL: /sgm-gidas/api/v1
-        VITE_API_URL: /sgm-gidas/api
+        VITE_API_BASE_URL: /api/v1
+        VITE_API_URL: /api
         VITE_SERVER_FILTER_PERSONAL: ${VITE_SERVER_FILTER_PERSONAL:-true}
         VITE_BASE_PATH: /sgm-gidas/
     container_name: ${COMPOSE_SERVICE_PREFIX:-gidas}_frontend_sgm
