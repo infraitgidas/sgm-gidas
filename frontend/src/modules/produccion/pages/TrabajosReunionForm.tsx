@@ -1,3 +1,5 @@
+import { referatoValue, procedenciaLabel, type AlcanceTrabajo } from "@/modules/produccion/utils/clasificacionTrabajo";
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { errorEnlace, MAX_ENLACE } from "@/modules/produccion/utils/trabajoEnlace";
 import { applyFieldErrors } from "@/lib/httpError";
@@ -54,6 +56,8 @@ export default function TrabajoReunionForm() {
     enabled: isEdit,
   });
 
+  const [referato, setReferato] = useState<boolean | null>(null);
+  const [alcance, setAlcance] = useState<AlcanceTrabajo | null>(null);
   const [enlace, setEnlace] = useState("");
   const [titulo, setTitulo] = useState("");
   const [nombreReunion, setNombreReunion] = useState("");
@@ -70,6 +74,8 @@ export default function TrabajoReunionForm() {
     if (!initialData || datosCargadosId.current === initialData.id) return;
     datosCargadosId.current = initialData.id;
 
+    setReferato(initialData.referato ?? null);
+    setAlcance(initialData.alcance ?? null);
     setEnlace(initialData.enlace ?? "");
     setTitulo(initialData.titulo_trabajo ?? "");
     setNombreReunion(initialData.nombre_reunion ?? "");
@@ -85,11 +91,11 @@ export default function TrabajoReunionForm() {
     userId: user?.id,
     module: "produccion-reuniones",
     recordId: id,
-    value: { enlace, titulo, nombreReunion, procedencia, fechaPresentacion: toCivilDateString(fechaPresentacion), tipoId, autores },
+    value: { referato, alcance, enlace, titulo, nombreReunion, procedencia, fechaPresentacion: toCivilDateString(fechaPresentacion), tipoId, autores },
     ready: !isEdit || (!isLoading && Boolean(initialData)),
     autosave: false,
-    hasContent: (draft) => Boolean(draft.enlace || draft.titulo || draft.nombreReunion || draft.procedencia || draft.fechaPresentacion || draft.tipoId || draft.autores.length),
-    onRestore: (draft) => { setEnlace(draft.enlace); setTitulo(draft.titulo); setNombreReunion(draft.nombreReunion); setProcedencia(draft.procedencia); setFechaPresentacion(draft.fechaPresentacion ? new Date(`${draft.fechaPresentacion}T00:00:00`) : null); setTipoId(draft.tipoId); setAutores(draft.autores); },
+    hasContent: (draft) => Boolean(draft.referato != null || draft.alcance || draft.enlace || draft.titulo || draft.nombreReunion || draft.procedencia || draft.fechaPresentacion || draft.tipoId || draft.autores.length),
+    onRestore: (draft) => { setReferato(draft.referato ?? null); setAlcance(draft.alcance ?? null); setEnlace(draft.enlace); setTitulo(draft.titulo); setNombreReunion(draft.nombreReunion); setProcedencia(draft.procedencia); setFechaPresentacion(draft.fechaPresentacion ? new Date(`${draft.fechaPresentacion}T00:00:00`) : null); setTipoId(draft.tipoId); setAutores(draft.autores); },
   });
 
   const formatDateStr = (date: Date | null) => {
@@ -100,15 +106,9 @@ export default function TrabajoReunionForm() {
     return `${y}-${m}-${d}`;
   };
 
-  const clearError = (field: string) => {
-    setErrors((prev) => {
-      const copy = { ...prev };
-      delete copy[field];
-      return copy;
-    });
-  };
-
-  const validate = () => {
+  const validationValues = { enlace, titulo, nombreReunion, procedencia, fechaPresentacion, tipoId, autores };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { enlace, titulo, nombreReunion, procedencia, fechaPresentacion, tipoId, autores } = { ...validationValues, ...changes };
     const newErrors: Record<string, string> = {};
 
     if (!titulo.trim()) {
@@ -139,6 +139,15 @@ export default function TrabajoReunionForm() {
 
     const enlaceError = errorEnlace(enlace);
     if (enlaceError) newErrors.enlace = enlaceError;
+    return newErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  const validate = () => {
+    const newErrors = getValidationErrors();
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -165,7 +174,7 @@ export default function TrabajoReunionForm() {
       });
     },
     onError: (error) => {
-      if (applyFieldErrors(error, setErrors, ["enlace","titulo","nombreReunion","procedencia","tipoId","fechaPresentacion","autores"])) return;
+      if (applyFieldErrors(error, setErrors, ["referato","alcance","enlace","titulo","nombreReunion","procedencia","tipoId","fechaPresentacion","autores"])) return;
       const backendMessage = getErrorMessage(
         error,
         isEdit
@@ -186,6 +195,8 @@ export default function TrabajoReunionForm() {
     if (!validate()) return;
 
     const payload = {
+      referato,
+      alcance,
       enlace: enlace.trim() || null,
       autores: autores.map(({ id, rol }) => ({ id, rol })),
       titulo_trabajo: toTitleCase(titulo.trim()),
@@ -202,6 +213,8 @@ export default function TrabajoReunionForm() {
     }
 
     const initialPayload = {
+      referato: initialData?.referato ?? null,
+      alcance: initialData?.alcance ?? null,
       enlace: initialData?.enlace ?? null,
       autores: initialData?.autores ?? [],
       titulo_trabajo: initialData?.titulo_trabajo ?? "",
@@ -259,6 +272,23 @@ export default function TrabajoReunionForm() {
         onSubmit={submit}
         className="mt-6 space-y-6 rounded-2xl border border-slate-200 bg-white p-6"
       >
+        <Field label="Referato" name="referato" error={errors.referato}>
+          <select id="referato" className={inputClass("referato")} value={referato == null ? "" : String(referato)} onChange={(e) => { setReferato(referatoValue(e.target.value)); setErrors((previous) => ({ ...previous, referato: "" })); }}>
+            <option value="">Sin informar</option>
+            <option value="true">Sí</option>
+            <option value="false">No</option>
+          </select>
+        </Field>
+
+        <Field label="Alcance" name="alcance" error={errors.alcance}>
+          <select id="alcance" className={inputClass("alcance")} value={alcance ?? ""} onChange={(e) => { setAlcance(e.target.value === "nacional" || e.target.value === "internacional" ? e.target.value : null); setErrors((previous) => ({ ...previous, alcance: "" })); }}>
+            <option value="">Sin informar</option>
+            <option value="nacional">Nacional</option>
+            <option value="internacional">Internacional</option>
+          </select>
+          <p className="mt-1 text-sm text-slate-500">Revise la procedencia: indique la ciudad para reuniones nacionales y el país para internacionales.</p>
+        </Field>
+
         <Field required label="Título del trabajo" name="titulo" error={errors.titulo}>
           <>
             <input
@@ -267,7 +297,7 @@ export default function TrabajoReunionForm() {
               placeholder="Ej: Aplicación de modelos predictivos en sistemas complejos"
               onChange={(e) => {
                 setTitulo(e.target.value);
-                if (e.target.value.trim()) clearError("titulo");
+                validateChangedField("titulo", { titulo: e.target.value });
               }}
               onBlur={() => {
                 if (titulo.trim()) setTitulo(toTitleCase(titulo));
@@ -287,7 +317,7 @@ export default function TrabajoReunionForm() {
               placeholder="Ej: Congreso Argentino de Ingenieria"
               onChange={(e) => {
                 setNombreReunion(e.target.value);
-                if (e.target.value.trim()) clearError("nombreReunion");
+                validateChangedField("nombreReunion", { nombreReunion: e.target.value });
               }}
               onBlur={() => {
                 if (nombreReunion.trim()) {
@@ -301,15 +331,15 @@ export default function TrabajoReunionForm() {
           </>
         </Field>
 
-        <Field required label="Procedencia" name="procedencia" error={errors.procedencia}>
+        <Field required label={procedenciaLabel(alcance)} name="procedencia" error={errors.procedencia}>
           <>
             <input
               className={inputClass("procedencia")}
               value={procedencia}
-              placeholder="Ej: Argentina"
+              placeholder={alcance === "internacional" ? "Ej: Uruguay" : alcance === "nacional" ? "Ej: Córdoba" : "Ej: ciudad o país de la reunión"}
               onChange={(e) => {
                 setProcedencia(e.target.value);
-                if (e.target.value.trim()) clearError("procedencia");
+                validateChangedField("procedencia", { procedencia: e.target.value });
               }}
               onBlur={() => {
                 if (procedencia.trim()) {
@@ -333,8 +363,8 @@ export default function TrabajoReunionForm() {
               onChange={(e) => {
                 const value = e.target.value ? Number(e.target.value) : null;
                 setTipoId(value);
-                if (value) clearError("tipoId");
-              }}
+                validateChangedField("tipoId", { tipoId: value });
+              }} onBlur={() => validateChangedField("tipoId")}
             >
               <option value="" disabled>
                 Seleccionar tipo
@@ -354,7 +384,10 @@ export default function TrabajoReunionForm() {
         <Field label="Enlace al trabajo o DOI (opcional)" name="enlace" error={errors.enlace}>
           <input type="url" className={inputClass("enlace")} value={enlace}
             maxLength={MAX_ENLACE} placeholder="https://doi.org/10.1234/ejemplo"
-            onChange={e => { setEnlace(e.target.value); clearError("enlace"); }} />
+            onChange={e => {
+              setEnlace(e.target.value);
+              validateChangedField("enlace", { enlace: e.target.value });
+            }} onBlur={() => validateChangedField("enlace")} />
         </Field>
 
         <Field required label="Autores" name="autores" error={errors.autores}>
@@ -362,7 +395,10 @@ export default function TrabajoReunionForm() {
             <AutoresQueryFeedback query={autoresQuery} />
             <IntegrantesAutoresField value={autores} options={integrantes}
               disabled={guardadoBloqueado}
-              onChange={value => { setAutores(value); if (value.length) clearError("autores"); }} />
+              onChange={value => {
+                setAutores(value);
+                validateChangedField("autores", { autores: value });
+              }} />
           </>
         </Field>
 
@@ -371,7 +407,7 @@ export default function TrabajoReunionForm() {
             value={fechaPresentacion}
             onChange={(date) => {
               setFechaPresentacion(date);
-              if (date) clearError("fechaPresentacion");
+              validateChangedField("fechaPresentacion", { fechaPresentacion: date });
             }}
             className={inputClass("fechaPresentacion")}
             helperText="Desde 01/01/2010. Puede indicar una presentación programada."

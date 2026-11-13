@@ -1,5 +1,37 @@
 # Modulo frontend de grupo
 
+## Filtros desplegables (ISS-47)
+
+VisitantesHome: estado.
+Los filtros del listado utilizan `TableFilterSelect`, con nombre accesible y
+selección mediante teclado. Todos/Todas elimina la restricción del criterio.
+La adaptación del selector conserva valores, setters y opciones de consulta;
+se mantienen services, permisos, nueve filas por página, contexto de Memoria
+y persistencia de filtros de ISS-50. No se modifican campos de formularios.
+
+Aceptado visual y funcionalmente el 06/11/2026. Validación integrada:
+269 pruebas frontend, TypeScript y build de producción aprobados.
+`tests/homeFilterSelect.test.ts` comprueba selección y limpieza en las cuatro
+pantallas principales y ausencia de chips de filtrado en los homes.
+
+## Validacion preventiva de formularios (ISS-33)
+
+`VisitantesForm` y `UctForm` reutilizan sus reglas durante la escritura,
+al salir del campo y al guardar. Visitas comprueba razon, fecha, procedencia
+con letras y tipo. UCT comprueba datos institucionales, correo, nombres,
+cargos y fechas de alta de directivos, incluido el cargo repetido.
+La edicion local del nombre de un directivo informa su formato inmediatamente
+y conserva la preparacion de cambios hasta guardar la UCT. El dialogo de
+finalizacion mantiene sus comprobaciones preventivas de fecha vigentes.
+
+La actualizacion de errores usa `src/lib/liveValidation.ts`, que revalida el
+campo editado y las reglas cuyo resultado cambia por dependencia, preservando
+los demas errores. No agrega hooks compartidos ni modifica componentes globales.
+Las validaciones no disparan escrituras de dominio. Se conservan services,
+contratos, permisos, borradores, navegacion y feedback de exito.
+La etapa fue aceptada visual y funcionalmente por el usuario el 05/11/2026;
+la regresion transversal esta en `tests/liveValidation.test.ts`.
+
 El formulario UCT valida nombre/sigla y exige solo letras Unicode y espacios
 en nombres de directivos al crear o preparar una edición. Esta validación no
 consulta nuevamente el equipo.
@@ -14,7 +46,7 @@ y enfocan el primer campo inválido. Los nombres locales de los controles se
 vinculan con las claves API, sin cambiar el payload del service ni los permisos.
 Los errores sin campo o con campos desconocidos conservan el aviso general;
 los errores inesperados muestran un mensaje publico seguro o un fallback accionable, sin identificadores internos.
-Se conservan las reglas y el momento de validación existentes. Véase el contrato
+Se conservan las reglas de validacion; ISS-33 incorpora feedback preventivo. Véase el contrato
 transversal en `../README.md`.
 
 ## Fechas
@@ -198,3 +230,14 @@ El máximo de resultados por página conserva el contrato del módulo.
 En VisitantesDetalle, las etiquetas de datos y los encabezados de tarjetas
 usan peso seminegrita y color pizarra oscuro para distinguirse del contenido.
 La disposición, los textos, las acciones y el contrato permanecen iguales.
+
+
+## Recuperacion del contexto de consulta (ISS-50)
+
+VisitantesHome conserva texto, estado, tipo de visita, procedencia, anio y pagina. Los limites de pagina se ajustan despues de cargar los datos.
+
+Los homes con estado local usan `shared/hooks/useHomeState.ts`; Busqueda conserva
+su contrato de URL. La persistencia validada se limita a la pestana y al usuario,
+sin guardar filas ni acciones pendientes. Se mantienen services, permisos,
+validaciones y paginacion vigentes. Contrato y pruebas en `../shared/README.md`.
+Aceptado funcionalmente por el usuario el 06/11/2026.

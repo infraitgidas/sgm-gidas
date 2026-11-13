@@ -1,6 +1,7 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import Button from "@/components/Button";
 import Field from "@/components/Field";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
@@ -9,6 +10,7 @@ import { useFuentesFinanciamiento } from "@/modules/catalogos/hooks/useFuenteFin
 import { applyFieldErrors, getErrorMessage } from "@/lib/httpError";
 import { createBeca, getBecaById, updateBeca, type BecaPayload } from "@/modules/recursos/services/becasService";
 import { getLocalIsoDate } from "@/modules/recursos/utils/equipamientoValidation";
+import { getBecaNavigationState } from "@/modules/recursos/utils/becaNavigation";
 
 type FormData = { nombre_beca: string; descripcion: string; fecha_alta_grupo: string; fuente_financiamiento_id: string };
 const empty: FormData = { nombre_beca: "", descripcion: "", fecha_alta_grupo: "", fuente_financiamiento_id: "" };
@@ -17,6 +19,8 @@ export default function BecasForm() {
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+  const location = useLocation();
+  const navigationState = isEdit ? getBecaNavigationState(location.state) : undefined;
   const queryClient = useQueryClient();
   const initial = useQuery({ queryKey: ["beca", id], queryFn: () => getBecaById(Number(id)), enabled: isEdit });
   const { fuentes, isLoading: loadingFuentes, isError: fuentesError } = useFuentesFinanciamiento();
@@ -27,7 +31,7 @@ export default function BecasForm() {
     mutationFn: (payload: BecaPayload | Partial<BecaPayload>) => isEdit ? updateBeca(Number(id), payload) : createBeca(payload as BecaPayload),
     onSuccess: async (beca) => {
       await queryClient.invalidateQueries({ queryKey: ["becas"] });
-      navigate(isEdit ? `/becas/${beca.id}` : "/becas", { state: { successMessage: isEdit ? "Beca actualizada con éxito." : "Beca creada con éxito." } });
+      navigate(isEdit ? `/becas/${beca.id}` : "/becas", { state: { ...navigationState, successMessage: isEdit ? "Beca actualizada con éxito." : "Beca creada con éxito." } });
     },
   });
 
@@ -43,11 +47,12 @@ export default function BecasForm() {
 
   const setField = (key: keyof FormData, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
-    setErrors((current) => { const next = { ...current }; delete next[key]; return next; });
+    validateChangedField(key, { form: { ...form, [key]: value } });
   };
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
+  const validationValues = { form };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { form } = { ...validationValues, ...changes };
     const nextErrors: Record<string, string> = {};
     const name = form.nombre_beca.trim().replace(/\s+/g, " ");
     if (!name) nextErrors.nombre_beca = "Ingrese el nombre de la beca.";
@@ -55,6 +60,17 @@ export default function BecasForm() {
     if (form.descripcion.trim().length > 2000) nextErrors.descripcion = "La descripción no puede superar 2000 caracteres.";
     if (!form.fecha_alta_grupo || form.fecha_alta_grupo < "2010-01-01" || form.fecha_alta_grupo > getLocalIsoDate()) nextErrors.fecha_alta_grupo = "Ingrese una fecha válida entre 2010 y hoy.";
     if (form.fuente_financiamiento_id && !fuentes.some((item) => item.id === Number(form.fuente_financiamiento_id))) nextErrors.fuente_financiamiento_id = "Seleccione una fuente disponible.";
+    return nextErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const nextErrors = getValidationErrors();
+    const name = form.nombre_beca.trim().replace(/\s+/g, " ");
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) {
       const first = Object.keys(nextErrors)[0];
@@ -75,7 +91,7 @@ export default function BecasForm() {
     };
     const changes = Object.fromEntries(Object.entries(payload).filter(([key, value]) => value !== original[key as keyof BecaPayload])) as Partial<BecaPayload>;
     if (isEdit && !Object.keys(changes).length) {
-      navigate(`/becas/${id}`, { state: { successMessage: "No hubo cambios para actualizar." } });
+      navigate(`/becas/${id}`, { state: { ...navigationState, successMessage: "No hubo cambios para actualizar." } });
       return;
     }
     try {
@@ -94,16 +110,16 @@ export default function BecasForm() {
       <h2 className="text-2xl font-semibold md:text-3xl">{isEdit ? "Editar beca" : "Nueva beca"}</h2>
       <form noValidate onSubmit={submit} className="mt-6 space-y-6 rounded-2xl border border-slate-200 bg-white p-6">
         <Field required label="Nombre de la beca" name="nombre_beca" error={errors.nombre_beca}>
-          <input className="input w-full" maxLength={100} value={form.nombre_beca} placeholder="Ej.: Beca de investigación" onChange={(event) => setField("nombre_beca", event.target.value)} />
+          <input className="input w-full" maxLength={100} value={form.nombre_beca} placeholder="Ej.: Beca de investigación" onChange={(event) => setField("nombre_beca", event.target.value)} onBlur={() => validateChangedField("nombre_beca")} />
         </Field>
         <Field label="Descripción" name="descripcion" error={errors.descripcion}>
-          <textarea className="input w-full" rows={4} maxLength={2000} value={form.descripcion} placeholder="Describa el propósito de la beca" onChange={(event) => setField("descripcion", event.target.value)} />
+          <textarea className="input w-full" rows={4} maxLength={2000} value={form.descripcion} placeholder="Describa el propósito de la beca" onChange={(event) => setField("descripcion", event.target.value)} onBlur={() => validateChangedField("descripcion")} />
         </Field>
         <Field required label="Fecha de alta en el grupo" name="fecha_alta_grupo" error={errors.fecha_alta_grupo}>
-          <input type="date" className="input w-full" min="2010-01-01" max={getLocalIsoDate()} value={form.fecha_alta_grupo} onChange={(event) => setField("fecha_alta_grupo", event.target.value)} />
+          <input type="date" className="input w-full" min="2010-01-01" max={getLocalIsoDate()} value={form.fecha_alta_grupo} onChange={(event) => setField("fecha_alta_grupo", event.target.value)} onBlur={() => validateChangedField("fecha_alta_grupo")} />
         </Field>
         <Field label="Fuente de financiamiento" name="fuente_financiamiento_id" error={errors.fuente_financiamiento_id}>
-          <select className="input w-full" value={form.fuente_financiamiento_id} onChange={(event) => setField("fuente_financiamiento_id", event.target.value)}>
+          <select className="input w-full" value={form.fuente_financiamiento_id} onChange={(event) => setField("fuente_financiamiento_id", event.target.value)} onBlur={() => validateChangedField("fuente_financiamiento_id")} >
             <option value="">Sin fuente de financiamiento</option>
             {fuentes.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}
           </select>
@@ -111,7 +127,7 @@ export default function BecasForm() {
         {fuentesError && <p role="alert" className="text-sm text-rose-700">No pudimos cargar las fuentes. Intente nuevamente.</p>}
         <div className="flex flex-wrap gap-3">
           <Button type="submit" loading={mutation.isPending} disabled={fuentesError}>{isEdit ? "Guardar cambios" : "Crear beca"}</Button>
-          <Button type="button" variant="secondary" onClick={() => navigate(isEdit ? `/becas/${id}` : "/becas")}>Volver</Button>
+          <Button type="button" variant="secondary" onClick={() => navigate(isEdit ? `/becas/${id}` : "/becas", { state: navigationState })}>Volver</Button>
         </div>
       </form>
     </section>

@@ -11,6 +11,8 @@ class TrabajoReunionCientifica(db.Model, AuditMixin):
     id = db.Column(db.Integer, primary_key=True)
 
     enlace = db.Column(db.String(2048), nullable=True)
+    referato = db.Column(db.Boolean, nullable=True)
+    alcance = db.Column(db.String(13), nullable=True)
     titulo_trabajo = db.Column(db.Text, nullable=False)
     nombre_reunion = db.Column(db.Text, nullable=False)
     procedencia = db.Column(db.Text, nullable=False)
@@ -42,6 +44,7 @@ class TrabajoReunionCientifica(db.Model, AuditMixin):
     )
 
     __table_args__ = (
+        db.CheckConstraint("alcance IS NULL OR alcance IN ('nacional', 'internacional')", name="ck_trabajo_reunion_alcance"),
         db.UniqueConstraint(
             "titulo_trabajo",
             "deleted_at",
@@ -86,6 +89,8 @@ class TrabajoReunionCientificaMemoriaVersion(db.Model, AuditMixin):
     )
 
     enlace = db.Column(db.String(2048), nullable=True)
+    referato = db.Column(db.Boolean, nullable=True)
+    alcance = db.Column(db.String(13), nullable=True)
     titulo_trabajo = db.Column(db.Text, nullable=False)
     nombre_reunion = db.Column(db.Text, nullable=False)
     procedencia = db.Column(db.Text, nullable=False)
@@ -112,6 +117,7 @@ class TrabajoReunionCientificaMemoriaVersion(db.Model, AuditMixin):
     grupo_utn = db.relationship("GrupoInvestigacionUtn", lazy="joined")
 
     __table_args__ = (
+        db.CheckConstraint("alcance IS NULL OR alcance IN ('nacional', 'internacional')", name="ck_trabajo_reunion_snapshot_alcance"),
         db.UniqueConstraint(
             "memoria_version_id",
             "trabajo_reunion_id",

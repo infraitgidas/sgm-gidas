@@ -1,3 +1,5 @@
+import TableFilterSelect from "@/components/TableFilterSelect";
+import { useHomeState, useHomeFilterEffect } from "@/modules/shared/hooks/useHomeState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -6,14 +8,14 @@ import Button from "@/components/Button";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import MemoriaFilterBanner from "@/components/MemoriaFilterBanner";
 import SuccessToast from "@/components/SuccessToast";
-import Table, { TableActionButton, TableActions, TableFilterChip, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
+import Table, { TableActionButton, TableActions, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
 import type { TableColumn, TableSortDirection } from "@/components/Table";
 import { useAuth } from "@/context/AuthContext";
 import { getErrorMessage } from "@/lib/httpError";
 import { getMemoriaSectionFilter } from "@/lib/memoriaSectionFilter";
 import { buildMemoriaDetailState } from "@/lib/memoriaNavigation";
 import { usePersonal } from "@/modules/personal/hooks/usePersonal";
-import { eliminarPersonal, type PersonalItem, type PersonalSort, type PersonalType } from "@/modules/personal/services/personalServices";
+import { reactivarPersonal, eliminarPersonal, type PersonalItem, type PersonalSort, type PersonalType } from "@/modules/personal/services/personalServices";
 import { getHistorialPersonalByRolAndId } from "@/modules/personal/services/personalCompletoServices";
 import { formatPersonalHistoryEntry } from "@/modules/personal/utils/personalHistory";
 
@@ -35,16 +37,18 @@ export default function PersonalLanding() {
   const initialType = requestedType && ["PERSONAL", "BECARIO", "INVESTIGADOR"].includes(requestedType) ? requestedType : "";
   const { canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
 
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [classFilter, setClassFilter] = useState<PersonalType | "">(initialType);
-  const [activeFilter, setActiveFilter] = useState<"true" | "false" | "all">("true");
-  const [sort, setSort] = useState<PersonalSort>("fecha_alta");
-  const [direction, setDirection] = useState<TableSortDirection>("desc");
+  const [page, setPage] = useHomeState("page", 1);
+  const [search, setSearch] = useHomeState("search", "");
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  const [classFilter, setClassFilter] = useHomeState<PersonalType | "">("classFilter", initialType, { allowed: ["", "PERSONAL", "BECARIO", "INVESTIGADOR"] });
+  const [activeFilter, setActiveFilter] = useHomeState<"true" | "false" | "all">("activeFilter", "true", { allowed: ["true","false","all"] });
+  const [sort, setSort] = useHomeState<PersonalSort>("sort", "fecha_alta", { allowed: ["nombre","clase","clasificacion","grupo","horas","estado","fecha_alta"] });
+  const [direction, setDirection] = useHomeState<TableSortDirection>("direction", "desc", { allowed: ["asc", "desc"] });
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [pendingDelete, setPendingDelete] = useState<PersonalItem | null>(null);
+  const [pendingRestore, setPendingRestore] = useState<PersonalItem | null>(null);
+  const [motivo, setMotivo] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -58,7 +62,7 @@ export default function PersonalLanding() {
     return () => window.clearTimeout(timeout);
   }, [search]);
 
-  useEffect(() => {
+  useHomeFilterEffect(() => {
     setPage(1);
     setExpandedRow(null);
   }, [debouncedSearch, classFilter, activeFilter, sort, direction, memoriaFilter]);
@@ -80,6 +84,12 @@ export default function PersonalLanding() {
     direction,
     ids: memoriaFilter?.ids,
   });
+
+  useEffect(() => {
+    if (personal.data && !personal.isFetching && !personal.isError && page > Math.max(1, personal.meta.total_pages)) {
+      setPage(Math.max(1, personal.meta.total_pages));
+    }
+  }, [page, personal.data, personal.isFetching, personal.isError, personal.meta.total_pages, setPage]);
 
   const expandedItem = expandedRow ? personal.list.find((item) => `${item.rol}-${item.id}` === expandedRow) : undefined;
   const history = useQuery({
@@ -108,8 +118,10 @@ export default function PersonalLanding() {
   const confirmDelete = async () => {
     if (!pendingDelete || !canDeleteRecords() || !pendingDelete.activo) return;
     try {
-      await eliminarPersonal(pendingDelete.id, pendingDelete.rol);
+      await eliminarPersonal(pendingDelete.id, pendingDelete.rol, motivo);
       await queryClient.invalidateQueries({ queryKey: ["personal"] });
+      await queryClient.invalidateQueries({ queryKey: ["personal-historial"] });
+      await queryClient.invalidateQueries({ queryKey: ["personal-detalle"] });
       setPendingDelete(null);
       setSuccessMessage("Registro dado de baja con éxito.");
     } catch (error) {
@@ -127,9 +139,10 @@ export default function PersonalLanding() {
     { id: "estado", header: "Estado", sortable: true, render: (item) => <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${item.activo ? "text-emerald-700" : "text-rose-700"}`}><span aria-hidden="true" className={`h-2 w-2 rounded-full ${item.activo ? "bg-emerald-500" : "bg-rose-500"}`} />{item.activo ? "Activo" : "Inactivo"}</span> },
     { id: "acciones", header: "Acciones", align: "right", render: (item) => {
       return <TableActions>
+        {!item.activo && canEditRecords() && <TableActionButton onClick={() => setPendingRestore(item)}>Reactivar</TableActionButton>}
         <TableRowActionButton action="view" aria-label={`Ver detalle de ${item.nombre_apellido}`} onClick={() => navigate(`/personal/${item.rol}/${item.id}`, { state: buildMemoriaDetailState(location) })} />
         {item.activo && canEditRecords() && <TableRowActionButton action="edit" aria-label={`Editar ${item.nombre_apellido}`} onClick={() => navigate(`/personal/${item.rol}/${item.id}/editar`)} />}
-        {item.activo && canDeleteRecords() && <TableRowActionButton action="delete" label="Dar de baja" aria-label={`Dar de baja a ${item.nombre_apellido}`} onClick={() => setPendingDelete(item)} />}
+        {item.activo && canDeleteRecords() && <TableRowActionButton action="delete" label="Dar de baja" aria-label={`Dar de baja a ${item.nombre_apellido}`} onClick={() => { setMotivo(""); setPendingDelete(item); }} />}
       </TableActions>;
     } },
   ], [canDeleteRecords, canEditRecords, location, navigate]);
@@ -189,22 +202,39 @@ export default function PersonalLanding() {
           <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
             <TableSearch label="Buscar personal" placeholder="Buscar por nombre, clase, función o grupo" value={search} onChange={(event) => setSearch(event.target.value)} />
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1 whitespace-nowrap" aria-label="Filtros de personal">
-              <span className="shrink-0 text-xs font-medium text-slate-500">Clase</span>
-              <TableFilterChip className="shrink-0" active={!classFilter} onClick={() => setClassFilter("")}>Todas</TableFilterChip>
-              <TableFilterChip className="shrink-0" active={classFilter === "PERSONAL"} onClick={() => setClassFilter("PERSONAL")}>Personal</TableFilterChip>
-              <TableFilterChip className="shrink-0" active={classFilter === "BECARIO"} onClick={() => setClassFilter("BECARIO")}>Becarios</TableFilterChip>
-              <TableFilterChip className="shrink-0" active={classFilter === "INVESTIGADOR"} onClick={() => setClassFilter("INVESTIGADOR")}>Investigadores</TableFilterChip>
-              <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-slate-200" />
-              <span className="shrink-0 text-xs font-medium text-slate-500">Estado</span>
-              <TableFilterChip className="shrink-0" active={activeFilter === "true"} onClick={() => setActiveFilter("true")}>Activos</TableFilterChip>
-              <TableFilterChip className="shrink-0" active={activeFilter === "all"} onClick={() => setActiveFilter("all")}>Todos</TableFilterChip>
-              <TableFilterChip className="shrink-0" active={activeFilter === "false"} onClick={() => setActiveFilter("false")}>Inactivos</TableFilterChip>
+              <TableFilterSelect
+                label="Filtrar por clase de personal"
+                placeholder="Todas las clases"
+                value={classFilter || undefined}
+                onValueChange={(value) => setClassFilter((value ?? "") as typeof classFilter)}
+                options={[{ value: "PERSONAL", label: "Personal" }, { value: "BECARIO", label: "Becarios" }, { value: "INVESTIGADOR", label: "Investigadores" }]}
+              />
+
+              <TableFilterSelect
+                label="Filtrar por estado"
+                placeholder="Todos"
+                value={activeFilter === "all" ? undefined : activeFilter}
+                onValueChange={(value) => setActiveFilter((value ?? "all") as typeof activeFilter)}
+                options={[{ value: "true", label: "Activos" }, { value: "false", label: "Inactivos" }]}
+              />
             </div>
           </div>
         </TableToolbar>
       }
     />
-    <ConfirmDialog open={Boolean(pendingDelete)} title="Eliminar personal" message={`¿Está seguro de dar de baja a ${pendingDelete?.nombre_apellido ?? "este registro"}?`} onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete} loadingText="Eliminando..." />
+    <ConfirmDialog open={Boolean(pendingDelete)} title="Eliminar personal" message={`¿Está seguro de dar de baja a ${pendingDelete?.nombre_apellido ?? "este registro"}?`} onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete} loadingText="Eliminando...">
+      <label htmlFor="motivo-baja" className="block text-sm">Motivo de baja (opcional)</label>
+      <textarea id="motivo-baja" maxLength={500} value={motivo} onChange={(event) => setMotivo(event.target.value)} placeholder="Ingrese el motivo de la baja" className="mt-2 w-full rounded border border-slate-300 p-2" />
+    </ConfirmDialog>
+    <ConfirmDialog open={Boolean(pendingRestore)} title="Reactivar personal" message={`Se reactivará a ${pendingRestore?.nombre_apellido ?? "este registro"}, conservando su identidad y relaciones.`} confirmText="Reactivar" onCancel={() => setPendingRestore(null)} onConfirm={async () => {
+      if (!pendingRestore || !canEditRecords()) return;
+      await reactivarPersonal(pendingRestore.id, pendingRestore.rol);
+      await queryClient.invalidateQueries({ queryKey: ["personal"] });
+      await queryClient.invalidateQueries({ queryKey: ["personal-historial"] });
+      await queryClient.invalidateQueries({ queryKey: ["personal-detalle"] });
+      setPendingRestore(null);
+      setSuccessMessage("Registro reactivado con éxito.");
+    }} />
     <SuccessToast open={Boolean(successMessage)} message={successMessage} onClose={() => setSuccessMessage("")} />
     <SuccessToast open={Boolean(errorMessage)} message={errorMessage} variant="error" onClose={() => setErrorMessage("")} />
   </section>;

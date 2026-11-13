@@ -66,12 +66,14 @@ test("actividad y Continuar sesión conservan sesión ante errores y permiten re
   const effects: Array<() => unknown> = [];
   const states: unknown[] = [];
   const handlers = new Map<string, () => void>();
+  const intervals: Array<() => void> = [];
   const harness = { effects, states };
   const globals = globalThis as typeof globalThis & { window?: unknown; __sessionHarness?: typeof harness };
   const originalWindow = globals.window;
   globals.__sessionHarness = harness;
   globals.window = {
     setTimeout: () => 1, clearTimeout: () => {},
+    setInterval: (fn: () => void) => { intervals.push(fn); return 1; }, clearInterval: () => {},
     addEventListener: (name: string, handler: () => void) => handlers.set(name, handler),
     removeEventListener: () => {},
   };
@@ -89,11 +91,16 @@ test("actividad y Continuar sesión conservan sesión ante errores y permiten re
     let expired = 0;
     let result: boolean | Error = new Error("offline");
     const lifecycle = useSessionLifecycle({
-      timing: { accessExpiresAt: new Date(Date.now() + 60_000).toISOString(), sessionExpiresAt: new Date(Date.now() + 3_600_000).toISOString(), warningSeconds: 300 },
+      timing: { accessExpiresAt: new Date(Date.now() + 60_000).toISOString(), sessionExpiresAt: new Date(Date.now() + 30 * 86_400_000).toISOString(), warningSeconds: 300 },
       onRefresh: async () => { if (result instanceof Error) throw result; return result; },
       onExpire: () => expired++,
     });
     effects.forEach(effect => effect());
+    assert.equal(states[0], false);
+    assert.equal(expired, 0);
+    intervals[0]();
+    assert.equal(states[0], false);
+    assert.equal(expired, 0);
     handlers.get("pointerdown")!();
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(expired, 0);
@@ -108,8 +115,47 @@ test("actividad y Continuar sesión conservan sesión ante errores y permiten re
     result = false;
     await lifecycle.extendSession();
     assert.equal(expired, 1);
+
+    // A suspended duplicate resumes its old timer before BroadcastChannel delivery.
+    const previousEffects = effects.length;
+    useSessionLifecycle({
+      timing: { accessExpiresAt: new Date().toISOString(), sessionExpiresAt: new Date(Date.now() - 1000).toISOString(), warningSeconds: 60 },
+      getLatestTiming: () => ({ accessExpiresAt: new Date(Date.now() + 60_000).toISOString(), sessionExpiresAt: new Date(Date.now() + 180_000).toISOString(), warningSeconds: 60 }),
+      onRefresh: async () => true,
+      onExpire: () => expired++,
+    });
+    effects.slice(previousEffects).forEach(effect => effect());
+    assert.equal(expired, 1, "the old timer must use the renewal from the other tab");
+    intervals.at(-1)!();
+    assert.equal(expired, 1);
   } finally {
     globals.window = originalWindow;
     delete globals.__sessionHarness;
+  }
+});
+
+
+test("refresh informa los nuevos tiempos al contexto sin persistir credenciales", async () => {
+  const originalFetch = globalThis.fetch;
+  const globals = globalThis as typeof globalThis & { window?: unknown };
+  const originalWindow = globals.window;
+  const events: CustomEvent[] = [];
+  globals.window = { dispatchEvent: (event: CustomEvent) => events.push(event) };
+  try {
+    const http = await loadHttp();
+    const response = {
+      access_token: "access-renovado",
+      access_expires_at: "2026-11-04T12:15:00Z",
+      session_expires_at: "2026-11-11T12:00:00Z",
+      session_warning_seconds: 60,
+    };
+    globalThis.fetch = async () => Response.json(response);
+    await http.refreshSession();
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, "gidas:session-renewed");
+    assert.deepEqual(events[0].detail, response);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globals.window = originalWindow;
   }
 });

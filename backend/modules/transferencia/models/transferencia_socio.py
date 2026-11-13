@@ -54,6 +54,8 @@ class TransferenciaSocioProductiva(db.Model, AuditMixin):
     demandante = db.Column(db.Text, nullable=False)
     descripcion_actividad = db.Column(db.Text, nullable=False)
     monto = db.Column(db.Float, nullable=True)
+    moneda = db.Column(db.String(3), nullable=False, default="ARS", server_default="ARS")
+    __table_args__ = (db.CheckConstraint("moneda IN ('ARS', 'USD')", name="ck_transferencia_moneda"),)
     fecha_inicio = db.Column(db.Date, nullable=False)
     fecha_fin = db.Column(db.Date, nullable=True)
     
@@ -117,6 +119,7 @@ class TransferenciaSocioProductivaMemoriaVersion(db.Model, AuditMixin):
     demandante = db.Column(db.Text, nullable=False)
     descripcion_actividad = db.Column(db.Text, nullable=False)
     monto = db.Column(db.Float, nullable=True)
+    moneda = db.Column(db.String(3), nullable=False, default="ARS", server_default="ARS")
     fecha_inicio = db.Column(db.Date, nullable=False)
     fecha_fin = db.Column(db.Date, nullable=True)
 
@@ -150,6 +153,7 @@ class TransferenciaSocioProductivaMemoriaVersion(db.Model, AuditMixin):
             "transferencia_id",
             name="uq_transferencia_memoria_version"
         ),
+        db.CheckConstraint("moneda IN ('ARS', 'USD')", name="ck_transferencia_snapshot_moneda"),
     )
 
     def serialize(self):

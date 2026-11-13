@@ -163,7 +163,7 @@ export async function exportarExcelMemoria(
     const blob = await response.blob();
 
     if (!blob || blob.size === 0) {
-      throw new Error("El archivo exportado esta vacio.");
+      throw new Error("El archivo exportado está vacío.");
     }
 
     const filename = getFilenameFromDisposition(

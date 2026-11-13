@@ -21,7 +21,7 @@ const participanteField = readFileSync("src/modules/proyectos/components/Partici
 test("Participaciones relevantes usa la tabla común y paginación aprobada", () => {
   assert.match(home, /<Table/);
   assert.match(home, /<TableSearch/);
-  assert.match(home, /<TableFilterChip/);
+  assert.match(home, /<TableFilterSelect/);
   assert.match(home, /<TableFilterSelect/);
   assert.match(home, /const ITEMS_PER_PAGE = 9/);
   assert.match(home, /const HISTORY_PER_PAGE = 3/);

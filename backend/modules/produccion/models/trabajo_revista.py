@@ -29,6 +29,7 @@ class TrabajosRevistasReferato(db.Model, AuditMixin):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
 
     enlace = db.Column(db.String(2048), nullable=True)
+    referato = db.Column(db.Boolean, nullable=True)
     titulo_trabajo = db.Column(db.Text, nullable=False)
     nombre_revista = db.Column(db.Text, nullable=False)
     editorial = db.Column(db.Text, nullable=False)
@@ -99,6 +100,7 @@ class TrabajosRevistasReferatoMemoriaVersion(db.Model, AuditMixin):
     )
 
     enlace = db.Column(db.String(2048), nullable=True)
+    referato = db.Column(db.Boolean, nullable=True)
     titulo_trabajo = db.Column(db.Text, nullable=False)
     nombre_revista = db.Column(db.Text, nullable=False)
     editorial = db.Column(db.Text, nullable=False)

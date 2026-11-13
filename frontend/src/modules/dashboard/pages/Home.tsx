@@ -233,7 +233,7 @@ export default function Home() {
 
               {dashboardError && (
                 <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-red-700 shadow-sm">
-                  Lo sentimos, no pudimos recuperar las metricas. Intente nuevamente.
+                  Lo sentimos, no pudimos recuperar las métricas. Intente nuevamente.
                 </div>
               )}
 
@@ -394,7 +394,7 @@ export default function Home() {
                     </ChartCard>
 
                     <ChartCard
-                      title="Becarios por tipo de formación"
+                      title="Becarios por nivel de formación"
                       subtitle="Distribución actual"
                       accent={DASHBOARD_COLORS[3]}
                     >
@@ -521,7 +521,7 @@ export default function Home() {
             try {
               await remove();
               setShowConfirm(false);
-              setSuccessMessage("Eliminado con éxito!");
+              setSuccessMessage("¡Eliminado con éxito!");
               setShowSuccess(true);
             } catch (error) {
               setShowConfirm(false);

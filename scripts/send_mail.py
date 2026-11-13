@@ -4,7 +4,8 @@ send_mail.py — Envia un backup de PostgreSQL de GIDAS por SMTP adjunto.
 
 Canal: Outlook 365 (smtp.office365.com:587, STARTTLS).
 Cuenta remitente: infrait@frlp.utn.edu.ar (app-password).
-Destinatarios: gidas@frlp.utn.edu.ar e infra@frlp.utn.edu.ar (configurables).
+Destinatarios: gidas@frlp.utn.edu.ar, infra@frlp.utn.edu.ar e
+infrait@frlp.utn.edu.ar (configurables).
 
 Uso:
     send_mail.py <archivo_adjunto> [--subject "texto"] [--body "texto"]
@@ -14,7 +15,7 @@ Configuracion (desde /home/infra/gidas/.env.backup):
     SMTP_PORT=587
     SMTP_SENDER=infrait@frlp.utn.edu.ar
     SMTP_APP_PASSWORD=********   (app-password / contrasena de la cuenta)
-    SMTP_TO=gidas@frlp.utn.edu.ar,infra@frlp.utn.edu.ar
+    SMTP_TO=gidas@frlp.utn.edu.ar,infra@frlp.utn.edu.ar,infrait@frlp.utn.edu.ar
 
 Exit codes: 0 ok, 1 error.
 

@@ -1,3 +1,4 @@
+import type { AlcanceTrabajo } from "@/modules/produccion/utils/clasificacionTrabajo";
 import type { AutorReferencia, IntegranteAutor } from "@/modules/produccion/services/trabajoAutoresServices";
 import { http } from "@/lib/http";
 
@@ -19,6 +20,8 @@ export interface TrabajoReunion {
   deleted_at: string | null | undefined;
   activo?: boolean;
   enlace?: string | null;
+  referato?: boolean | null;
+  alcance?: AlcanceTrabajo | null;
   titulo_trabajo: string;
   nombre_reunion: string;
   procedencia: string;
@@ -41,6 +44,8 @@ export interface HistorialTrabajoReunionItem {
 export interface TrabajoReunionPayload {
   autores: AutorReferencia[];
   enlace?: string | null;
+  referato?: boolean | null;
+  alcance?: AlcanceTrabajo | null;
   titulo_trabajo: string;
   nombre_reunion: string;
   procedencia: string;
@@ -70,6 +75,8 @@ const normalizeTrabajoReunion = (item: TrabajoReunionBackend): TrabajoReunion =>
   deleted_at: item.deleted_at ?? null,
   activo: item.activo ?? true,
   enlace: item.enlace ?? null,
+  referato: item.referato ?? null,
+  alcance: item.alcance ?? null,
   titulo_trabajo: item.titulo_trabajo ?? "",
   nombre_reunion: item.nombre_reunion ?? "",
   procedencia: item.procedencia ?? "",
@@ -156,6 +163,8 @@ export const updateTrabajoReunion = async (
   const body: Record<string, unknown> = {};
   if ("autores" in data) body.autores = data.autores;
 
+  if ("referato" in data) body.referato = data.referato;
+  if ("alcance" in data) body.alcance = data.alcance;
   if ("enlace" in data) body.enlace = data.enlace;
   if ("titulo_trabajo" in data) body.titulo_trabajo = data.titulo_trabajo;
   if ("nombre_reunion" in data) body.nombre_reunion = data.nombre_reunion;

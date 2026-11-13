@@ -11,21 +11,13 @@ import {
   type Equipamiento,
 } from "@/modules/recursos/services/equipamientoServices";
 import { formatFecha, formatFechaHora } from "@/utils/dateTime";
+import { formatImporte, formatImporteHistorial } from "@/utils/money";
 import { useAuditoria } from "@/modules/shared/hooks/useAuditoria";
 import { useAuth } from "@/context/AuthContext";
 import {
   navigateBackFromMemoriaContext,
   stripSuccessMessageState,
 } from "@/lib/memoriaNavigation";
-
-const fmtMoney = (n?: number) =>
-  typeof n === "number"
-    ? new Intl.NumberFormat("es-AR", {
-        style: "currency",
-        currency: "ARS",
-        maximumFractionDigits: 2,
-      }).format(n)
-    : "-";
 
 export default function EquipamientoDetalle() {
   const { id } = useParams<{ id: string }>();
@@ -117,7 +109,7 @@ export default function EquipamientoDetalle() {
 
             <p>
               <span className="font-semibold text-slate-800">Monto invertido:</span>{" "}
-              {fmtMoney(data.monto_invertido)}
+              {formatImporte(data.monto_invertido, data.moneda)}
             </p>
           </div>
         </article>
@@ -166,7 +158,7 @@ export default function EquipamientoDetalle() {
           formatItemValue={(item, value) => {
             if (item.campo === "monto_invertido") {
               if (value === null || value === undefined || value === "") return "-";
-              return fmtMoney(Number(value));
+              return formatImporteHistorial(value);
             }
 
             if (item.campo === "fecha_incorporacion") {

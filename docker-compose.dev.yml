@@ -28,6 +28,7 @@ services:
       - ./backend:/app
 
   backend:
+    cpus: "${DEV_BACKEND_CPUS:-2.0}"
     build:
       context: ./backend
       target: development
@@ -36,9 +37,17 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-docker}
       FLASK_DEBUG: ${FLASK_DEBUG:-1}
+      FLASK_RUN_EXCLUDE_PATTERNS: /app/tests/*:/app/tools/*:/app/migrations/*
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       FRONTEND_URLS: ${FRONTEND_URLS:-http://localhost:5173,http://localhost:8080,http://localhost}
       RATELIMIT_STORAGE_URI: ${RATELIMIT_STORAGE_URI:-redis://redis:6379/0}
+      MAIL_SERVER: mailpit
+      MAIL_PORT: 1025
+      SMTP_TLS_MODE: none
+      MAIL_USERNAME: ""
+      MAIL_PASSWORD: ""
+      MAIL_DEFAULT_SENDER: GIDAS <no-reply@gidas.local>
+      PASSWORD_RESET_PUBLIC_URL: ${PASSWORD_RESET_PUBLIC_URL:-http://localhost/restablecer-password}
     ports: !override
       - "${BACKEND_PORT:-5000}:5000"
     volumes: !override
@@ -55,7 +64,59 @@ services:
       retries: 5
       start_period: 20s
 
+  email-worker:
+    build:
+      context: ./backend
+      target: development
+    env_file: !override
+      - ./backend/${BACKEND_ENV_FILE:-.env}
+    environment:
+      APP_ENV: ${APP_ENV:-docker}
+      MAIL_SERVER: mailpit
+      MAIL_PORT: 1025
+      SMTP_TLS_MODE: none
+      MAIL_USERNAME: ""
+      MAIL_PASSWORD: ""
+      MAIL_DEFAULT_SENDER: GIDAS <no-reply@gidas.local>
+      PASSWORD_RESET_PUBLIC_URL: ${PASSWORD_RESET_PUBLIC_URL:-http://localhost/restablecer-password}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      mailpit:
+        condition: service_healthy
+
+  mailpit:
+    image: axllent/mailpit:v1.32.0
+    container_name: ${COMPOSE_SERVICE_PREFIX:-gidas}_mailpit
+    restart: unless-stopped
+    user: "1000:1000"
+    mem_limit: 128m
+    cpus: "0.25"
+    environment:
+      MP_MAX_MESSAGES: 100
+      MP_DATABASE: /tmp/mailpit.db
+      MP_ALLOWED_HOSTS: localhost,127.0.0.1,mailpit
+    ports:
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+    networks:
+      - gidas_network
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   frontend:
+    mem_limit: ${DEV_FRONTEND_MEMORY:-1g}
+    cpus: "${DEV_FRONTEND_CPUS:-2.0}"
     build:
       context: ./frontend
       target: development
@@ -63,6 +124,9 @@ services:
     env_file: !override
       - ./frontend/${FRONTEND_ENV_FILE:-.env}
     environment:
+      # Windows bind mounts do not reliably forward file watch events.
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "500"
       VITE_APP_ENV: ${VITE_APP_ENV:-local}
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
       VITE_API_URL: ${VITE_API_URL:-/api}

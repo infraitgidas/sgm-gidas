@@ -44,7 +44,7 @@ test("estandariza el home de visitas con tabla, filtros y acciones individuales"
   assert.match(homeSource, /caption="Listado de visitas"/);
   assert.match(homeSource, /header: "Tipo de visita"/);
   assert.match(homeSource, /header: "Procedencia u origen"/);
-  assert.match(homeSource, /TableFilterChip/);
+  assert.match(homeSource, /TableFilterSelect/);
   assert.match(homeSource, /TableFilterSelect/);
   assert.match(homeSource, /TableRowActionButton/);
   assert.match(homeSource, /getHistorialVisitanteById/);

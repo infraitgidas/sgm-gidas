@@ -1,3 +1,4 @@
+import { referatoLabel, alcanceLabel, procedenciaLabel } from "@/modules/produccion/utils/clasificacionTrabajo";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { enlaceSeguro } from "@/modules/produccion/utils/trabajoEnlace";
 import { autorEtiqueta } from "@/modules/produccion/services/trabajoAutoresServices";
@@ -151,6 +152,8 @@ export default function TrabajoReunionDetalle() {
 
         <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="space-y-2 break-words text-sm text-slate-500 md:text-base">
+            <p><span className="font-semibold text-slate-800">Referato:</span>{" "}{referatoLabel(data.referato)}</p>
+            <p><span className="font-semibold text-slate-800">Alcance:</span>{" "}{alcanceLabel(data.alcance)}</p>
             <p>
               <span className="font-semibold text-slate-800">Reunión:</span>{" "}
               {toTitleCase(data.nombre_reunion) || "-"}
@@ -162,7 +165,7 @@ export default function TrabajoReunionDetalle() {
             </p>
 
             <p>
-              <span className="font-semibold text-slate-800">Procedencia:</span>{" "}
+              <span className="font-semibold text-slate-800">{procedenciaLabel(data.alcance)}:</span>{" "}
               {toTitleCase(data.procedencia) || "-"}
             </p>
 

@@ -9,6 +9,8 @@ class Equipamiento(db.Model, AuditMixin):
     descripcion_breve = db.Column(db.Text, nullable=False)
     fecha_incorporacion = db.Column(db.Date, nullable=False)  # mejor como Date
     monto_invertido = db.Column(db.Float, nullable=False)
+    moneda = db.Column(db.String(3), nullable=False, default="ARS", server_default="ARS")
+    __table_args__ = (db.CheckConstraint("moneda IN ('ARS', 'USD')", name="ck_equipamiento_moneda"),)
 
     # --- Claves Foráneas y Relaciones ---
     grupo_utn_id = db.Column(db.Integer, db.ForeignKey('grupo_utn.id'), nullable=False)
@@ -42,6 +44,7 @@ class EquipamientoMemoriaVersion(db.Model, AuditMixin):
     descripcion_breve = db.Column(db.Text, nullable=False)
     fecha_incorporacion = db.Column(db.Date, nullable=False)
     monto_invertido = db.Column(db.Float, nullable=False)
+    moneda = db.Column(db.String(3), nullable=False, default="ARS", server_default="ARS")
 
     grupo_utn_id = db.Column(
         db.Integer,
@@ -55,6 +58,7 @@ class EquipamientoMemoriaVersion(db.Model, AuditMixin):
     grupo_utn = db.relationship("GrupoInvestigacionUtn", lazy="joined")
 
     __table_args__ = (
+        db.CheckConstraint("moneda IN ('ARS', 'USD')", name="ck_equipamiento_snapshot_moneda"),
         db.UniqueConstraint(
             "memoria_version_id",
             "equipamiento_id",

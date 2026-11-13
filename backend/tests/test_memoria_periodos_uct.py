@@ -243,7 +243,7 @@ class MemoriaPeriodosUctTest(unittest.TestCase):
                                               fecha_inicio=date(2024, 1, 1), fecha_fin=date(2026, 1, 1))
             db.session.add(proyecto)
             db.session.add(DistincionRecibida(descripcion=f"Distinción {n}", fecha=date(2026, 1, 1),
-                                             proyecto_investigacion=proyecto))
+                                             proyecto_investigacion=proyecto, grupo_utn_id=n))
         db.session.add(ProyectoInvestigacion(nombre_proyecto="Terminado", codigo_proyecto="OLD", descripcion_proyecto="Texto",
                                               tipo_proyecto_id=1, grupo_utn_id=1, fecha_inicio=date(2024, 1, 1),
                                               fecha_fin=date(2025, 6, 30)))

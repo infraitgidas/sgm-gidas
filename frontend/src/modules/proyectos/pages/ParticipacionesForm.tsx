@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -141,20 +142,24 @@ export default function ParticipacionesForm() {
     },
   });
 
-  const clearError = (field: string) =>
-    setErrors((current) => {
-      const next = { ...current };
-      delete next[field];
-      return next;
-    });
-
-  const validate = () => {
+  const validationValues = { participanteValue, nombreEvento, formaParticipacion, fecha };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { participanteValue, nombreEvento, formaParticipacion, fecha } = { ...validationValues, ...changes };
     const next: Record<string, string> = {};
     if (!parseParticipante(participanteValue)) next.participante = "Seleccione un investigador o becario";
     if (!nombreEvento.trim()) next.nombreEvento = "Ingrese el nombre del evento";
     else if (!hasLetter(nombreEvento)) next.nombreEvento = "El nombre del evento debe contener letras";
     if (!formaParticipacion) next.formaParticipacion = "Seleccione una forma de participación";
     if (!fecha) next.fecha = "Seleccione una fecha";
+    return next;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  const validate = () => {
+    const next = getValidationErrors();
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -265,25 +270,34 @@ export default function ParticipacionesForm() {
               disabled={participantesNoDisponibles}
               onChange={(participante) => {
                 setParticipanteValue(participante ? participanteClave(participante) : "");
-                if (participante) clearError("participante");
+                validateChangedField("participante", { participanteValue: participante ? participanteClave(participante) : "" });
               }}
             />
           </>
         </Field>
 
         <Field required label="Nombre del evento" name="nombreEvento" error={errors.nombreEvento}>
-          <input className={inputClass("nombreEvento")} value={nombreEvento} onChange={(event) => { setNombreEvento(event.target.value); if (event.target.value.trim()) clearError("nombreEvento"); }} placeholder="Ej: Congreso Argentino de Ingeniería" />
+          <input className={inputClass("nombreEvento")} value={nombreEvento} onChange={(event) => {
+            setNombreEvento(event.target.value);
+            validateChangedField("nombreEvento", { nombreEvento: event.target.value });
+          }} onBlur={() => validateChangedField("nombreEvento")} placeholder="Ej: Congreso Argentino de Ingeniería" />
         </Field>
 
         <Field required label="Forma de participación" name="formaParticipacion" error={errors.formaParticipacion}>
-          <select className={`${inputClass("formaParticipacion")} ${formaParticipacion ? "text-slate-900" : "text-slate-400"}`} value={formaParticipacion} onChange={(event) => { setFormaParticipacion(event.target.value); clearError("formaParticipacion"); }}>
+          <select className={`${inputClass("formaParticipacion")} ${formaParticipacion ? "text-slate-900" : "text-slate-400"}`} value={formaParticipacion} onChange={(event) => {
+            setFormaParticipacion(event.target.value);
+            validateChangedField("formaParticipacion", { formaParticipacion: event.target.value });
+          }} onBlur={() => validateChangedField("formaParticipacion")}>
             <option value="" disabled>Seleccionar forma de participación</option>
             {FORMAS_PARTICIPACION.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
         </Field>
 
         <Field required label="Fecha" name="fecha" error={errors.fecha}>
-          <Calendar value={fecha} onChange={(value) => { setFecha(value); if (value) clearError("fecha"); }} className={inputClass("fecha")} helperText="DD/MM/AAAA" />
+          <Calendar value={fecha} onChange={(value) => {
+            setFecha(value);
+            validateChangedField("fecha", { fecha: value });
+          }} className={inputClass("fecha")} helperText="DD/MM/AAAA" />
         </Field>
 
         <div className="flex justify-between pt-6">

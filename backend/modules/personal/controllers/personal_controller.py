@@ -1,6 +1,7 @@
 from flask import Request, Response, jsonify, g
 from modules.personal.services.personal_service import (
     crear_personal,
+    restaurar_personal,
     actualizar_personal,
     eliminar_personal_por_rol,
     listar_personal,
@@ -15,6 +16,15 @@ from modules.shared.controllers.responses import error_response, exception_respo
 
 
 class PersonalController:
+
+    @staticmethod
+    def reclasificar(req, rol, id):
+        from modules.personal.services.reclasificacion_service import reclasificar_personal
+        try:
+            resultado = reclasificar_personal(rol, id, req.get_json(silent=True), g.current_user_id)
+            return jsonify(resultado), 200
+        except Exception as error:
+            return exception_response(error, operation="reclasificar personal")
 
     @staticmethod
     def crear(req: Request) -> Response:
@@ -103,9 +113,20 @@ class PersonalController:
 
             user_id = g.current_user_id  
 
-            result = eliminar_personal_por_rol(id, rol, user_id)
+            data = req.get_json(silent=True) or {}
+            if not isinstance(data, dict):
+                return error_response("VALIDATION_ERROR", status_code=400)
+            result = eliminar_personal_por_rol(id, rol, user_id, data.get("motivo"))
 
             return jsonify(result), 200
 
         except Exception as error:
             return exception_response(error, operation="eliminar personal")
+
+    @staticmethod
+    def restaurar(req, rol, id):
+        try:
+            entidad = restaurar_personal(id, rol, g.current_user_id)
+            return jsonify(entidad.serialize()), 200
+        except Exception as error:
+            return exception_response(error, operation="reactivar personal")

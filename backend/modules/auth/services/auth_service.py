@@ -11,6 +11,7 @@ from modules.auth.models.persona import Persona
 from modules.auth.models.login_attempt import LoginAttempt
 from modules.auth.models.refresh_token_session import RefreshTokenSession
 from modules.auth.models.usuario import Usuario, RolUsuario
+from modules.auth.services.credentials_policy import normalize_email, validate_password
 from extension import db
 from config import Config
 from modules.shared.exceptions import AuthenticationError, ConflictError, LoginLockedError, NotFoundError, ValidationError
@@ -317,16 +318,18 @@ class AuthService:
         es_primer_usuario: bool = False,
         actor_id: int | None = None,
     ) -> Usuario:
+        mail = normalize_email(mail)
+        password = validate_password(password, field="password")
         existe = Usuario.query.filter(
             (Usuario.nombre_usuario == nombre_usuario) |
-            (Usuario.mail == mail)
+            (db.func.lower(db.func.trim(Usuario.mail)) == mail)
         ).first()
 
         if existe:
             fields = {}
             if existe.nombre_usuario == nombre_usuario:
                 fields["nombre_usuario"] = "El nombre de usuario ya está en uso. Ingrese otro."
-            if existe.mail == mail:
+            if existe.mail.strip().lower() == mail:
                 fields["mail"] = "El correo electrónico ya está en uso. Ingrese otro."
             raise ConflictError("Revise los campos indicados.", details={"fields": fields})
 
@@ -518,9 +521,10 @@ class AuthService:
         
     @staticmethod
     def change_password(user_id: int, password_actual: str, password_nueva: str, es_primer_cambio: bool = False):
+        from modules.auth.services.password_reset_service import cancel_user_requests, lock_user
+        lock_user(user_id)
         user = AuthService._get_user_or_error(user_id, solo_activos=True)
-        if not password_nueva:
-            raise ValidationError('La contraseña nueva es obligatoria', details={"fields": {'password_nueva': 'La contraseña nueva es obligatoria'}})
+        password_nueva = validate_password(password_nueva, field="password_nueva")
 
         if not es_primer_cambio:
             if not isinstance(password_actual, str) or not user.verificar_password(password_actual):
@@ -532,6 +536,7 @@ class AuthService:
 
         user.primer_login = False
         AuthService.revoke_user_refresh_tokens(user.id, "password_changed")
+        cancel_user_requests(user.id, datetime.datetime.utcnow())
 
         try:
             db.session.commit()
@@ -544,7 +549,8 @@ class AuthService:
     
     @staticmethod
     def delete_user(user_id: int, current_user_id: int):
-
+        from modules.auth.services.password_reset_service import cancel_user_requests, lock_user
+        lock_user(user_id)
         user = AuthService._get_user_or_error(user_id, solo_activos=True)
         
         # Evitar que un admin se elimine a sí mismo
@@ -562,6 +568,7 @@ class AuthService:
 
         user.soft_delete(current_user_id)
         AuthService.revoke_user_refresh_tokens(user.id, "user_deleted")
+        cancel_user_requests(user.id, datetime.datetime.utcnow())
 
         try:
             db.session.commit()
@@ -600,7 +607,10 @@ class AuthService:
     @staticmethod
     def update_user(user_id: int, data: dict, current_user_id: int):
         """Actualizar datos de un usuario"""
+        from modules.auth.services.password_reset_service import cancel_user_requests, lock_user
+        lock_user(user_id)
         user = AuthService._get_user_or_error(user_id, solo_activos=True)
+        previous_mail = user.mail
         requested_rol_id = data.get("rol_id")
         requested_rol_name = data.get("rol")
         requested_rol = None
@@ -655,13 +665,11 @@ class AuthService:
             user.nombre_usuario = nombre_usuario
 
         if "mail" in data:
-            mail = (data["mail"] or "").strip()
-            if not mail:
-                raise ValidationError('Ingrese el correo electrónico e intente nuevamente.', details={"fields": {'mail': 'Ingrese el correo electrónico.'}})
+            mail = normalize_email(data["mail"])
 
             # Verificar que el mail no exista
             existing = Usuario.query.filter(
-                Usuario.mail == mail,
+                db.func.lower(db.func.trim(Usuario.mail)) == mail,
                 Usuario.id != user_id
             ).first()
             if existing:
@@ -670,6 +678,9 @@ class AuthService:
         
         if "activo" in data:
             user.activo = data["activo"]
+
+        if previous_mail != user.mail or not user.activo:
+            cancel_user_requests(user.id, datetime.datetime.utcnow())
         
         try:
             db.session.commit()

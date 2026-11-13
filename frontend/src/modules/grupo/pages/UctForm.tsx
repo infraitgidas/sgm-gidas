@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import { applyFieldErrors, focusFieldErrors, getApiFieldErrors } from "@/lib/httpError";
 import { hasLetter, hasOnlyLettersAndSpaces } from "../../../lib/textValidation";
 import { useEffect, useRef, useState } from "react";
@@ -89,6 +90,9 @@ export default function UctForm() {
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingNombre, setEditingNombre] = useState("");
+  const [editingNombreError, setEditingNombreError] = useState("");
+  const validateEditingNombre = (value: string) => value.trim() && hasOnlyLettersAndSpaces(value)
+    ? "" : "Use solo letras y espacios en el nombre del directivo.";
 
   const [mostrarAltaDirectivos, setMostrarAltaDirectivos] = useState(false);
 
@@ -178,15 +182,12 @@ export default function UctForm() {
     ) => {
       const value = e.target.value;
       setData((d) => ({ ...d, [k]: value }));
-
-      setErrors((prev) => {
-        const copy = { ...prev };
-        delete copy[k];
-        return copy;
-      });
+      validateChangedField(k, { data: { ...data, [k]: value } });
     };
 
-  const validate = () => {
+  const validationValues = { data, mostrarAltaDirectivos };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { data, mostrarAltaDirectivos } = { ...validationValues, ...changes };
     const e: Record<string, string> = {};
 
     if (!data.facultadRegional.trim()) {
@@ -258,6 +259,15 @@ export default function UctForm() {
       e.cargo2 = "No puede repetir el mismo cargo";
     }
 
+    return e;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  const validate = () => {
+    const e = getValidationErrors();
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -376,8 +386,10 @@ export default function UctForm() {
   };
 
   const handleEditarDirectivo = () => {
-    if (!editingId || !editingNombre.trim()) return;
-    if (!hasOnlyLettersAndSpaces(editingNombre)) {
+    if (!editingId) return;
+    const nameError = validateEditingNombre(editingNombre);
+    setEditingNombreError(nameError);
+    if (nameError) {
       setSubmitError("Use solo letras y espacios en el nombre del directivo.");
       return;
     }
@@ -453,7 +465,7 @@ export default function UctForm() {
             <input
               className={inputClass("facultadRegional")}
               value={data.facultadRegional}
-              onChange={change("facultadRegional")}
+              onChange={change("facultadRegional")} onBlur={() => validateChangedField("facultadRegional")}
             />
             {errors.facultadRegional && (
               <ErrorText>{errors.facultadRegional}</ErrorText>
@@ -466,7 +478,7 @@ export default function UctForm() {
             <input
               className={inputClass("nombreSigla")}
               value={data.nombreSigla}
-              onChange={change("nombreSigla")}
+              onChange={change("nombreSigla")} onBlur={() => validateChangedField("nombreSigla")}
             />
             {errors.nombreSigla && <ErrorText>{errors.nombreSigla}</ErrorText>}
           </>
@@ -498,7 +510,7 @@ export default function UctForm() {
                       <input
                         className={inputClass("nombre1")}
                         value={data.nombre1}
-                        onChange={change("nombre1")}
+                        onChange={change("nombre1")} onBlur={() => validateChangedField("nombre1")}
                         placeholder="Ingrese nombre del director"
                       />
                       {errors.nombre1 && <ErrorText>{errors.nombre1}</ErrorText>}
@@ -510,7 +522,7 @@ export default function UctForm() {
                       <select
                         className={inputClass("cargo1")}
                         value={data.cargo1}
-                        onChange={change("cargo1")}
+                        onChange={change("cargo1")} onBlur={() => validateChangedField("cargo1")}
                       >
                         <option value="">Seleccione cargo</option>
                         {cargoDirector && (
@@ -531,7 +543,7 @@ export default function UctForm() {
                         max={todayIso}
                         className={inputClass("fecha1")}
                         value={data.fecha1}
-                        onChange={change("fecha1")}
+                        onChange={change("fecha1")} onBlur={() => validateChangedField("fecha1")}
                       />
                       {errors.fecha1 && <ErrorText>{errors.fecha1}</ErrorText>}
                     </>
@@ -546,7 +558,7 @@ export default function UctForm() {
                       <input
                         className={inputClass("nombre2")}
                         value={data.nombre2}
-                        onChange={change("nombre2")}
+                        onChange={change("nombre2")} onBlur={() => validateChangedField("nombre2")}
                         placeholder="Ingrese nombre del vicedirector"
                       />
                       {errors.nombre2 && <ErrorText>{errors.nombre2}</ErrorText>}
@@ -558,7 +570,7 @@ export default function UctForm() {
                       <select
                         className={inputClass("cargo2")}
                         value={data.cargo2}
-                        onChange={change("cargo2")}
+                        onChange={change("cargo2")} onBlur={() => validateChangedField("cargo2")}
                       >
                         <option value="">Seleccione cargo</option>
                         {cargoVicedirector && (
@@ -579,7 +591,7 @@ export default function UctForm() {
                         max={todayIso}
                         className={inputClass("fecha2")}
                         value={data.fecha2}
-                        onChange={change("fecha2")}
+                        onChange={change("fecha2")} onBlur={() => validateChangedField("fecha2")}
                       />
                       {errors.fecha2 && <ErrorText>{errors.fecha2}</ErrorText>}
                     </>
@@ -657,6 +669,7 @@ export default function UctForm() {
                             if (!directivoId) return;
                             setEditingId(directivoId);
                             setEditingNombre(pendingUpdates[directivoId] ?? d.nombre_apellido);
+                            setEditingNombreError("");
                           }}
                           className="text-sky-600 hover:text-sky-700 transition"
                           title="Editar directivo"
@@ -685,9 +698,14 @@ export default function UctForm() {
                         <input
                           className="input"
                           value={editingNombre}
-                          onChange={(e) => setEditingNombre(e.target.value)}
+                          onChange={(e) => { setEditingNombre(e.target.value); setEditingNombreError(validateEditingNombre(e.target.value)); }}
+                          onBlur={() => setEditingNombreError(validateEditingNombre(editingNombre))}
+                          aria-label="Nombre y apellido del directivo"
+                          aria-invalid={Boolean(editingNombreError)}
+                          aria-describedby={editingNombreError ? "directivo-nombre-error" : undefined}
                           placeholder="Nombre y apellido"
                         />
+                        {editingNombreError && <p id="directivo-nombre-error" role="alert" className="text-sm text-red-600">{editingNombreError}</p>}
 
                         <div className="flex justify-end gap-2">
                           <Button
@@ -764,7 +782,7 @@ export default function UctForm() {
               type="email"
               className={inputClass("correo")}
               value={data.correo}
-              onChange={change("correo")}
+              onChange={change("correo")} onBlur={() => validateChangedField("correo")}
             />
             {errors.correo && <ErrorText>{errors.correo}</ErrorText>}
           </>
@@ -776,7 +794,7 @@ export default function UctForm() {
               rows={5}
               className={`${inputClass("objetivos")} resize-y`}
               value={data.objetivos}
-              onChange={change("objetivos")}
+              onChange={change("objetivos")} onBlur={() => validateChangedField("objetivos")}
             />
             {errors.objetivos && <ErrorText>{errors.objetivos}</ErrorText>}
           </>

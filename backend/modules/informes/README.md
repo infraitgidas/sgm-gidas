@@ -1,5 +1,16 @@
 # Informes por período (ISS-85)
 
+## Contrato consumido por la validacion preventiva (ISS-33)
+
+Las reglas de tipo, rol GESTOR, UCT, Memoria, textos, fecha y registros vinculados siguen comprobadas por el servidor al guardar.
+
+El frontend reutiliza sus comprobaciones durante la interaccion y muestra
+conjuntamente los errores al guardar. Los errores de campo de la API mantienen
+`error.details.fields`; los no asociados a un control conservan feedback general.
+La etapa no cambia endpoints, payloads, modelos, permisos ni eventos auditados.
+Escribir o corregir un campo no genera una mutacion de dominio; la autoridad
+definitiva sigue siendo el backend. Aceptado por el usuario el 05/11/2026.
+
 ## Responsabilidad y acceso
 
 El módulo registra informes manuales de `investigadores`, `pid` y `uct`. Cada

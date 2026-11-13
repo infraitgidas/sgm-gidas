@@ -335,7 +335,7 @@ class AuthController:
             if password_nueva != password_confirmacion:
                 return error_response("VALIDATION_ERROR", details={"fields": {"password_confirmacion": "La confirmación debe coincidir con la nueva contraseña."}}, status_code=400)
 
-            if len(password_nueva) < 6:
+            if not isinstance(password_nueva, str) or len(password_nueva) < 6:
                 return error_response("VALIDATION_ERROR", details={"fields": {"password_nueva": "La contraseña debe tener al menos 6 caracteres."}}, status_code=400)
 
             user = AuthService.get_user_by_id(user_id)

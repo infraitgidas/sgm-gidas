@@ -146,6 +146,9 @@ const runRefreshSingleFlight = createSingleFlight(
 
       if (typeof data.access_token === "string" && data.access_token) {
         accessToken = data.access_token;
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("gidas:session-renewed", { detail: data }));
+        }
         return data;
       }
 

@@ -158,7 +158,7 @@ export default function VisitantesDetalle() {
             </p>
 
             <p>
-              <span className="font-semibold text-slate-800">Razon de la visita:</span>{" "}
+              <span className="font-semibold text-slate-800">Razón de la visita:</span>{" "}
               {data.razon || "-"}
             </p>
 

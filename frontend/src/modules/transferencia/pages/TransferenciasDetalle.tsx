@@ -13,20 +13,13 @@ import {
 import { useAuditoria } from "@/modules/shared/hooks/useAuditoria";
 import { useAuth } from "@/context/AuthContext";
 import { formatFecha, formatFechaHora } from "@/utils/dateTime";
+import { formatImporte, formatImporteHistorial } from "@/utils/money";
 import { presentTransferenciaHistory, transferenciaHistoryEvent } from "@/modules/transferencia/utils/transferenciaHistory";
 import { useAdoptanteHistorial } from "@/modules/transferencia/hooks/useAdoptantes";
 import {
   navigateBackFromMemoriaContext,
   stripSuccessMessageState,
 } from "@/lib/memoriaNavigation";
-
-const formatMonto = (monto?: number | null) =>
-  typeof monto === "number"
-    ? monto.toLocaleString("es-AR", {
-        style: "currency",
-        currency: "ARS",
-      })
-    : "-";
 
 export default function TransferenciasDetalle() {
   const { id } = useParams<{ id: string }>();
@@ -143,7 +136,7 @@ export default function TransferenciasDetalle() {
 
             <p>
               <span className="font-semibold text-slate-800">Monto:</span>{" "}
-              {formatMonto(data.monto)}
+              {formatImporte(data.monto, data.moneda)}
             </p>
 
             <p>
@@ -215,7 +208,7 @@ export default function TransferenciasDetalle() {
             if (value === null || value === undefined || value === "") return "-";
 
             if (item.campo === "monto") {
-              return formatMonto(Number(value));
+              return formatImporteHistorial(value);
             }
 
             if (item.campo === "fecha_inicio" || item.campo === "fecha_fin") {

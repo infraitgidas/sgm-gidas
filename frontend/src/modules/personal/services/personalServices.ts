@@ -9,6 +9,8 @@ export type PersonalType =
 
 export interface PersonalItem {
   id: number;
+  nombre?: string | null;
+  apellido?: string | null;
   nombre_apellido: string;
   horas_semanales: number;
   tipo?: "PTAA" | "PROFESIONAL" | "BECARIO" | "INVESTIGADOR";
@@ -41,6 +43,8 @@ export interface PersonalPage {
   error: null;
 }
 export interface PersonalPayload {
+  nombre?: string | null;
+  apellido?: string | null;
   nombre_apellido: string;
   dni: string;
   cuil: string;
@@ -95,9 +99,14 @@ export function actualizarPersonal(id: number, payload: Partial<PersonalPayload>
   });
 }
 
-export function eliminarPersonal(id: number, rol: string) {
+export function eliminarPersonal(id: number, rol: string, motivo?: string) {
   return http<{ message: string }>(`/personal/${rol}/${id}`, {
     method: "DELETE",
+    body: JSON.stringify({ motivo }),
   });
 }
 
+
+export function reactivarPersonal(id: number, rol: string) {
+  return http<PersonalItem>(`/personal/${rol}/${id}/restore`, { method: "PUT" });
+}

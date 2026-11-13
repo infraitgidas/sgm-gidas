@@ -24,21 +24,25 @@ export default function DocumentacionAutoresField({ value, options, onChange, di
   const availableStart = (currentAvailablePage - 1) * 5;
   const selectedStart = (currentSelectedPage - 1) * 5;
 
+  const validateNewName = (input: string) => {
+    const name = input.trim().replace(/\s+/g, " ");
+    if (!name || !hasOnlyLettersAndSpaces(name)) {
+      return "Ingrese un nombre con letras y espacios.";
+    }
+    if (value.some((autor) => normalizarNombreAutor(autor.nombre_apellido) === normalizarNombreAutor(name))) {
+      return "Este autor ya está seleccionado.";
+    }
+    if (options.some((autor) => normalizarNombreAutor(autor.nombre_apellido) === normalizarNombreAutor(name))) {
+      return "Este autor ya existe. Búsquelo y añádalo desde la lista.";
+    }
+    return "";
+  };
+
   const addNew = () => {
     if (disabled) return;
     const name = newName.trim().replace(/\s+/g, " ");
-    if (!name || !hasOnlyLettersAndSpaces(name)) {
-      setNewNameError("Ingrese un nombre con letras y espacios.");
-      return;
-    }
-    if (value.some((autor) => normalizarNombreAutor(autor.nombre_apellido) === normalizarNombreAutor(name))) {
-      setNewNameError("Este autor ya está seleccionado.");
-      return;
-    }
-    if (options.some((autor) => normalizarNombreAutor(autor.nombre_apellido) === normalizarNombreAutor(name))) {
-      setNewNameError("Este autor ya existe. Búsquelo y añádalo desde la lista.");
-      return;
-    }
+    const message = validateNewName(newName);
+    if (message) { setNewNameError(message); return; }
     onChange([...value, { id: Math.min(0, ...value.map((autor) => autor.id)) - 1, nombre_apellido: name }]);
     setSelectedPage(Math.ceil((value.length + 1) / 5));
     setNewName("");
@@ -75,7 +79,8 @@ export default function DocumentacionAutoresField({ value, options, onChange, di
       <div className="flex flex-col gap-2 sm:flex-row">
         <input id={`${id}-new`} className="input w-full" value={newName} disabled={disabled}
           placeholder="Nombre y apellido" aria-invalid={Boolean(newNameError)} aria-describedby={newNameError ? `${id}-new-error` : undefined}
-          onChange={(event) => { setNewName(event.target.value); setNewNameError(""); }}
+          onChange={(event) => { setNewName(event.target.value); setNewNameError(validateNewName(event.target.value)); }}
+          onBlur={() => setNewNameError(validateNewName(newName))}
           onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addNew(); } }} />
         <Button type="button" variant="secondary" size="sm" disabled={disabled} onClick={addNew}>Añadir</Button>
       </div>

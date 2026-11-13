@@ -21,10 +21,17 @@ export default function AdoptantesField({ selected, onChange, disabled = false }
   const availableStart = (currentAvailablePage - 1) * 5;
   const selectedStart = (currentSelectedPage - 1) * 5;
 
+  const validateName = (value: string) => {
+    const clean = value.trim();
+    if (!clean || !hasOnlyLettersAndSpaces(clean)) return "Ingrese un nombre con letras y espacios.";
+    if ([...query.list, ...selected].some(item => item.nombre.toLocaleLowerCase("es") === clean.toLocaleLowerCase("es"))) return "Este adoptante ya existe. Selecciónelo desde la grilla.";
+    return "";
+  };
+
   const addNew = () => {
     const clean = nombre.trim();
-    if (!clean || !hasOnlyLettersAndSpaces(clean)) { setFieldErrors({ nombre: "Ingrese un nombre con letras y espacios." }); return; }
-    if ([...query.list, ...selected].some(item => item.nombre.toLocaleLowerCase("es") === clean.toLocaleLowerCase("es"))) { setFieldErrors({ nombre: "Este adoptante ya existe. Selecciónelo desde la grilla." }); return; }
+    const message = validateName(nombre);
+    if (message) { setFieldErrors({ nombre: message }); return; }
     const nextId = Math.min(0, ...selected.map(item => item.id)) - 1;
     onChange([...selected, { id: nextId, nombre: clean }]);
     setSelectedPage(Math.ceil((selected.length + 1) / 5));
@@ -53,7 +60,7 @@ export default function AdoptantesField({ selected, onChange, disabled = false }
         <Button type="button" variant="secondary" size="sm" disabled={disabled || currentAvailablePage === Math.ceil(options.length / 5)} onClick={() => setAvailablePage(currentAvailablePage + 1)}>Siguiente</Button>
       </nav>}
     </div>}
-    {showNew && <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><label htmlFor="adoptante-nombre" className="block text-sm font-medium">Nombre del adoptante *</label><input id="adoptante-nombre" data-error-field="nombre" className="input mt-1" value={nombre} onChange={event => { setNombre(event.target.value); setFieldErrors({}); }} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); addNew(); } }} placeholder="Ej: Municipalidad de Resistencia" aria-invalid={Boolean(fieldErrors.nombre)} aria-describedby={fieldErrors.nombre ? "adoptante-nombre-error" : undefined} disabled={disabled} />{fieldErrors.nombre && <p id="adoptante-nombre-error" role="alert" className="text-sm text-rose-700">{fieldErrors.nombre}</p>}<div className="mt-3 flex gap-2"><Button type="button" size="sm" onClick={addNew} disabled={disabled}>Añadir al formulario</Button><Button type="button" size="sm" variant="secondary" onClick={() => { setShowNew(false); setNombre(""); }}>Cancelar</Button></div><p className="mt-2 text-xs text-slate-500">El adoptante se creará al guardar la transferencia.</p></div>}
+    {showNew && <div className="rounded-lg border border-slate-200 bg-slate-50 p-4"><label htmlFor="adoptante-nombre" className="block text-sm font-medium">Nombre del adoptante *</label><input id="adoptante-nombre" data-error-field="nombre" className="input mt-1" value={nombre} onBlur={() => setFieldErrors({ nombre: validateName(nombre) })} onChange={event => { setNombre(event.target.value); setFieldErrors({ nombre: validateName(event.target.value) }); }} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); addNew(); } }} placeholder="Ej: Municipalidad de Resistencia" aria-invalid={Boolean(fieldErrors.nombre)} aria-describedby={fieldErrors.nombre ? "adoptante-nombre-error" : undefined} disabled={disabled} />{fieldErrors.nombre && <p id="adoptante-nombre-error" role="alert" className="text-sm text-rose-700">{fieldErrors.nombre}</p>}<div className="mt-3 flex gap-2"><Button type="button" size="sm" onClick={addNew} disabled={disabled}>Añadir al formulario</Button><Button type="button" size="sm" variant="secondary" onClick={() => { setShowNew(false); setNombre(""); }}>Cancelar</Button></div><p className="mt-2 text-xs text-slate-500">El adoptante se creará al guardar la transferencia.</p></div>}
     <p className="text-sm font-medium">Adoptantes seleccionados ({selected.length})</p>
     <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full text-left text-sm"><caption className="sr-only">Adoptantes seleccionados</caption><thead className="bg-slate-50 text-slate-600"><tr><th scope="col" className="px-4 py-2">Adoptante</th><th scope="col" className="px-4 py-2 text-right">Acciones</th></tr></thead><tbody>{selected.length ? selected.slice(selectedStart, selectedStart + 5).map(item => <tr key={item.id} className="border-t border-slate-200"><td className="px-4 py-2">{item.nombre}{item.id < 0 && <span className="ml-2 text-xs text-slate-500">(nuevo, pendiente de guardar)</span>}</td><td className="px-4 py-2 text-right"><Button type="button" variant="secondary" size="sm" disabled={disabled} aria-label={`Quitar ${item.nombre}`} onClick={() => onChange(selected.filter(value => value.id !== item.id))}>Quitar</Button></td></tr>) : <tr><td colSpan={2} className="px-4 py-4 text-center text-slate-500">No hay adoptantes seleccionados.</td></tr>}</tbody></table></div>
     {selected.length > 5 && <nav aria-label="Páginas de adoptantes seleccionados" className="flex items-center gap-2 text-sm">

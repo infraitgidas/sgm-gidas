@@ -1,5 +1,13 @@
 # Modulo backend de dashboard
 
+## Montos de transferencias por moneda
+
+En `transferencias_por_tipo_contrato`, `total` cuenta todas las transferencias
+del tipo. `monto_total` acumula únicamente ARS y `monto_total_usd` acumula USD;
+no se suman unidades distintas ni se aplica conversión. Los gráficos de cantidad
+conservan el conteo conjunto. La prueba de monedas mixtas está en
+`tests/test_moneda_equipamiento_transferencia.py`.
+
 El resumen financiero consulta `MovimientoFinanciero` y
 `SaldoFinancieroService`: ingresos, egresos y saldo ARS derivan de movimientos
 activos; los egresos se agrupan por categoría `CORRIENTE` o `CAPITAL`. No utiliza

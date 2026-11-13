@@ -1,3 +1,4 @@
+import { useHomeState, useHomeFilterEffect } from "@/modules/shared/hooks/useHomeState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,7 +8,7 @@ import Button from "@/components/Button";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import MemoriaFilterBanner from "@/components/MemoriaFilterBanner";
 import SuccessToast from "@/components/SuccessToast";
-import Table, { TableActionButton, TableActions, TableFilterChip, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
+import Table, { TableActionButton, TableActions, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
 import type { TableColumn } from "@/components/Table";
 import TableFilterSelect from "@/components/TableFilterSelect";
 import { useAuth } from "@/context/AuthContext";
@@ -18,12 +19,15 @@ import { useEquipamiento } from "@/modules/recursos/hooks/useEquipamiento";
 import { getHistorialEquipamientoById, type Equipamiento, type HistorialEquipamientoItem } from "@/modules/recursos/services/equipamientoServices";
 import { getCivilYear } from "@/utils/dateTime";
 
+import { formatImporte, formatImporteHistorial } from "@/utils/money";
+
 const ITEMS_PER_PAGE = 9;
 const HISTORY_PER_PAGE = 3;
 const historyLabels: Record<string, string> = {
   denominacion: "Denominación",
   descripcion_breve: "Descripción breve",
   monto_invertido: "Monto invertido",
+  moneda: "Moneda",
   fecha_incorporacion: "Fecha de incorporación",
   grupo_utn_id: "Grupo UTN",
 };
@@ -33,12 +37,9 @@ const formatDate = (value?: string | null) => {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
   return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
 };
-const formatMoney = (value: number) => Number.isFinite(value)
-  ? new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(value)
-  : "-";
 const formatHistoryValue = (field: string, value: unknown, item: Equipamiento) => {
   if (value === null || value === undefined || value === "") return "-";
-  if (field === "monto_invertido") return formatMoney(Number(value));
+  if (field === "monto_invertido") return formatImporteHistorial(value);
   if (field === "fecha_incorporacion") return formatDate(String(value));
   if (field === "grupo_utn_id") return Number(value) === item.grupo_utn_id ? item.grupo || "Grupo UTN" : "Grupo UTN";
   return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : "-";
@@ -54,11 +55,11 @@ export default function EquipamientoLanding() {
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [pendingDelete, setPendingDelete] = useState<Equipamiento | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useHomeState("searchQuery", "");
+  const [page, setPage] = useHomeState("page", 1);
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
-  const [filters, setFilters] = useState({ estado: "", montoMin: "", montoMax: "", anio: "" });
+  const [filters, setFilters] = useHomeState("filters", { estado: "", moneda: "", montoMin: "", montoMax: "", anio: "" });
 
   const memoriaFilter = useMemo(() => getMemoriaSectionFilter(location.state, "equipamiento"), [location.state]);
   const filtroActivos: "true" | "false" | "all" = memoriaFilter || filters.estado === "todos"
@@ -79,7 +80,8 @@ export default function EquipamientoLanding() {
       const matchesMin = !filters.montoMin || item.monto_invertido >= Number(filters.montoMin);
       const matchesMax = !filters.montoMax || item.monto_invertido <= Number(filters.montoMax);
       const matchesYear = !filters.anio || getCivilYear(item.fecha_incorporacion) === Number(filters.anio);
-      return matchesSearch && matchesMin && matchesMax && matchesYear;
+      const matchesCurrency = !filters.moneda || item.moneda === filters.moneda;
+      return matchesSearch && matchesMin && matchesMax && matchesYear && matchesCurrency;
     });
   }, [scopedList, searchQuery, filters]);
   const totalPages = Math.ceil(filteredList.length / ITEMS_PER_PAGE);
@@ -92,8 +94,8 @@ export default function EquipamientoLanding() {
     staleTime: 5 * 60_000,
   });
 
-  useEffect(() => { setPage(1); setExpandedRow(null); }, [filters, searchQuery]);
-  useEffect(() => { if (page > Math.max(totalPages, 1)) setPage(Math.max(totalPages, 1)); }, [page, totalPages]);
+  useHomeFilterEffect(() => { setPage(1); setExpandedRow(null); }, [filters, searchQuery]);
+  useEffect(() => { if (!equipamiento.isLoading && !equipamiento.isError && page > Math.max(totalPages, 1)) setPage(Math.max(totalPages, 1)); }, [page, totalPages, equipamiento.isLoading, equipamiento.isError]);
   useEffect(() => {
     if (!location.state?.successMessage) return;
     setSuccessMessage(location.state.successMessage);
@@ -141,7 +143,7 @@ export default function EquipamientoLanding() {
   const columns: TableColumn<Equipamiento>[] = [
     { id: "denominacion", header: "Equipamiento", render: (item) => <div><span className="block font-medium text-slate-900">{item.denominacion || "-"}</span><span className="mt-0.5 block text-xs text-slate-500">{item.descripcion_breve || "Sin descripción"}</span></div> },
     { id: "fecha", header: "Fecha de incorporación", priority: "secondary", render: (item) => formatDate(item.fecha_incorporacion) },
-    { id: "monto", header: "Monto invertido", priority: "tertiary", render: (item) => formatMoney(item.monto_invertido) },
+    { id: "monto", header: "Monto invertido", priority: "tertiary", render: (item) => formatImporte(item.monto_invertido, item.moneda) },
     { id: "estado", header: "Estado", render: (item) => { const active = !item.deleted_at; return <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${active ? "text-emerald-700" : "text-rose-700"}`}><span aria-hidden="true" className={`h-2 w-2 rounded-full ${active ? "bg-emerald-500" : "bg-rose-500"}`} />{active ? "Activo" : "Inactivo"}</span>; } },
     { id: "acciones", header: "Acciones", align: "right", render: (item) => <TableActions>
       <TableRowActionButton action="view" aria-label={`Ver detalle de ${item.denominacion || "equipamiento"}`} onClick={() => navigate(`/equipamiento/${item.id}`, { state: buildMemoriaDetailState(location) })} />
@@ -183,12 +185,16 @@ export default function EquipamientoLanding() {
         toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
           <TableSearch label="Buscar equipamiento" placeholder="Buscar por denominación o descripción" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de equipamiento">
-            <span className="shrink-0 text-xs font-medium text-slate-500">Estado</span>
-            <TableFilterChip className="shrink-0" active={quickEstadoActual === "activos"} onClick={() => setFilter("estado", "")}>Activos</TableFilterChip>
-            <TableFilterChip className="shrink-0" active={quickEstadoActual === "todos"} onClick={() => setFilter("estado", "todos")}>Todos</TableFilterChip>
-            <TableFilterChip className="shrink-0" active={quickEstadoActual === "inactivos"} onClick={() => setFilter("estado", "inactivos")}>Inactivos</TableFilterChip>
+            <TableFilterSelect
+              label="Filtrar por estado"
+              placeholder="Todos"
+              value={quickEstadoActual === "todos" ? undefined : (quickEstadoActual || "activos")}
+              onValueChange={(value) => setFilter("estado", value === "activos" ? "" : value ?? "todos")}
+              options={[{ value: "activos", label: "Activos" }, { value: "inactivos", label: "Inactivos" }]}
+            />
             <TableFilterSelect label="Filtrar por año de incorporación" placeholder="Todos los años" value={filters.anio || undefined} onValueChange={(value) => setFilter("anio", value)} options={years} />
-            <label className="flex shrink-0 items-center gap-1 text-xs text-slate-600">Monto desde<input type="number" min="0" step="0.01" className="h-8 w-28 rounded-lg border border-slate-300 bg-white px-2 outline-none focus-visible:ring-2 focus-visible:ring-slate-500" placeholder="Mínimo" value={filters.montoMin} onChange={(event) => setFilter("montoMin", event.target.value)} /></label>
+            <TableFilterSelect label="Filtrar por moneda" placeholder="Todas las monedas" value={filters.moneda || undefined} onValueChange={(value) => setFilter("moneda", value)} options={[{ value: "ARS", label: "ARS" }, { value: "USD", label: "USD" }]} />
+            <label className="flex shrink-0 items-center gap-1 text-xs text-slate-600">Monto original desde<input type="number" min="0" step="0.01" className="h-8 w-28 rounded-lg border border-slate-300 bg-white px-2 outline-none focus-visible:ring-2 focus-visible:ring-slate-500" placeholder="Mínimo" value={filters.montoMin} onChange={(event) => setFilter("montoMin", event.target.value)} /></label>
             <label className="flex shrink-0 items-center gap-1 text-xs text-slate-600">Hasta<input type="number" min="0" step="0.01" className="h-8 w-28 rounded-lg border border-slate-300 bg-white px-2 outline-none focus-visible:ring-2 focus-visible:ring-slate-500" placeholder="Máximo" value={filters.montoMax} onChange={(event) => setFilter("montoMax", event.target.value)} /></label>
           </div>
         </div></TableToolbar>}

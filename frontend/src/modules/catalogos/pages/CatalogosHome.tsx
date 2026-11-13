@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useHomeState, useHomeFilterEffect } from "@/modules/shared/hooks/useHomeState";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { getCatalogReturn } from "@/modules/catalogos/utils/catalogNavigation";
+import { useCatalogDraft, type CatalogDraft } from "@/modules/catalogos/hooks/useCatalogDraft";
+import DraftRecoveryNotice from "@/modules/shared/components/DraftRecoveryNotice";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -20,6 +24,7 @@ import {
   type CatalogItem,
 } from "@/modules/catalogos/services/catalogoServices";
 import Button from "@/components/Button";
+import TableFilterSelect from "@/components/TableFilterSelect";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import ErrorText from "@/components/ErrorText";
 import Field from "@/components/Field";
@@ -147,7 +152,7 @@ const CATALOGS: CatalogDef[] = [
     description: "Administra los adoptantes disponibles para transferencias. Puede añadir adoptantes nuevos desde el formulario de transferencia.",
   },
   {
-    label: "Tipo de Registro Propiedad",
+    label: "Tipo de Registro de Propiedad",
     endpoint: "/tipo-registro-propiedad/",
     description: "Clasifica registros de propiedad intelectual e industrial.",
   },
@@ -314,11 +319,17 @@ function CatalogPanel({
   canCreate,
   canEdit,
   canDelete,
+  initialDraft,
+  onDraftChange,
+  onDraftClear,
 }: {
   def: CatalogDef;
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  initialDraft: CatalogDraft | null;
+  onDraftChange: (value: CatalogDraft | null) => void;
+  onDraftClear: () => Promise<void>;
 }) {
   const queryClient = useQueryClient();
   const nameField = def.nameField ?? "nombre";
@@ -330,7 +341,7 @@ function CatalogPanel({
     : hasDescriptiveCatalogName(value);
 
   const [items, setItems] = useState<CatalogItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<"create" | "update" | "delete" | null>(null);
   const actionInFlight = useRef(false);
   const [fkOptions, setFkOptions] = useState<CatalogItem[]>([]);
@@ -340,26 +351,40 @@ function CatalogPanel({
   const [historyErrorId, setHistoryErrorId] = useState<number | null>(null);
   const [historyPageByItem, setHistoryPageByItem] = useState<Record<number, number>>({});
 
-  const [showAdd, setShowAdd] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newDesc, setNewDesc] = useState("");
-  const [newFkId, setNewFkId] = useState<number | "">("");
+  const [showAdd, setShowAdd] = useState(initialDraft?.mode === "create");
+  const [newName, setNewName] = useState(initialDraft?.mode === "create" ? initialDraft.name : "");
+  const [newDesc, setNewDesc] = useState(initialDraft?.mode === "create" ? initialDraft.description : "");
+  const [newFkId, setNewFkId] = useState<number | "">(initialDraft?.mode === "create" ? initialDraft.fkId : "");
 
-  const [editId, setEditId] = useState<number | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editDesc, setEditDesc] = useState("");
-  const [editFkId, setEditFkId] = useState<number | "">("");
+  const [editId, setEditId] = useState<number | null>(initialDraft?.mode === "edit" ? initialDraft.editId : null);
+  const [editName, setEditName] = useState(initialDraft?.mode === "edit" ? initialDraft.name : "");
+  const [editDesc, setEditDesc] = useState(initialDraft?.mode === "edit" ? initialDraft.description : "");
+  const [editFkId, setEditFkId] = useState<number | "">(initialDraft?.mode === "edit" ? initialDraft.fkId : "");
 
   const [deleteTarget, setDeleteTarget] = useState<CatalogItem | null>(null);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
-  const [currentPage, setCurrentPage] = useState(1);
+  const [search, setSearch] = useHomeState("search", "", { scope: def.endpoint });
+  const [statusFilter, setStatusFilter] = useHomeState<StatusFilter>("statusFilter", "active", { scope: def.endpoint, allowed: ["active", "inactive", "all"] });
+  const [currentPage, setCurrentPage] = useHomeState("currentPage", 1, { scope: def.endpoint });
   const [errorMessage, setErrorMessage] = useState("");
+  const [newNameError, setNewNameError] = useState("");
+  const [editNameError, setEditNameError] = useState("");
+  const validateName = (value: string) => !value.trim()
+    ? "Ingrese un nombre."
+    : validName(value) ? "" : isBibliographicAuthor || isAdoptante
+      ? "Ingrese un nombre con letras y espacios."
+      : "El nombre debe contener al menos una letra.";
+
   const [toast, setToast] = useState<ToastState>({
     open: false,
     message: "",
     variant: "success",
   });
+
+  useEffect(() => {
+    onDraftChange(editId ? { endpoint: def.endpoint, mode: "edit", editId, name: editName, description: editDesc, fkId: editFkId }
+      : showAdd ? { endpoint: def.endpoint, mode: "create", editId: null, name: newName, description: newDesc, fkId: newFkId } : null);
+  }, [def.endpoint, editId, editName, editDesc, editFkId, showAdd, newName, newDesc, newFkId, onDraftChange]);
+
 
   const entityLabel = def.label.toLowerCase();
   const fkLabel = def.fkField?.label ?? "";
@@ -465,19 +490,27 @@ function CatalogPanel({
     return filteredItems.slice(start, start + CATALOG_ITEMS_PER_PAGE);
   }, [currentPage, filteredItems]);
 
-  useEffect(() => {
+  useHomeFilterEffect(() => {
     setCurrentPage(1);
   }, [search, statusFilter]);
 
   useEffect(() => {
-    if (currentPage > totalPages) {
+    if (!loading && !errorMessage && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, totalPages, loading, errorMessage]);
+
+  useEffect(() => {
+    if (!initialDraft?.editId) return;
+    setStatusFilter("all");
+    const index = filteredItems.findIndex(item => item.id === initialDraft.editId);
+    if (index >= 0) setCurrentPage(Math.floor(index / CATALOG_ITEMS_PER_PAGE) + 1);
+  }, [filteredItems, initialDraft]);
 
   const handleAdd = async () => {
     if (actionInFlight.current) return;
     if (!canCreate) return;
+    setNewNameError(validateName(newName));
     if (!newName.trim()) {
       setErrorMessage("Debe ingresar un nombre antes de crear el registro.");
       return;
@@ -500,12 +533,13 @@ function CatalogPanel({
     setPendingAction("create");
     try {
       await createCatalogItem(def.endpoint, body);
-      setNewName("");
+      await onDraftClear().catch(() => undefined);
+      setNewName(""); setNewNameError("");
       setNewDesc("");
       setNewFkId("");
       setShowAdd(false);
       setErrorMessage("");
-      showToast(`El registro se creo correctamente en ${def.label}.`, "success");
+      showToast(`El registro se creó correctamente en ${def.label}.`, "success");
       await queryClient.invalidateQueries();
       await load();
     } catch (error) {
@@ -538,8 +572,9 @@ function CatalogPanel({
       return;
     }
 
+    setEditNameError(validateName(editName));
     if (!editName.trim()) {
-      setErrorMessage("El nombre no puede estar vacio.");
+      setErrorMessage("El nombre no puede estar vacío.");
       return;
     }
 
@@ -562,6 +597,7 @@ function CatalogPanel({
     }
 
     if (Object.keys(body).length === 0) {
+      await onDraftClear().catch(() => undefined);
       setEditId(null);
       setErrorMessage("");
       showToast("No hubo cambios para actualizar.", "success");
@@ -572,6 +608,7 @@ function CatalogPanel({
     setPendingAction("update");
     try {
       await updateCatalogItem(def.endpoint, id, body);
+      await onDraftClear().catch(() => undefined);
       setEditId(null);
       setErrorMessage("");
       showToast(`Los cambios se guardaron correctamente en ${def.label}.`, "success");
@@ -609,7 +646,7 @@ function CatalogPanel({
       await deleteCatalogItem(def.endpoint, deleteTarget.id);
       setDeleteTarget(null);
       setErrorMessage("");
-      showToast(`El registro se elimino correctamente de ${def.label}.`, "success");
+      showToast(`El registro se eliminó correctamente de ${def.label}.`, "success");
       await queryClient.invalidateQueries();
       await load();
     } catch (error) {
@@ -640,23 +677,16 @@ function CatalogPanel({
           />
         </div>
 
-        <div className="flex gap-2" role="group" aria-label="Estado de valores">
-          {(["all", "active", "inactive"] as StatusFilter[]).map((filter) => (
-            <button
-              key={filter}
-              type="button"
-              disabled={filter !== "all" && !hasAnyStatusData}
-              onClick={() => setStatusFilter(filter)}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                statusFilter === filter
-                  ? "border-sky-200 bg-sky-50 text-sky-700"
-                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-              } disabled:cursor-not-allowed disabled:opacity-40`}
-            >
-              {filter === "all" ? "Todos" : filter === "active" ? "Activos" : "Inactivos"}
-            </button>
-          ))}
-        </div>
+        <TableFilterSelect
+          label="Filtrar por estado de valores"
+          placeholder="Todos"
+          value={statusFilter === "all" ? undefined : statusFilter}
+          onValueChange={(value) => setStatusFilter((value ?? "all") as StatusFilter)}
+          options={[
+            { value: "active", label: "Activos", disabled: !hasAnyStatusData },
+            { value: "inactive", label: "Inactivos", disabled: !hasAnyStatusData },
+          ]}
+        />
       </div>
 
       {loading && <LoadingSkeleton variant="table" label="Cargando catálogo…" />}
@@ -691,12 +721,14 @@ function CatalogPanel({
                 <div className="space-y-3">
                   <Field
                     label={nameLabel}
+                    error={editNameError}
                     required
                   >
                     <input
                       className="input"
                       value={editName}
-                      onChange={(event) => setEditName(event.target.value)}
+                      onChange={(event) => { setEditName(event.target.value); setEditNameError(validateName(event.target.value)); }}
+                      onBlur={() => setEditNameError(validateName(editName))}
                       onKeyDown={(event) => event.key === "Enter" && handleUpdate(item.id)}
                       autoFocus
                     />
@@ -737,7 +769,7 @@ function CatalogPanel({
                       type="button"
                       variant="secondary"
                       size="sm"
-                      onClick={() => setEditId(null)}
+                      onClick={() => { void onDraftClear().catch(() => undefined); setEditId(null); }}
                     >
                       Cancelar
                     </Button>
@@ -811,7 +843,7 @@ function CatalogPanel({
                         size="sm"
                         onClick={() => {
                           setEditId(item.id);
-                          setEditName(getDisplayName(item));
+                          setEditName(getDisplayName(item)); setEditNameError("");
                           setEditDesc(def.descField ? ((item[def.descField] as string) ?? "") : "");
                           setEditFkId(getFkId(item));
                           setErrorMessage("");
@@ -971,13 +1003,15 @@ function CatalogPanel({
         <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/30 px-4 py-4">
           <Field
             label={nameLabel}
+            error={newNameError}
             required
           >
             <input
               className="input"
               placeholder="Nombre"
               value={newName}
-              onChange={(event) => setNewName(event.target.value)}
+              onChange={(event) => { setNewName(event.target.value); setNewNameError(validateName(event.target.value)); }}
+              onBlur={() => setNewNameError(validateName(newName))}
               onKeyDown={(event) => event.key === "Enter" && handleAdd()}
               autoFocus
             />
@@ -1019,8 +1053,9 @@ function CatalogPanel({
               variant="secondary"
               size="sm"
               onClick={() => {
+                void onDraftClear().catch(() => undefined);
                 setShowAdd(false);
-                setNewName("");
+                setNewName(""); setNewNameError("");
                 setNewDesc("");
                 setNewFkId("");
                 setErrorMessage("");
@@ -1078,12 +1113,30 @@ function CatalogPanel({
 
 export default function CatalogosHome() {
   const navigate = useNavigate();
-  const { canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
-  const [selectedEndpoint, setSelectedEndpoint] = useState(CATALOGS[0].endpoint);
+  const location = useLocation();
+  const returnTo = getCatalogReturn(location.state);
+  const { user, canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
+  const draft = useCatalogDraft(user?.id, canCreateRecords() || canEditRecords());
+  const [restoredDraft, setRestoredDraft] = useState<CatalogDraft | null>(null);
+  const [draftVersion, setDraftVersion] = useState(0);
+  const onDraftChange = useCallback((value: CatalogDraft | null) => draft.setValue(value), [draft.setValue]);
+  const [selectedEndpoint, setSelectedEndpoint] = useHomeState("selectedEndpoint", CATALOGS[0].endpoint, { allowed: CATALOGS.map(item => item.endpoint) });
   const selectedCatalog = CATALOGS.find((catalog) => catalog.endpoint === selectedEndpoint) ?? CATALOGS[0];
 
   return (
     <section className="w-full min-h-[calc(100vh-120px)] px-4 py-4 flex flex-col">
+      {draft.available && <DraftRecoveryNotice savedAt={draft.available.saved_at}
+        onDiscard={draft.clear}
+        onRestore={() => {
+          const saved = draft.available!.data;
+          if (!CATALOGS.some(item => item.endpoint === saved.endpoint) || (saved.mode === "edit" ? !canEditRecords() : !canCreateRecords())) return;
+          setSelectedEndpoint(saved.endpoint);
+          setRestoredDraft(saved);
+          setDraftVersion(value => value + 1);
+          draft.restore();
+        }} />}
+      {draft.status && <p role="status" className="mb-3 text-sm text-slate-600">{draft.status}</p>}
+      {!draft.ready && !draft.available && <Button type="button" onClick={draft.retry}>Reintentar carga del borrador</Button>}
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-2xl font-semibold md:text-3xl">Gestionar Catálogos</h2>
@@ -1091,7 +1144,7 @@ export default function CatalogosHome() {
             Consulte y administre las opciones que usan los formularios.
           </p>
         </div>
-        <Button type="button" variant="secondary" size="sm" onClick={() => navigate(-1)}>Volver</Button>
+        <Button type="button" variant="secondary" size="sm" onClick={() => navigate(returnTo, { state: returnTo.state, replace: true })}>Volver</Button>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1104,7 +1157,10 @@ export default function CatalogosHome() {
         </Field>
         <p className="mt-3 text-sm text-slate-600">{selectedCatalog.description}</p>
         <CatalogPanel
-          key={selectedCatalog.endpoint}
+          key={`${selectedCatalog.endpoint}:${draftVersion}`}
+          initialDraft={restoredDraft?.endpoint === selectedCatalog.endpoint ? restoredDraft : null}
+          onDraftChange={onDraftChange}
+          onDraftClear={async () => { await draft.clear(); setRestoredDraft(null); }}
           def={selectedCatalog}
           canCreate={canCreateRecords()}
           canEdit={canEditRecords()}

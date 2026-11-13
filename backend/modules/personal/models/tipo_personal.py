@@ -1,5 +1,6 @@
 from extension import db
 from modules.shared.models.audit_mixin import AuditMixin
+from modules.personal.services.tipo_personal_compatibilidad import compatible_con_personal
 
 
 class TipoPersonal(db.Model, AuditMixin):
@@ -11,6 +12,6 @@ class TipoPersonal(db.Model, AuditMixin):
 
     
     def serialize(self):
-        return self.to_dict()
+        return {**self.to_dict(), "compatible_con_personal": compatible_con_personal(self.nombre)}
     
    

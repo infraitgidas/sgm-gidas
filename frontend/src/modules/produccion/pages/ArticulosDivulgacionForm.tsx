@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { applyFieldErrors } from "@/lib/httpError";
 import { useState, useEffect } from "react";
@@ -68,15 +69,9 @@ export default function ArticulosDivulgacionForm() {
     onRestore: (draft) => { setTitulo(draft.titulo); setDescripcion(draft.descripcion); setFechaPublicacion(draft.fechaPublicacion ? new Date(`${draft.fechaPublicacion}T00:00:00`) : null); },
   });
 
-  const clearError = (field: string) => {
-    setErrors((prev) => {
-      const copy = { ...prev };
-      delete copy[field];
-      return copy;
-    });
-  };
-
-  const validate = () => {
+  const validationValues = { titulo, descripcion, fechaPublicacion };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { titulo, descripcion, fechaPublicacion } = { ...validationValues, ...changes };
     const newErrors: Record<string, string> = {};
 
     if (!titulo.trim()) {
@@ -96,6 +91,15 @@ export default function ArticulosDivulgacionForm() {
       newErrors.fecha = "Debe seleccionar fecha";
     }
 
+    return newErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  const validate = () => {
+    const newErrors = getValidationErrors();
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -237,8 +241,8 @@ export default function ArticulosDivulgacionForm() {
               value={titulo}
               onChange={(e) => {
                 setTitulo(e.target.value);
-                if (e.target.value.trim()) clearError("titulo");
-              }}
+                validateChangedField("titulo", { titulo: e.target.value });
+              }} onBlur={() => validateChangedField("titulo")}
               placeholder="Ej: Impacto de la investigación en la comunidad"
             />
         </Field>
@@ -249,8 +253,8 @@ export default function ArticulosDivulgacionForm() {
               value={descripcion}
               onChange={(e) => {
                 setDescripcion(e.target.value);
-                if (e.target.value.trim()) clearError("descripcion");
-              }}
+                validateChangedField("descripcion", { descripcion: e.target.value });
+              }} onBlur={() => validateChangedField("descripcion")}
               placeholder="Ej: Artículo orientado a la divulgación de resultados científicos para público general"
             />
         </Field>
@@ -260,7 +264,7 @@ export default function ArticulosDivulgacionForm() {
             value={fechaPublicacion}
             onChange={(date) => {
               setFechaPublicacion(date);
-              if (date) clearError("fecha");
+              validateChangedField("fecha", { fechaPublicacion: date });
             }}
             className={inputClass("fecha")}
             helperText="DD/MM/AAAA"

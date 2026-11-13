@@ -1,8 +1,10 @@
+import { formatPersonalHistoryEntry } from "@/modules/personal/utils/personalHistory";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ShieldCheck } from "lucide-react";
+import BecarioDatosSection from "@/modules/personal/components/BecarioDatosSection";
 import Button from "@/components/Button";
 import SuccessToast from "@/components/SuccessToast";
 import HistorialCambiosCard from "@/components/HistorialCambiosCard";
@@ -14,11 +16,6 @@ import {
 import type { HistorialHorasItem } from "@/modules/personal/services/personalCompletoServices";
 import { useAuditoria } from "@/modules/shared/hooks/useAuditoria";
 import { useAuth } from "@/context/AuthContext";
-import { useTiposFormacion } from "@/modules/personal/hooks/useTiposFormacion";
-import { useDedicaciones } from "@/modules/personal/hooks/useDedicaciones";
-import { useCategoriasUtn } from "@/modules/catalogos/hooks/useCategoriasUtn";
-import { useProgramasIncentivos } from "@/modules/grupo/hooks/useProgramasIncentivos";
-import { useTiposPersonal } from "@/modules/personal/hooks/useTiposPersonal";
 import {
   navigateBackFromMemoriaContext,
   stripSuccessMessageState,
@@ -29,11 +26,6 @@ export default function PersonalDetalle() {
   const navigate = useNavigate();
   const location = useLocation();
   const { canEditRecords } = useAuth();
-  const { data: tiposFormacion = [] } = useTiposFormacion();
-  const { data: dedicaciones = [] } = useDedicaciones();
-  const { data: categoriasUtn = [] } = useCategoriasUtn();
-  const { data: programasIncentivos = [] } = useProgramasIncentivos();
-  const { data: tiposPersonal = [] } = useTiposPersonal();
 
   const puedeEditar = canEditRecords();
 
@@ -71,6 +63,8 @@ export default function PersonalDetalle() {
   const {
     data: historialCambios = [],
     isLoading: isLoadingHistorial,
+    isError: isErrorHistorial,
+    refetch: refetchHistorial,
   } = useQuery({
     queryKey: ["personal-historial", rol, id],
     queryFn: () => getHistorialPersonalByRolAndId(rol!, Number(id)),
@@ -85,7 +79,7 @@ export default function PersonalDetalle() {
   }
 
   if (isError || !data) {
-    return <>{successAnnouncement}<p className="text-slate-500">No se encontró el registro.</p></>;
+    return <>{successAnnouncement}<p role="alert" className="text-slate-500">Lo sentimos, no pudimos recuperar la información. Intente nuevamente.</p><Button variant="secondary" onClick={() => navigate(0)}>Reintentar</Button></>;
   }
 
   const relaciones = data.relaciones || {};
@@ -129,59 +123,29 @@ export default function PersonalDetalle() {
     navigate(`/personal/${rol}/${id}/editar`);
   };
 
-  const getCatalogName = (
-    collection: Array<{ id: number; nombre: string }>,
-    value: unknown
-  ) => {
-    const normalizedId =
-      typeof value === "number"
-        ? value
-        : typeof value === "string" && value.trim() !== ""
-          ? Number(value)
-          : NaN;
-
-    if (Number.isNaN(normalizedId)) {
-      return null;
-    }
-
-    return collection.find((item) => item.id === normalizedId)?.nombre ?? null;
-  };
-
-  const formatHistorialValue = (item: { campo?: string }, value: unknown) => {
-    if (value === null || value === undefined || value === "") {
-      return "-";
-    }
-
-    switch (item.campo) {
-      case "tipo_formacion_id":
-        return getCatalogName(tiposFormacion, value) ?? String(value);
-      case "tipo_dedicacion_id":
-        return getCatalogName(dedicaciones, value) ?? String(value);
-      case "categoria_utn_id":
-        return getCatalogName(categoriasUtn, value) ?? String(value);
-      case "programa_incentivos_id":
-        return getCatalogName(programasIncentivos, value) ?? String(value);
-      case "tipo_personal_id":
-        return getCatalogName(tiposPersonal, value) ?? String(value);
-      default:
-        if (typeof value === "object") {
-          try {
-            return JSON.stringify(value);
-          } catch {
-            return "-";
-          }
-        }
-        return String(value);
-    }
-  };
+  const historialCard = <div className="min-w-0 break-words">
+    <HistorialCambiosCard
+      subtitle={data.nombre_apellido}
+      items={historialCambios}
+      isLoading={isLoadingHistorial}
+      updatedAt={data.updated_at}
+      updatedByName={nombreActualizador}
+      pageSize={3}
+      formatItemPresentation={formatPersonalHistoryEntry}
+    />
+    {isErrorHistorial && <div role="alert" className="mt-3 text-sm text-slate-600">
+      <p>Lo sentimos, no pudimos recuperar el historial. Intente nuevamente.</p>
+      <Button variant="secondary" size="sm" onClick={() => void refetchHistorial()}>Reintentar</Button>
+    </div>}
+  </div>;
 
   return (
     <>
       {successAnnouncement}
       <section className="flex flex-col gap-6">
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col gap-2">
-            <h2 className="text-2xl md:text-3xl font-semibold leading-none">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-col gap-2">
+            <h2 className="break-words text-2xl md:text-3xl font-semibold leading-none">
               {data.nombre_apellido ?? "Detalle"}
             </h2>
 
@@ -211,7 +175,7 @@ export default function PersonalDetalle() {
           )}
         </div>
 
-        <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+        {rol === "becario" ? <BecarioDatosSection data={data} /> : <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
             <p><span className="font-semibold text-slate-800">DNI:</span> {data.dni || "Sin registrar"}</p>
             <p><span className="font-semibold text-slate-800">CUIL:</span> {data.cuil || "Sin registrar"}</p>
@@ -227,7 +191,7 @@ export default function PersonalDetalle() {
             {relaciones.tipo_formacion?.nombre && (
               <p>
                 <span className="font-semibold text-slate-800">
-                  Grado de Formación:
+                  Nivel de Formación:
                 </span>{" "}
                 {relaciones.tipo_formacion.nombre}
               </p>
@@ -254,7 +218,7 @@ export default function PersonalDetalle() {
             {relaciones.tipo_dedicacion?.nombre && (
               <p>
                 <span className="font-semibold text-slate-800">
-                  Tipo de Dedicacion:
+                  Tipo de Dedicación:
                 </span>{" "}
                 {relaciones.tipo_dedicacion.nombre}
               </p>
@@ -429,12 +393,17 @@ export default function PersonalDetalle() {
                 );
               })}
           </div>
-        </article>
+        </article>}
 
-        <article className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-slate-800">Auditoría</h3>
-            <p className="mt-1 text-xs text-slate-500">{data.nombre_apellido}</p>
+        {rol === "becario" && historialCard}
+
+        <article className="min-w-0 break-words rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm sm:p-6">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-800">Auditoría</h3>
+              <p className="mt-1 text-xs text-slate-500">{data.nombre_apellido}</p>
+            </div>
+            <ShieldCheck className="h-5 w-5 shrink-0 text-slate-400" strokeWidth={1.5} aria-hidden="true" />
           </div>
 
           <div className="space-y-2 text-sm text-slate-500 md:text-base">
@@ -461,14 +430,7 @@ export default function PersonalDetalle() {
           </div>
         </article>
 
-        <HistorialCambiosCard
-          subtitle={data.nombre_apellido}
-          items={historialCambios}
-          isLoading={isLoadingHistorial}
-          updatedAt={data.updated_at}
-          updatedByName={nombreActualizador}
-          formatItemValue={(item, value) => formatHistorialValue(item, value)}
-        />
+        {rol !== "becario" && historialCard}
 
         <div className="flex justify-start pt-4">
           <Button

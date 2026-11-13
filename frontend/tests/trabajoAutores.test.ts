@@ -14,11 +14,13 @@ function load(file: string, mocks: Record<string, unknown> = {}) {
     module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
   runInNewContext(code, { URL, module, exports: module.exports, require: (name: string) => {
+    if (name === "@/lib/liveValidation") return require("../src/lib/liveValidation.ts");
     if (name in mocks) return mocks[name];
     if (name === "@/utils/dateTime") return { toCivilDateString: (date: Date | null) => date ? date.toISOString().slice(0, 10) : "" };
     if (name === "@/modules/shared/hooks/useFormDraft") return { useFormDraft: () => ({ availableDraft: null, clearDraft() {}, saveStatus: "idle", blocker: { state: "unblocked" } }) };
     if (name.startsWith("@/components/") || name.startsWith("@/modules/produccion/components/")) return { default: name.split("/").at(-1) };
     if (name === "@/modules/produccion/utils/trabajoEnlace") return load("src/modules/produccion/utils/trabajoEnlace.ts");
+    if (name === "@/modules/produccion/utils/clasificacionTrabajo") return load("src/modules/produccion/utils/clasificacionTrabajo.ts");
     if (name === "../../../lib/textValidation") return require("../src/lib/textValidation.ts");
     if (name.startsWith("@/")) return {};
     return require(name);
@@ -239,6 +241,34 @@ for (const [page, serviceFile, getName, updateName, createName, route] of [
     await submit();
     assert.equal(saved.enlace, null);
 
+    // Classification stays local and sends false/null without converting them to omission.
+    initialData = { ...initialData, autores: [becario], enlace: null };
+    const referatoSelect = () => render().find(node => node.type === "select" && node.props.id === "referato");
+    const beforeClasificacion = calls;
+    referatoSelect().props.onChange({ target: { value: "false" } });
+    assert.equal(calls, beforeClasificacion);
+    await submit();
+    assert.equal(JSON.stringify(saved), '{"referato":false}');
+    initialData = { ...initialData, referato: false };
+    await submit();
+    assert.equal(calls, beforeClasificacion + 1);
+    referatoSelect().props.onChange({ target: { value: "" } });
+    await submit();
+    assert.equal(JSON.stringify(saved), '{"referato":null}');
+    initialData = { ...initialData, referato: null };
+    if (page === "TrabajosReunionForm") {
+      const alcanceSelect = () => render().find(node => node.type === "select" && node.props.id === "alcance");
+      alcanceSelect().props.onChange({ target: { value: "nacional" } });
+      assert.ok(render().some(node => node.props.name === "procedencia" && node.props.label === "Ciudad"));
+      await submit();
+      assert.equal(JSON.stringify(saved), '{"alcance":"nacional"}');
+      initialData = { ...initialData, alcance: "nacional" };
+      alcanceSelect().props.onChange({ target: { value: "internacional" } });
+      assert.ok(render().some(node => node.props.name === "procedencia" && node.props.label === "País"));
+      await submit();
+      assert.equal(JSON.stringify(saved), '{"alcance":"internacional"}');
+    }
+
   });
 }
 
@@ -267,6 +297,35 @@ test("ISS-17: reuniones informa fechas programadas y oculta referencias internas
   assert.match(source, /Puede indicar una presentación programada\./);
   assert.doesNotMatch(source, /includeTrackingReference/);
   assert.doesNotMatch(source, /maxDate=\{new Date\(\)\}/);
+});
+
+test("ISS-25: los services preservan false, null y omisión sin duplicar alcance de revistas", async () => {
+  for (const [file, getName, updateName] of [
+    ["trabajosReunionServices", "getTrabajoReunionById", "updateTrabajoReunion"],
+    ["trabajosRevistasServices", "getTrabajoRevistaById", "updateTrabajoRevista"],
+  ]) {
+    let sent: any;
+    const service = load(`src/modules/produccion/services/${file}.ts`, {
+      "@/lib/http": { http: async (_path: string, options: any) => {
+        if (options.body) sent = JSON.parse(options.body);
+        return { id: 8, referato: false, alcance: "internacional", tipo_revista: { id: 1, nombre: "Internacional" } };
+      } },
+    });
+    assert.equal((await service[getName](8)).referato, false);
+    await service[updateName](8, { referato: false });
+    assert.equal(JSON.stringify(sent), '{"referato":false}');
+    await service[updateName](8, { referato: null });
+    assert.equal(JSON.stringify(sent), '{"referato":null}');
+    await service[updateName](8, { titulo_trabajo: "Trabajo" });
+    assert.equal("referato" in sent, false);
+    if (file === "trabajosRevistasServices") {
+      await service[updateName](8, { tipo_revista_id: 1, alcance: "internacional" });
+      assert.equal(JSON.stringify(sent), '{"tipo_revista_id":1}');
+    } else {
+      await service[updateName](8, { alcance: null });
+      assert.equal(JSON.stringify(sent), '{"alcance":null}');
+    }
+  }
 });
 
 test("ISS-14: enlace opcional valida protocolo, longitud y apertura segura", () => {

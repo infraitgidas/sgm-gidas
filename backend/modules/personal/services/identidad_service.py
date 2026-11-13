@@ -55,12 +55,24 @@ def asignar_identidad(entidad, data, *, nueva=False):
         IdentidadPersonal.id != (anterior.id if anterior else -1),
     ).first()
     if otra:
+        from modules.personal.models.personal import Personal, Becario, Investigador
+        inactiva = any(model.query.filter_by(identidad_id=otra.id, activo=False).first()
+                       for model in (Personal, Becario, Investigador))
+        if inactiva:
+            mensaje = "La identidad pertenece a personal inactivo. Busque por nombre en Personal > Inactivos y solicite su reactivacion a un gestor."
+            raise ConflictError(mensaje, details={"fields": {"dni": mensaje}})
         raise ConflictError("El DNI ya esta registrado.", details={"fields": {"dni": "El DNI ya esta registrado."}})
     otra = IdentidadPersonal.query.filter(
         IdentidadPersonal.cuil == cuil,
         IdentidadPersonal.id != (anterior.id if anterior else -1),
     ).first()
     if otra:
+        from modules.personal.models.personal import Personal, Becario, Investigador
+        inactiva = any(model.query.filter_by(identidad_id=otra.id, activo=False).first()
+                       for model in (Personal, Becario, Investigador))
+        if inactiva:
+            mensaje = "La identidad pertenece a personal inactivo. Busque por nombre en Personal > Inactivos y solicite su reactivacion a un gestor."
+            raise ConflictError(mensaje, details={"fields": {"dni": mensaje}})
         raise ConflictError("El CUIL ya esta registrado.", details={"fields": {"cuil": "El CUIL ya esta registrado."}})
 
     cambios = {}

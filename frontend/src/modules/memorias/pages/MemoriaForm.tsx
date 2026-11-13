@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import { getGruposUtn } from "@/modules/grupo/services/gruposUtnServices";
 import { applyFieldErrors, focusFieldErrors } from "@/lib/httpError";
 import { useState } from "react";
@@ -38,7 +39,9 @@ export default function MemoriaForm() {
     onRestore: (draft) => { setGrupoId(draft.grupoId); setPeriodoInicio(draft.periodoInicio); setPeriodoFin(draft.periodoFin); setFechaApertura(draft.fechaApertura); },
   });
 
-  const validate = () => {
+  const validationValues = { grupoId, periodoInicio, periodoFin };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { grupoId, periodoInicio, periodoFin } = { ...validationValues, ...changes };
     const nextErrors: Record<string, string> = {};
 
     if (!grupoId) nextErrors.grupo_utn_id = "Debe seleccionar una UCT.";
@@ -56,6 +59,15 @@ export default function MemoriaForm() {
         "La fecha de fin no puede ser anterior al inicio del período.";
     }
 
+    return nextErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  const validate = () => {
+    const nextErrors = getValidationErrors();
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) focusFieldErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -125,8 +137,9 @@ export default function MemoriaForm() {
       >
         <Field required label="UCT" name="grupo_utn_id" error={errors.grupo_utn_id}>
           <select id="grupo_utn_id" value={grupoId} disabled={cargandoGrupos || errorGrupos || isPending} onChange={(event) => {
-            setGrupoId(event.target.value); setErrors((prev) => ({ ...prev, grupo_utn_id: "" }));
-          }} className="w-full rounded-lg border border-slate-200 p-3">
+            setGrupoId(event.target.value);
+            validateChangedField("grupo_utn_id", { grupoId: event.target.value });
+          }} onBlur={() => validateChangedField("grupo_utn_id")} className="w-full rounded-lg border border-slate-200 p-3">
             <option value="">Seleccione una UCT</option>
             {grupos.map((grupo) => <option key={grupo.id} value={grupo.id}>{grupo.nombre}</option>)}
           </select>
@@ -148,9 +161,7 @@ export default function MemoriaForm() {
             value={periodoInicio ? new Date(`${periodoInicio}T00:00:00`) : null}
             onChange={(date) => {
               setPeriodoInicio(toCivilDateString(date) ?? "");
-              if (errors.periodoInicio) {
-                setErrors((prev) => ({ ...prev, periodoInicio: "" }));
-              }
+              validateChangedField("periodoInicio", { periodoInicio: toCivilDateString(date) ?? "" });
             }}
             helperText="DD/MM/AAAA"
             className={inputClass("periodoInicio")}
@@ -162,9 +173,7 @@ export default function MemoriaForm() {
             value={periodoFin ? new Date(`${periodoFin}T00:00:00`) : null}
             onChange={(date) => {
               setPeriodoFin(toCivilDateString(date) ?? "");
-              if (errors.periodoFin) {
-                setErrors((prev) => ({ ...prev, periodoFin: "" }));
-              }
+              validateChangedField("periodoFin", { periodoFin: toCivilDateString(date) ?? "" });
             }}
             helperText="DD/MM/AAAA"
             className={inputClass("periodoFin")}
@@ -176,7 +185,7 @@ export default function MemoriaForm() {
             value={fechaApertura ? new Date(fechaApertura) : null}
             onChange={(date) => {
               setFechaApertura(date ? date.toISOString().slice(0, 19) : "");
-              setErrors((prev) => ({ ...prev, fechaApertura: "" }));
+              validateChangedField("fechaApertura");
             }}
             helperText="Opcional. Si no se informa, se usa la fecha actual."
             className={inputClass("fechaApertura")}

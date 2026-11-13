@@ -1,3 +1,4 @@
+from modules.produccion.services.clasificacion_trabajo import validar_clasificacion
 from modules.memorias.services.memoria_periodo_service import (
     consultar_entidades_memoria, registro_puntual_en_memoria,
 )
@@ -300,6 +301,7 @@ class TrabajosRevistasReferatoService:
             fecha_publicacion,
         )
 
+        clasificacion = validar_clasificacion(data, reunion=False)
         enlace = validar_enlace(data.get("enlace"))
         autores = validar_autores(data.get("autores", []))
 
@@ -313,6 +315,7 @@ class TrabajosRevistasReferatoService:
             grupo_utn_id=grupo_utn_id,
             tipo_revista_id=tipo_revista_id,
             enlace=enlace,
+            **clasificacion,
             created_by=user_id
         )
 
@@ -334,6 +337,7 @@ class TrabajosRevistasReferatoService:
         trabajo = TrabajosRevistasReferatoService._get_activo_or_404(trabajo_id)
         autores = validar_autores(data["autores"], trabajo.autorias) if "autores" in data else None
         enlace = validar_enlace(data["enlace"]) if "enlace" in data else trabajo.enlace
+        clasificacion = validar_clasificacion(data, reunion=False)
         cambios = {}
 
         titulo_trabajo = trabajo.titulo_trabajo
@@ -458,6 +462,12 @@ class TrabajosRevistasReferatoService:
                 cambios["enlace"] = cambio
                 trabajo.enlace = enlace
 
+            for campo, valor in clasificacion.items():
+                cambio = AuditoriaService.construir_cambio(getattr(trabajo, campo), valor)
+                if cambio:
+                    cambios[campo] = cambio
+                    setattr(trabajo, campo, valor)
+
             if cambios:
                 trabajo.mark_updated(user_id)
                 AuditoriaService.registrar_cambios(
@@ -535,6 +545,7 @@ class TrabajosRevistasReferatoService:
                 memoria_version_id=memoria_version.id,
                 trabajo_revista_id=trabajo.id,
                 enlace=trabajo.enlace,
+                referato=trabajo.referato,
                 titulo_trabajo=trabajo.titulo_trabajo,
                 nombre_revista=trabajo.nombre_revista,
                 editorial=trabajo.editorial,

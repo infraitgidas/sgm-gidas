@@ -1,3 +1,6 @@
+from modules.personal.services.nombre_service import preparar_nombre, asignar_nombre, nombre_para_memoria
+from modules.personal.services.fecha_validation import validar_fecha_alta_grupo
+from modules.personal.services.historial_service import obtener_historial_personal
 from modules.memorias.services.memoria_periodo_service import (
     consultar_entidades_memoria, resolver_horas_al_fin,
 )
@@ -24,7 +27,6 @@ from modules.proyectos.models.proyecto_investigacion import InvestigadorProyecto
 from modules.produccion.models.trabajo_autor import TrabajoReunionAutor
 from modules.shared.services.auditoria_service import AuditoriaService
 from modules.memorias.services.memoria_periodo_service import (
-    validar_fecha_alta_grupo,
     estuvo_activo_en_periodo_memoria,
 )
 
@@ -163,6 +165,7 @@ def crear_investigador(data, user_id):
     _validar_payload(data)
     _validar_user_id(user_id)
 
+    data = preparar_nombre(data)
     nombre = _validar_nombre(data.get("nombre_apellido"))
     horas = _validar_horas(data.get("horas_semanales"))
     tipo_dedicacion_id = _validar_tipo_dedicacion(data.get("tipo_dedicacion_id"))
@@ -180,6 +183,7 @@ def crear_investigador(data, user_id):
         activo=True,
         created_by=user_id
     )
+    asignar_nombre(investigador, data)
     asignar_identidad(investigador, data, nueva=True)
 
     try:
@@ -225,6 +229,8 @@ def actualizar_investigador(id, data, user_id):
 
     investigador = _obtener_investigador_activo(id)
     cambios = {}
+    data = preparar_nombre(data, investigador)
+    cambios.update(asignar_nombre(investigador, data))
     cambios.update(asignar_identidad(investigador, data))
 
     if "nombre_apellido" in data:
@@ -464,7 +470,7 @@ def obtener_investigador_por_id(id):
 
 def obtener_historial_investigador(id):
     investigador = obtener_investigador_por_id(id)
-    return AuditoriaService.obtener_historial_entidad(
+    return obtener_historial_personal(
         entidad="investigador",
         registro_id=investigador.id
     )
@@ -484,7 +490,8 @@ def snapshot_investigadores_para_memoria_version(memoria_version, user_id):
         snapshot = InvestigadorMemoriaVersion(
             memoria_version_id=memoria_version.id,
             investigador_id=investigador.id,
-            nombre_apellido=investigador.nombre_apellido,
+            nombre_apellido=nombre_para_memoria(investigador),
+            identidad_id=getattr(investigador, "identidad_id", None),
             fecha_alta_grupo=investigador.fecha_alta_grupo,
             horas_semanales=resolver_horas_al_fin(investigador, memoria_version),
             tipo_dedicacion_id=investigador.tipo_dedicacion_id,

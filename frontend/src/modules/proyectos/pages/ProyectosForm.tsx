@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { applyFieldErrors, focusFieldErrors } from "@/lib/httpError";
 import { hasLetter } from "../../../lib/textValidation";
@@ -259,15 +260,9 @@ export default function ProyectosForm() {
     },
   });
 
-  const clearError = (field: string) => {
-    setErrors((prev) => {
-      const copy = { ...prev };
-      delete copy[field];
-      return copy;
-    });
-  };
-
-  const validate = () => {
+  const validationValues = { nombreProyecto, codigoProyecto, logrosObtenidos, montoDestinado, fechaInicio, fechaFin, tipoProyectoId, investigadoresIds, coordinadorId, becariosIds };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { nombreProyecto, codigoProyecto, logrosObtenidos, montoDestinado, fechaInicio, fechaFin, tipoProyectoId, investigadoresIds, coordinadorId, becariosIds } = { ...validationValues, ...changes };
     const newErrors: Record<string, string> = {};
 
     const codigoProyectoError = validateCodigoProyecto(codigoProyecto);
@@ -301,7 +296,7 @@ export default function ProyectosForm() {
       montoDestinado.trim() !== "" &&
       (!Number.isFinite(Number(montoDestinado)) || Number(montoDestinado) < 0)
     ) {
-      newErrors.montoDestinado = "El monto debe ser un numero mayor o igual a cero";
+      newErrors.montoDestinado = "El monto debe ser un número mayor o igual a cero";
     }
 
     if (investigadoresIds.some(id => !Number.isInteger(id) || id <= 0)) {
@@ -326,6 +321,15 @@ export default function ProyectosForm() {
         "El coordinador debe ser uno de los investigadores seleccionados";
     }
 
+    return newErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  const validate = () => {
+    const newErrors = getValidationErrors();
     setErrors(newErrors);
     if (Object.keys(newErrors).length) {
       focusFieldErrors(newErrors);
@@ -478,8 +482,8 @@ export default function ProyectosForm() {
               value={codigoProyecto}
               onChange={(e) => {
                 setCodigoProyecto(e.target.value);
-                clearError("codigoProyecto");
-              }}
+                validateChangedField("codigoProyecto", { codigoProyecto: e.target.value });
+              }} onBlur={() => validateChangedField("codigoProyecto")}
               placeholder="Ej: LPSIEC1347"
               maxLength={PROYECTO_CODIGO_MAX_LENGTH}
               aria-label="Código del proyecto"
@@ -508,8 +512,8 @@ export default function ProyectosForm() {
               value={nombreProyecto}
               onChange={(e) => {
                 setNombreProyecto(e.target.value);
-                if (e.target.value.trim()) clearError("nombreProyecto");
-              }}
+                validateChangedField("nombreProyecto", { nombreProyecto: e.target.value });
+              }} onBlur={() => validateChangedField("nombreProyecto")}
               placeholder="Ingrese el nombre del proyecto"
               disabled={proyectoCerrado}
             />
@@ -525,7 +529,7 @@ export default function ProyectosForm() {
           <textarea
             className="input min-h-[100px]"
             value={descripcionProyecto}
-            onChange={(e) => setDescripcionProyecto(e.target.value)}
+            onChange={(e) => { setDescripcionProyecto(e.target.value); validateChangedField("descripcionProyecto"); }} onBlur={() => validateChangedField("descripcionProyecto")}
             placeholder="Describe detalladamente los objetivos, metodología y alcance del proyecto."
             required
             disabled={proyectoCerrado}
@@ -536,7 +540,7 @@ export default function ProyectosForm() {
           <textarea
             className="input min-h-[100px]"
             value={logrosObtenidos}
-            onChange={(e) => setLogrosObtenidos(e.target.value)}
+            onChange={(e) => { setLogrosObtenidos(e.target.value); validateChangedField("logrosObtenidos", { logrosObtenidos: e.target.value }); }} onBlur={() => validateChangedField("logrosObtenidos")}
             maxLength={20000}
             placeholder="Describa los resultados y avances obtenidos por el proyecto."
             disabled={proyectoCerrado}
@@ -548,7 +552,7 @@ export default function ProyectosForm() {
           <textarea
             className="input min-h-[100px]"
             value={dificultadesProyecto}
-            onChange={(e) => setDificultadesProyecto(e.target.value)}
+            onChange={(e) => { setDificultadesProyecto(e.target.value); validateChangedField("dificultadesProyecto"); }} onBlur={() => validateChangedField("dificultadesProyecto")}
             placeholder="Describe dificultades, riesgos o bloqueos del proyecto."
             disabled={proyectoCerrado}
           />
@@ -563,8 +567,8 @@ export default function ProyectosForm() {
                 onChange={(e) => {
                   const value = e.target.value ? Number(e.target.value) : null;
                   setTipoProyectoId(value);
-                  if (value) clearError("tipoProyectoId");
-                }}
+                  validateChangedField("tipoProyectoId", { tipoProyectoId: value });
+                }} onBlur={() => validateChangedField("tipoProyectoId")}
                 disabled={proyectoCerrado}
               >
                 <option value="" disabled>
@@ -588,9 +592,8 @@ export default function ProyectosForm() {
             <select
               className="input"
               value={fuenteId ?? ""}
-              onChange={(e) =>
-                setFuenteId(e.target.value ? Number(e.target.value) : null)
-              }
+              onChange={(e) => { setFuenteId(e.target.value ? Number(e.target.value) : null); validateChangedField("fuenteId"); }
+              } onBlur={() => validateChangedField("fuenteId")}
               disabled={proyectoCerrado}
             >
               <option value="">Sin fuente</option>
@@ -614,8 +617,8 @@ export default function ProyectosForm() {
                 value={montoDestinado}
                 onChange={(e) => {
                   setMontoDestinado(e.target.value);
-                  clearError("montoDestinado");
-                }}
+                  validateChangedField("montoDestinado", { montoDestinado: e.target.value });
+                }} onBlur={() => validateChangedField("montoDestinado")}
                 placeholder="Ej: 1500000"
                 disabled={proyectoCerrado}
               />
@@ -648,10 +651,13 @@ export default function ProyectosForm() {
               ]}
               disabled={proyectoCerrado || investigadoresQuery.isLoading || investigadoresQuery.isError}
               onChange={(ids) => {
-                if (proyectoCerrado) return;
+                if (proyectoCerrado)
+                  return;
                 setInvestigadoresIds(ids);
-                clearError("investigadoresIds");
-                clearError("coordinadorId");
+                validateChangedField("investigadoresIds", {
+                  investigadoresIds: ids,
+                  coordinadorId: coordinadorId !== null && !ids.includes(coordinadorId) ? null : coordinadorId,
+                });
               }}
             />
 
@@ -676,10 +682,11 @@ export default function ProyectosForm() {
                         name="coordinador"
                         checked={coordinadorId === investigador.id}
                         onChange={() => {
-                          if (proyectoCerrado) return;
+                          if (proyectoCerrado)
+                            return;
                           setCoordinadorId(investigador.id);
-                          clearError("coordinadorId");
-                        }}
+                          validateChangedField("coordinadorId", { coordinadorId: investigador.id });
+                        }} onBlur={() => validateChangedField("coordinadorId")}
                         disabled={proyectoCerrado || (!investigadores.some(c => c.id === investigador.id) && coordinadorId !== investigador.id)}
                       />
                       <span className="text-sm text-slate-700">
@@ -718,8 +725,10 @@ export default function ProyectosForm() {
               ...(initialData?.becarios ?? []).filter((becario) => !becarios.some((candidate) => candidate.id === becario.id)),
             ]}
             onChange={(ids) => {
-              if (proyectoCerrado) return;
+              if (proyectoCerrado)
+                return;
               setBecariosIds(ids);
+              validateChangedField("becariosIds", { becariosIds: ids });
             }}
           />
         </Field>
@@ -729,9 +738,10 @@ export default function ProyectosForm() {
             <Calendar
               value={fechaInicio}
               onChange={(date) => {
-                if (proyectoCerrado || initialData?.fechaFinProrrogada) return;
+                if (proyectoCerrado || initialData?.fechaFinProrrogada)
+                  return;
                 setFechaInicio(date);
-                if (date) clearError("fechaInicio");
+                validateChangedField("fechaInicio", { fechaInicio: date });
               }}
               className={inputClass("fechaInicio")}
               helperText="DD/MM/AAAA"
@@ -742,9 +752,10 @@ export default function ProyectosForm() {
             <Calendar
               value={fechaFin}
               onChange={(date) => {
-                if (proyectoCerrado || initialData?.fechaFinProrrogada) return;
+                if (proyectoCerrado || initialData?.fechaFinProrrogada)
+                  return;
                 setFechaFin(date);
-                if (date) clearError("fechaFin");
+                validateChangedField("fechaFin", { fechaFin: date });
               }}
               minDate={fechaInicio ?? undefined}
               className="input"

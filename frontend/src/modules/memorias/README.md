@@ -1,5 +1,74 @@
 # Memorias
 
+## Acciones del listado y confirmaciones (ISS-100)
+
+La fila principal de `MemoriasHome` permite reabrir una memoria activa cuya
+versión actual está cerrada, para ADMIN/GESTOR. La confirmación explica que se
+crea una nueva versión y que los datos de las versiones cerradas son inmutables.
+El cierre también advierte que cualquier modificación requiere una reapertura.
+Home y detalle comparten estos textos en `utils/confirmacionesMemoria.ts`, con
+opciones Continuar y Volver. Cancelar no persiste cambios; confirmar bloquea
+duplicados y actualiza las consultas de listado, detalle e historial.
+
+En el panel desplegable, cada versión cerrada ofrece descarga con icono
+`Download`, incluidas las históricas, sin repetir la reapertura. Se reutiliza
+`exportarExcelMemoria(memoriaId, versionId)` y sus permisos ADMIN/GESTOR.
+Mientras genera el archivo muestra un indicador accesible y bloquea descargas
+duplicadas; informa el nombre del archivo al terminar o un error accionable.
+Las versiones abiertas y en revisión conservan sus acciones de gestión.
+
+Aceptado visual y funcionalmente el 07/11/2026. Validación: 271 pruebas frontend,
+TypeScript, build de producción y regresiones backend de estados, inmutabilidad,
+formato Excel y permisos aprobados. Sin cambios de contratos HTTP.
+
+## Filtros desplegables (ISS-47)
+
+MemoriasHome: estado del registro; conserva el filtro independiente de estado de versión.
+Los filtros del listado utilizan `TableFilterSelect`, con nombre accesible y
+selección mediante teclado. Todos/Todas elimina la restricción del criterio.
+La adaptación del selector conserva valores, setters y opciones de consulta;
+se mantienen services, permisos, nueve filas por página, contexto de Memoria
+y persistencia de filtros de ISS-50. No se modifican campos de formularios.
+
+Aceptado visual y funcionalmente el 06/11/2026. Validación integrada:
+269 pruebas frontend, TypeScript y build de producción aprobados.
+`tests/homeFilterSelect.test.ts` comprueba selección y limpieza en las cuatro
+pantallas principales y ausencia de chips de filtrado en los homes.
+
+## Validacion preventiva de formularios (ISS-33)
+
+`MemoriaForm` y `MemoriaPeriodoForm` reutilizan sus comprobaciones en la
+interaccion y al guardar. Seleccionar UCT y completar los extremos del periodo
+conserva sus reglas; modificar el inicio revalida que el fin no lo preceda.
+Calendar mantiene las comprobaciones de formato y rango. Los errores del otro
+extremo o del servidor permanecen visibles hasta que el campo correspondiente
+o una dependencia real los modifique. La correccion del periodo sigue enviando
+solo diferencias y no hace solicitudes de dominio al validar.
+
+La actualizacion de errores usa `src/lib/liveValidation.ts`, que revalida el
+campo editado y las reglas cuyo resultado cambia por dependencia, preservando
+los demas errores. No agrega hooks compartidos ni modifica componentes globales.
+Las validaciones no disparan escrituras de dominio. Se conservan services,
+contratos, permisos, borradores, navegacion y feedback de exito.
+La etapa fue aceptada visual y funcionalmente por el usuario el 05/11/2026;
+la regresion transversal esta en `tests/liveValidation.test.ts`.
+
+## Moneda en exportaciones de Equipamiento y Transferencias
+
+Las fotos de Equipamiento y Transferencias incluyen `moneda` ARS/USD junto al
+importe original. El Excel de una versión usa esos valores históricos y muestra
+el código de moneda en el formato de la celda numérica, sin conversiones. Las
+fotos anteriores se identifican como ARS; editar la ficha actual no cambia su
+importe ni la moneda guardada en una versión anterior.
+
+## Acceso desde el menú ADMIN (ISS-52)
+
+El menú ADMIN ofrece Inicio, Administración, Memorias y Búsqueda. El enlace
+`/memorias` permanece visible con versiones abiertas, en revisión, cerradas o
+sin memorias. Cerrar la única memoria no impide volver al listado, crear otro
+período o utilizar la reapertura existente. El ajuste se limita a Sidebar;
+no cambia vistas, servicios, validaciones, confirmaciones ni permisos.
+
 ## Generación institucional validada (ISS-94)
 
 El operador carga datos en los módulos del sistema, crea una memoria con UCT y
@@ -12,6 +81,28 @@ Durante la descarga, el botón `Generar Excel` muestra exclusivamente
 `Generando el archivo...` dentro del mismo control y queda bloqueado para evitar
 envíos duplicados. Al terminar se muestra éxito o un error que permite reintentar.
 El indicador de progreso no introduce porcentajes ni mensajes externos al botón.
+
+## Archivo académico de la versión (ISS-98)
+
+`MemoriaVersionDetalle` y `exportarExcelMemoria` mantienen el flujo de descarga,
+el endpoint, los permisos ADMIN/GESTOR y el requisito de versión cerrada. No se
+modifican componentes, hooks, tipos, formularios ni validaciones del frontend.
+
+El archivo descargado contiene el formulario institucional en `Hoja1` y los datos
+complementarios en `Detalle académico`, incluido el detalle financiero y los
+registros sin clasificación suficiente. Ambos usan exclusivamente la información
+conservada por esa versión. Los campos institucionales ausentes se indican como
+sin información; no se completan con ejemplos del laboratorio ni con fichas actuales.
+
+El backend corrige bordes, ajuste de texto, reservas vacías, fechas, importes y
+separación de libros/revistas. El enlace de la cabecera del formulario conduce al
+detalle del mismo archivo. El operador puede revisar allí fechas, roles, vigencias
+y advertencias por movimientos excluidos del resumen. Se mantienen el feedback
+de generación y la posibilidad de reintentar ante errores.
+
+Aceptado visual y funcionalmente por el usuario el 07/11/2026. La validación del
+archivo y su procedencia está cubierta por las regresiones backend; no hay cambios
+de contrato HTTP ni de navegación.
 
 ## Error del programa de actividades (ISS-74)
 
@@ -50,7 +141,7 @@ y enfocan el primer campo inválido. Los nombres locales de los controles se
 vinculan con las claves API, sin cambiar el payload del service ni los permisos.
 Los errores sin campo o con campos desconocidos conservan el aviso general;
 los errores inesperados muestran un mensaje publico seguro o un fallback accionable, sin identificadores internos.
-Se conservan las reglas y el momento de validación existentes. Véase el contrato
+Se conservan las reglas de validacion; ISS-33 incorpora feedback preventivo. Véase el contrato
 transversal en `../README.md`.
 
 ## Fechas
@@ -74,10 +165,10 @@ detalle `GET /api/v1/memorias/{id}`, con caché independiente por ID. La carga,
 el error con reintento y la ausencia de versiones se muestran dentro del panel.
 
 La fila y la acción Ver abren el detalle de la Memoria. El panel de versiones
-presenta cuatro iconos: ver detalle (`Eye`), reabrir (`RotateCcw`), cerrar
-(`LockKeyhole`) y enviar a revisión (`Send`). El detalle abre los snapshots de
+presenta ver detalle (`Eye`), descargar Excel (`Download`) para versiones
+cerradas, cerrar (`LockKeyhole`) y enviar a revisión (`Send`). El detalle abre los snapshots de
 una versión cerrada o la gestión de la versión vigente abierta/en revisión.
-ADMIN y GESTOR pueden reabrir solo la versión vigente cerrada, cerrar una versión
+ADMIN y GESTOR pueden reabrir desde la fila principal solo la versión vigente cerrada, cerrar una versión
 abierta/en revisión y enviar a revisión una versión abierta. Las acciones de
 estado se deshabilitan para versiones históricas y roles sin permiso.
 Reapertura, cierre y revisión requieren confirmación; el diálogo queda bloqueado
@@ -219,3 +310,37 @@ filas y `activos=all`. Los filtros y totales se aplican a todo el
 conjunto de la seccion, no solo a la pagina visible. Los IDs vacios
 mantienen el listado vacio y la UCT se valida en el backend.
 No cambian las versiones, acciones, snapshots ni la exportacion Excel.
+
+## Consulta histórica de Personal
+
+En `MemoriaVersionDetalle`, las secciones Personal, Becarios e Investigadores
+ofrecen «Ver datos de esta versión». `components/PersonalSnapshotDialog.tsx`
+recibe la colección ya capturada por la versión y muestra los datos congelados
+con nueve filas por página; no consulta ni edita la ficha actual del integrante.
+Los campos ausentes se muestran como «Sin dato». Se conserva el acceso existente
+a la versión y sus permisos, sin agregar endpoints ni hooks compartidos.
+
+El diálogo tiene título y descripción accesibles, cierre por Escape y clic
+exterior, foco inicial y retorno al botón que lo abrió. Las demás secciones
+mantienen sus accesos. El Excel continúa utilizando las fotos de esa versión.
+
+La corrección de una clase elegida erróneamente durante el alta no modifica una
+versión anterior. Al cerrar una nueva versión se captura la clase corregida.
+Los cambios posteriores de categoría laboral no forman parte del alcance
+definido. Los bloqueos por vínculos operativos se conservan en Personal.
+`personalSnapshot.test.ts` cubre las tres clases, campos ausentes y paginación.
+
+Los encabezados históricos usan Tipo de Personal, Nivel de Formación y Tipo de
+Dedicación, alineados con los catálogos de los formularios. Los valores guardados
+en cada foto conservan su contenido; corregir una etiqueta no reescribe versiones.
+
+
+## Recuperacion del contexto de consulta (ISS-50)
+
+MemoriasHome conserva estado de actividad, estado de version, texto y pagina. La carga inicial no reinicia la pagina recuperada.
+
+Los homes con estado local usan `shared/hooks/useHomeState.ts`; Busqueda conserva
+su contrato de URL. La persistencia validada se limita a la pestana y al usuario,
+sin guardar filas ni acciones pendientes. Se mantienen services, permisos,
+validaciones y paginacion vigentes. Contrato y pruebas en `../shared/README.md`.
+Aceptado funcionalmente por el usuario el 06/11/2026.

@@ -152,11 +152,11 @@ export async function searchAll(
   }
 
   if (query.length > SEARCH_MAX_QUERY_LENGTH) {
-    throw new Error("El texto de busqueda es demasiado largo.");
+    throw new Error("El texto de búsqueda es demasiado largo.");
   }
 
   if (!Number.isInteger(page) || page < 1) {
-    throw new Error("La pagina debe ser un entero mayor a cero.");
+    throw new Error("La página debe ser un entero mayor a cero.");
   }
 
   const params = new URLSearchParams({

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { NavLink, type To } from "react-router-dom";
+import { NavLink, useLocation, type To } from "react-router-dom";
+import { buildCatalogNavigationState } from "@/modules/catalogos/utils/catalogNavigation";
 import { ChevronDown, Lock, LogOut, Menu, Shield, User, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -46,6 +47,7 @@ const baseItems: Item[] = [
 const adminItems: Item[] = [
   { label: "Inicio", to: "/inicio" },
   { label: "Administración", to: "/administracion" },
+  { label: "Memorias", to: "/memorias" },
   { label: "Búsqueda", to: "/busqueda" },
 ];
 
@@ -76,6 +78,7 @@ function keyFrom(label: string, to: To | undefined, idx: number, parentKey: stri
 }
 
 function MenuList({ nodes, parentKey = "root", level = 0, expanded, onToggle, close }: MenuListProps) {
+  const location = useLocation();
   return (
     <ul className={level === 0 ? "select-none" : "pl-5 border-l border-slate-200"}>
       {nodes.map((node, idx) => {
@@ -86,9 +89,20 @@ function MenuList({ nodes, parentKey = "root", level = 0, expanded, onToggle, cl
         return (
           <li key={key} className="mb-1">
             <div className="flex items-stretch border-b border-slate-200">
-              {node.to ? (
+              {hasChildren ? (
+                <button
+                  type="button"
+                  onClick={() => onToggle(key)}
+                  aria-expanded={isNodeOpen}
+                  className={`flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-slate-100 ${level === 0 ? "text-slate-900" : "text-slate-700"}`}
+                >
+                  <span className="flex-1">{node.label}</span>
+                  <ChevronDown aria-hidden="true" className={`w-4 h-4 shrink-0 transition-transform duration-300 ${isNodeOpen ? "rotate-180" : ""}`} />
+                </button>
+              ) : node.to ? (
                 <NavLink
                   to={node.to}
+                  state={node.to === "/catalogos" ? buildCatalogNavigationState(location) : undefined}
                   onClick={close}
                   end
                   className={({ isActive }) =>
@@ -103,21 +117,6 @@ function MenuList({ nodes, parentKey = "root", level = 0, expanded, onToggle, cl
                 <span className={`flex-1 px-3 py-3 ${level === 0 ? "text-slate-900" : "text-slate-700"}`}>
                   {node.label}
                 </span>
-              )}
-
-              {hasChildren && (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggle(key);
-                  }}
-                  aria-expanded={isNodeOpen}
-                  aria-label={`Desplegar ${node.label}`}
-                  className="px-3 py-3 hover:bg-slate-100 text-slate-900"
-                >
-                  <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isNodeOpen ? "rotate-180" : ""}`} />
-                </button>
               )}
             </div>
 

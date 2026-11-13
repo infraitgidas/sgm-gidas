@@ -1,3 +1,4 @@
+import { useHomeState, useHomeFilterEffect } from "@/modules/shared/hooks/useHomeState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,7 +11,6 @@ import SuccessToast from "@/components/SuccessToast";
 import Table, {
   TableActionButton,
   TableActions,
-  TableFilterChip,
   TableRowActionButton,
   TableSearch,
   TableToolbar,
@@ -52,9 +52,9 @@ export default function ParticipacionesHome() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const { canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filters, setFilters] = useState({ estado: "", categoria: "", forma: "", anio: "" });
-  const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useHomeState("searchQuery", "");
+  const [filters, setFilters] = useHomeState("filters", { estado: "", categoria: "", forma: "", anio: "" });
+  const [page, setPage] = useHomeState("page", 1);
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [pendingDelete, setPendingDelete] = useState<Participacion | null>(null);
@@ -119,8 +119,8 @@ export default function ParticipacionesHome() {
     staleTime: 5 * 60_000,
   });
 
-  useEffect(() => { setPage(1); setExpandedRow(null); }, [filters, searchQuery]);
-  useEffect(() => { if (page > Math.max(totalPages, 1)) setPage(Math.max(totalPages, 1)); }, [page, totalPages]);
+  useHomeFilterEffect(() => { setPage(1); setExpandedRow(null); }, [filters, searchQuery]);
+  useEffect(() => { if (!participaciones.isLoading && !participaciones.isError && page > Math.max(totalPages, 1)) setPage(Math.max(totalPages, 1)); }, [page, totalPages, participaciones.isLoading, participaciones.isError]);
   useEffect(() => {
     if (!location.state?.successMessage) return;
     setSuccessMessage(location.state.successMessage);
@@ -202,7 +202,13 @@ export default function ParticipacionesHome() {
           totalPages={totalPages}
           totalRecords={filteredList.length}
           onPageChange={(value) => { setExpandedRow(null); setPage(value); }}
-          toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center"><TableSearch label="Buscar participaciones relevantes" placeholder="Buscar por evento, participante, categoría, forma o fecha" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} /><div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de participaciones relevantes"><span className="shrink-0 text-xs font-medium text-slate-500">Estado</span><TableFilterChip className="shrink-0" active={stateFilter === "activos"} onClick={() => setFilter("estado", "")}>Activos</TableFilterChip><TableFilterChip className="shrink-0" active={stateFilter === "todos"} onClick={() => setFilter("estado", "todos")}>Todos</TableFilterChip><TableFilterChip className="shrink-0" active={stateFilter === "inactivos"} onClick={() => setFilter("estado", "inactivos")}>Inactivos</TableFilterChip><TableFilterSelect label="Filtrar por categoría" placeholder="Todas las categorías" value={filters.categoria || undefined} onValueChange={(value) => setFilter("categoria", value)} options={[{ value: "investigador", label: "Investigadores" }, { value: "becario", label: "Becarios" }]} /><TableFilterSelect label="Filtrar por forma" placeholder="Todas las formas" value={filters.forma || undefined} onValueChange={(value) => setFilter("forma", value)} options={options.forms} /><TableFilterSelect label="Filtrar por año" placeholder="Todos los años" value={filters.anio || undefined} onValueChange={(value) => setFilter("anio", value)} options={options.years} /></div></div></TableToolbar>}
+          toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center"><TableSearch label="Buscar participaciones relevantes" placeholder="Buscar por evento, participante, categoría, forma o fecha" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} /><div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de participaciones relevantes"><TableFilterSelect
+              label="Filtrar por estado"
+              placeholder="Todos"
+              value={stateFilter === "todos" ? undefined : (stateFilter || "activos")}
+              onValueChange={(value) => setFilter("estado", value === "activos" ? "" : value ?? "todos")}
+              options={[{ value: "activos", label: "Activos" }, { value: "inactivos", label: "Inactivos" }]}
+            /><TableFilterSelect label="Filtrar por categoría" placeholder="Todas las categorías" value={filters.categoria || undefined} onValueChange={(value) => setFilter("categoria", value)} options={[{ value: "investigador", label: "Investigadores" }, { value: "becario", label: "Becarios" }]} /><TableFilterSelect label="Filtrar por forma" placeholder="Todas las formas" value={filters.forma || undefined} onValueChange={(value) => setFilter("forma", value)} options={options.forms} /><TableFilterSelect label="Filtrar por año" placeholder="Todos los años" value={filters.anio || undefined} onValueChange={(value) => setFilter("anio", value)} options={options.years} /></div></div></TableToolbar>}
         />
         <ConfirmDialog open={Boolean(pendingDelete)} title="Eliminar participación relevante" message={`¿Está seguro de eliminar ${pendingDelete?.nombre_evento || "esta participación"}?`} onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete} loadingText="Eliminando…" />
       </section>

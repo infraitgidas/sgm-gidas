@@ -11,6 +11,8 @@ from modules.shared.controllers.responses import error_response
 
 
 PUBLIC_AUTH_PATHS = {
+    "/api/v1/auth/password-reset/request",
+    "/api/v1/auth/password-reset/confirm",
     "/api/v1/auth/primer-usuario",
     "/api/v1/auth/login",
     "/api/v1/auth/refresh",

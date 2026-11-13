@@ -1,5 +1,38 @@
 # Modulo frontend de proyectos
 
+## Filtros desplegables (ISS-47)
+
+ProyectosHome y ParticipacionesHome: estado; Proyectos conserva Cerrados e inactivos.
+Los filtros del listado utilizan `TableFilterSelect`, con nombre accesible y
+selección mediante teclado. Todos/Todas elimina la restricción del criterio.
+La adaptación del selector conserva valores, setters y opciones de consulta;
+se mantienen services, permisos, nueve filas por página, contexto de Memoria
+y persistencia de filtros de ISS-50. No se modifican campos de formularios.
+
+Aceptado visual y funcionalmente el 06/11/2026. Validación integrada:
+269 pruebas frontend, TypeScript y build de producción aprobados.
+`tests/homeFilterSelect.test.ts` comprueba selección y limpieza en las cuatro
+pantallas principales y ausencia de chips de filtrado en los homes.
+
+## Validacion preventiva de formularios (ISS-33)
+
+`ProyectosForm` y `ParticipacionesForm` reutilizan sus comprobaciones al
+escribir, al salir del campo y al guardar. Se conservan codigo alfanumerico,
+nombre descriptivo, limites de logros, monto, duracion y seleccion de relaciones.
+Cambiar el inicio revalida el fin; quitar investigadores revalida el coordinador,
+considerando su limpieza automatica cuando deja de estar seleccionado.
+La justificacion de prorroga en `ProyectosDetalle` valida el minimo de diez
+caracteres durante la interaccion. Las relaciones y prorrogas se persisten solo
+al confirmar las acciones existentes.
+
+La actualizacion de errores usa `src/lib/liveValidation.ts`, que revalida el
+campo editado y las reglas cuyo resultado cambia por dependencia, preservando
+los demas errores. No agrega hooks compartidos ni modifica componentes globales.
+Las validaciones no disparan escrituras de dominio. Se conservan services,
+contratos, permisos, borradores, navegacion y feedback de exito.
+La etapa fue aceptada visual y funcionalmente por el usuario el 05/11/2026;
+la regresion transversal esta en `tests/liveValidation.test.ts`.
+
 ## Logros y acciones del detalle (ISS-94)
 
 `ProyectosForm` permite cargar `Logros obtenidos` mediante un textarea opcional
@@ -38,7 +71,7 @@ y enfocan el primer campo inválido. Los nombres locales de los controles se
 vinculan con las claves API, sin cambiar el payload del service ni los permisos.
 Los errores sin campo o con campos desconocidos conservan el aviso general;
 los errores inesperados muestran un mensaje publico seguro o un fallback accionable, sin identificadores internos.
-Se conservan las reglas y el momento de validación existentes. Véase el contrato
+Se conservan las reglas de validacion; ISS-33 incorpora feedback preventivo. Véase el contrato
 transversal en `../README.md`.
 
 ## Fechas
@@ -280,3 +313,14 @@ distinciones y limita relaciones/columnas de participantes al contenido
 del listado, manteniendo los datos usados por las vistas.
 La mejora fue validada tecnicamente junto con el flujo de Memorias y
 aceptada por el usuario como parte de la etapa de rendimiento.
+
+
+## Recuperacion del contexto de consulta (ISS-50)
+
+ProyectosHome conserva texto, estado, tipo, fuente, orden y pagina; ParticipacionesHome conserva texto, filtros y pagina. El debounce de Proyectos no reinicia la pagina recuperada al montar.
+
+Los homes con estado local usan `shared/hooks/useHomeState.ts`; Busqueda conserva
+su contrato de URL. La persistencia validada se limita a la pestana y al usuario,
+sin guardar filas ni acciones pendientes. Se mantienen services, permisos,
+validaciones y paginacion vigentes. Contrato y pruebas en `../shared/README.md`.
+Aceptado funcionalmente por el usuario el 06/11/2026.

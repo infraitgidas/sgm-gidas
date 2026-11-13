@@ -12,7 +12,7 @@ class ActividadDocencia(db.Model, AuditMixin):
     institucion = db.Column(db.Text, nullable=False)
 
     fecha_inicio = db.Column(db.Date, nullable=False)
-    fecha_fin = db.Column(db.Date, nullable=False)
+    fecha_fin = db.Column(db.Date, nullable=True)
 
     investigador_id = db.Column(
         db.Integer,
@@ -224,7 +224,7 @@ class ActividadDocenciaMemoriaVersion(db.Model, AuditMixin):
     curso = db.Column(db.Text, nullable=False)
     institucion = db.Column(db.Text, nullable=False)
     fecha_inicio = db.Column(db.Date, nullable=False)
-    fecha_fin = db.Column(db.Date, nullable=False)
+    fecha_fin = db.Column(db.Date, nullable=True)
 
     investigador_id = db.Column(
         db.Integer,

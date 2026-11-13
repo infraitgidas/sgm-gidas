@@ -1,3 +1,6 @@
+from modules.personal.services.nombre_service import preparar_nombre, asignar_nombre, nombre_para_memoria
+from modules.personal.services.fecha_validation import validar_fecha_alta_grupo
+from modules.personal.services.historial_service import obtener_historial_personal
 from modules.memorias.services.memoria_periodo_service import (
     consultar_entidades_memoria, fin_vigencia, resolver_horas_al_fin,
 )
@@ -22,7 +25,6 @@ from modules.shared.services.auditoria_service import AuditoriaService
 from modules.shared.services.date_time import validate_institutional_date
 from modules.recursos.models.becas import Beca, Beca_Becario
 from modules.memorias.services.memoria_periodo_service import (
-    validar_fecha_alta_grupo,
     estuvo_activo_en_periodo_memoria,
 )
 
@@ -279,6 +281,7 @@ def crear_becario(data: dict, user_id: int):
     _validar_payload(data)
     _validar_user_id(user_id)
 
+    data = preparar_nombre(data)
     nombre = _validar_nombre(data.get("nombre_apellido"))
     horas = _validar_horas(data.get("horas_semanales"))
     tipo_formacion_id = _validar_id_positivo(
@@ -306,6 +309,7 @@ def crear_becario(data: dict, user_id: int):
         activo=True,
         created_by=user_id
     )
+    asignar_nombre(becario, data)
     asignar_identidad(becario, data, nueva=True)
 
     try:
@@ -359,6 +363,8 @@ def actualizar_becario(id: int, data: dict, user_id: int):
 
     becario = _get_activo_or_404(id)
     cambios = {}
+    data = preparar_nombre(data, becario)
+    cambios.update(asignar_nombre(becario, data))
     cambios.update(asignar_identidad(becario, data))
 
     if "activo" in data:
@@ -575,7 +581,7 @@ def obtener_becario_por_id(id: int):
 
 def obtener_historial_becario(id: int):
     becario = obtener_becario_por_id(id)
-    return AuditoriaService.obtener_historial_entidad(
+    return obtener_historial_personal(
         entidad="becario",
         registro_id=becario.id
     )
@@ -596,7 +602,8 @@ def snapshot_becarios_para_memoria_version(memoria_version, user_id):
         snapshot = BecarioMemoriaVersion(
             memoria_version_id=memoria_version.id,
             becario_id=becario.id,
-            nombre_apellido=becario.nombre_apellido,
+            nombre_apellido=nombre_para_memoria(becario),
+            identidad_id=getattr(becario, "identidad_id", None),
             fecha_alta_grupo=becario.fecha_alta_grupo,
             horas_semanales=resolver_horas_al_fin(becario, memoria_version),
             tipo_formacion_id=becario.tipo_formacion_id,

@@ -74,3 +74,14 @@ se conserva el contrato genérico de SearchPage sin campos nuevos de búsqueda.
 Los resultados paginados muestran controles centrados de anterior, números
 de página y siguiente, inmediatamente debajo de las tarjetas o resultados.
 El máximo de resultados por página conserva el contrato del módulo.
+
+
+## Recuperacion del contexto de consulta (ISS-50)
+
+Los filtros y la pagina siguen en la URL. Cargar inicialmente la UCT o renovar el token invalida los resultados en memoria sin reiniciar la pagina recuperada; un cambio real de cuenta o UCT reinicia la pagina. El destino de login se verifica por usuario antes de restaurar la URL.
+
+Los homes con estado local usan `shared/hooks/useHomeState.ts`; Busqueda conserva
+su contrato de URL. La persistencia validada se limita a la pestana y al usuario,
+sin guardar filas ni acciones pendientes. Se mantienen services, permisos,
+validaciones y paginacion vigentes. Contrato y pruebas en `../shared/README.md`.
+Aceptado funcionalmente por el usuario el 06/11/2026.

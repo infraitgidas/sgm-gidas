@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import Field from "@/components/Field";
 import { applyFieldErrors, focusFieldErrors } from "@/lib/httpError";
 import { FormEvent, useState } from "react";
@@ -20,21 +21,32 @@ export default function CambiarPasswordPage() {
   const [showPasswordNueva, setShowPasswordNueva] = useState(false);
   const [showPasswordConfirmacion, setShowPasswordConfirmacion] = useState(false);
 
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [exitoso, setExitoso] = useState(false);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (loading) return;
-    setError(null);
+  const validationValues = { passwordActual, passwordNueva, passwordConfirmacion };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { passwordActual, passwordNueva, passwordConfirmacion } = { ...validationValues, ...changes };
     const nextErrors: Record<string, string> = {};
     if (!esPrimerLogin && !passwordActual.trim()) nextErrors.passwordActual = "Ingrese su contraseña actual.";
     if (passwordNueva.length < 6) nextErrors.passwordNueva = "Ingrese una contraseña de al menos 6 caracteres.";
     if (passwordNueva !== passwordConfirmacion) nextErrors.passwordConfirmacion = "La confirmación debe coincidir con la nueva contraseña.";
     if (!esPrimerLogin && passwordNueva === passwordActual) nextErrors.passwordNueva = "Ingrese una contraseña diferente de la actual.";
-    setFieldErrors(nextErrors);
+    return nextErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (loading) return;
+    setError(null);
+    const nextErrors = getValidationErrors();
+    setErrors(nextErrors);
     if (Object.keys(nextErrors).length) {
       focusFieldErrors(nextErrors);
       return;
@@ -54,7 +66,7 @@ export default function CambiarPasswordPage() {
         nav("/inicio", { replace: true });
       }, 1500);
     } catch (err: unknown) {
-      if (applyFieldErrors(err, setFieldErrors, ["passwordActual","passwordNueva","passwordConfirmacion"])) return;
+      if (applyFieldErrors(err, setErrors, ["passwordActual","passwordNueva","passwordConfirmacion"])) return;
       setError(
         getErrorMessage(err,
           "Lo sentimos, no pudimos cambiar la contraseña. Verifique los datos e intente nuevamente."
@@ -96,8 +108,7 @@ export default function CambiarPasswordPage() {
 
             <form onSubmit={handleSubmit} noValidate className="space-y-5">
               {!esPrimerLogin && (
-                <Field label="Contraseña Actual" required name="passwordActual" error={fieldErrors.passwordActual}>
-
+                <Field label="Contraseña Actual" required name="passwordActual" error={errors.passwordActual}>
 
                   <div className="relative">
                     <input
@@ -105,7 +116,7 @@ export default function CambiarPasswordPage() {
                       type={showPasswordActual ? "text" : "password"}
                       required
                       value={passwordActual}
-                      onChange={(e) => setPasswordActual(e.target.value)}
+                      onChange={(e) => { setPasswordActual(e.target.value); validateChangedField("passwordActual", { passwordActual: e.target.value }); }} onBlur={() => validateChangedField("passwordActual")}
                       placeholder="Ingresa tu contraseña actual"
                     />
 
@@ -124,8 +135,7 @@ export default function CambiarPasswordPage() {
                 </Field>
               )}
 
-              <Field label="Nueva Contraseña" required name="passwordNueva" error={fieldErrors.passwordNueva}>
-
+              <Field label="Nueva Contraseña" required name="passwordNueva" error={errors.passwordNueva}>
 
                 <div className="relative">
                   <input
@@ -134,7 +144,7 @@ export default function CambiarPasswordPage() {
                     required
                     minLength={6}
                     value={passwordNueva}
-                    onChange={(e) => setPasswordNueva(e.target.value)}
+                    onChange={(e) => { setPasswordNueva(e.target.value); validateChangedField("passwordNueva", { passwordNueva: e.target.value }); }} onBlur={() => validateChangedField("passwordNueva")}
                     placeholder="Mínimo 6 caracteres"
                   />
 
@@ -156,8 +166,7 @@ export default function CambiarPasswordPage() {
                 </p>
               </Field>
 
-              <Field label="Confirmar Nueva Contraseña" required name="passwordConfirmacion" error={fieldErrors.passwordConfirmacion}>
-
+              <Field label="Confirmar Nueva Contraseña" required name="passwordConfirmacion" error={errors.passwordConfirmacion}>
 
                 <div className="relative">
                   <input
@@ -165,7 +174,7 @@ export default function CambiarPasswordPage() {
                     type={showPasswordConfirmacion ? "text" : "password"}
                     required
                     value={passwordConfirmacion}
-                    onChange={(e) => setPasswordConfirmacion(e.target.value)}
+                    onChange={(e) => { setPasswordConfirmacion(e.target.value); validateChangedField("passwordConfirmacion", { passwordConfirmacion: e.target.value }); }} onBlur={() => validateChangedField("passwordConfirmacion")}
                     placeholder="Repite la nueva contraseña"
                   />
 

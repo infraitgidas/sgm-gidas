@@ -1,3 +1,6 @@
+from modules.personal.services.nombre_service import preparar_nombre, asignar_nombre, nombre_para_memoria
+from modules.personal.services.fecha_validation import validar_fecha_alta_grupo
+from modules.personal.services.historial_service import obtener_historial_personal
 from modules.memorias.services.memoria_periodo_service import (
     consultar_entidades_memoria, resolver_horas_al_fin,
 )
@@ -24,13 +27,13 @@ from modules.personal.models.personal import (
     InvestigadorHorasHistorial,
 )
 from modules.personal.models.tipo_personal import TipoPersonal
+from modules.personal.services.tipo_personal_compatibilidad import compatible_con_personal
 from modules.grupo.models.grupo import GrupoInvestigacionUtn
 from modules.personal.models.personal import TipoFormacion, TipoDedicacion
 from modules.catalogos.models.categoria_utn import CategoriaUtn
 from modules.grupo.models.programa_incentivos import ProgramaIncentivos
 from modules.shared.services.auditoria_service import AuditoriaService
 from modules.memorias.services.memoria_periodo_service import (
-    validar_fecha_alta_grupo,
     estuvo_activo_en_periodo_memoria,
 )
 
@@ -135,7 +138,15 @@ def _validar_tipo_personal(tipo_personal_id):
         message = "El tipo de personal seleccionado no existe o está inactivo. Seleccione otro tipo."
         raise ValueError(message, details={"fields": {"tipo_personal_id": message}})
 
+    _validar_compatibilidad_tipo(tipo)
+
     return tipo_personal_id
+
+
+def _validar_compatibilidad_tipo(tipo):
+    if tipo and not compatible_con_personal(tipo.nombre):
+        message = "Seleccione una función compatible con Personal de apoyo, técnico o administrativo. Docente, Investigador y Becario corresponden a otras clases de registro."
+        raise ValueError(message, details={"fields": {"tipo_personal_id": message}})
 
 
 def _validar_tipo_formacion(tipo_formacion_id):
@@ -204,6 +215,7 @@ def crear_personal(data, user_id):
     _validar_payload(data)
     _validar_user_id(user_id)
 
+    data = preparar_nombre(data)
     nombre = _validar_nombre(data.get("nombre_apellido"))
     horas = _validar_horas(data.get("horas_semanales"))
     tipo_personal_id = _validar_tipo_personal(data.get("tipo_personal_id"))
@@ -212,7 +224,7 @@ def crear_personal(data, user_id):
     try:
         fecha_alta = validar_fecha_alta_grupo(data.get("fecha_alta_grupo"))
     except ValueError as error:
-        message = "Ingrese una fecha de alta válida desde el 01/01/2010."
+        message = "Ingrese una fecha de alta válida entre el 01/01/2010 y hoy."
         raise ValueError(message, details={"fields": {"fecha_alta_grupo": message}}) from error
 
     nuevo = Personal(
@@ -224,6 +236,7 @@ def crear_personal(data, user_id):
         activo=True,
         created_by=user_id
     )
+    asignar_nombre(nuevo, data)
     asignar_identidad(nuevo, data, nueva=True)
 
     try:
@@ -267,6 +280,14 @@ def actualizar_personal(id, data, rol, user_id: int):
     if entidad.deleted_at is not None:
         raise ConflictError("No se puede modificar un registro eliminado.")
 
+    if rol == "personal":
+        if "tipo_personal_id" in data:
+            _validar_tipo_personal(data["tipo_personal_id"])
+        else:
+            _validar_compatibilidad_tipo(entidad.tipo_personal)
+
+    data = preparar_nombre(data, entidad)
+    cambios.update(asignar_nombre(entidad, data))
     cambios.update(asignar_identidad(entidad, data))
 
     if "nombre_apellido" in data:
@@ -325,7 +346,7 @@ def actualizar_personal(id, data, rol, user_id: int):
         try:
             nuevo_valor = validar_fecha_alta_grupo(data["fecha_alta_grupo"])
         except ValueError as error:
-            message = "Ingrese una fecha de alta válida desde el 01/01/2010."
+            message = "Ingrese una fecha de alta válida entre el 01/01/2010 y hoy."
             raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"fecha_alta_grupo": message}}) from error
         cambio = AuditoriaService.construir_cambio(
             entidad.fecha_alta_grupo,
@@ -450,7 +471,9 @@ def actualizar_personal(id, data, rol, user_id: int):
 # SOFT DELETE
 # =====================================================
 
-def eliminar_personal_por_rol(id, rol, user_id):
+def eliminar_personal_por_rol(id, rol, user_id, motivo=None):
+    if motivo is not None and (not isinstance(motivo, str) or len(motivo.strip()) > 500):
+        raise ValueError("Ingrese un motivo de hasta 500 caracteres.")
     _validar_user_id(user_id)
 
     entidad, _, _ = _resolver_entidad_por_rol(id, rol)
@@ -468,6 +491,10 @@ def eliminar_personal_por_rol(id, rol, user_id):
 
     entidad.activo = False
     entidad.soft_delete(user_id)
+    cambios = {"activo": AuditoriaService.construir_cambio(True, False)}
+    if motivo and motivo.strip():
+        cambios["motivo_baja"] = AuditoriaService.construir_cambio(None, motivo.strip())
+    AuditoriaService.registrar_cambios(rol, entidad.id, cambios, user_id)
 
     try:
         db.session.commit()
@@ -485,16 +512,29 @@ def eliminar_personal_por_rol(id, rol, user_id):
 # RESTORE
 # =====================================================
 
-def restaurar_personal(id, rol):
-    entidad, _, _ = _resolver_entidad_por_rol(id, rol)
-
+def restaurar_personal(id, rol, user_id):
+    _validar_user_id(user_id)
+    entidad, historial_model, fk_field = _resolver_entidad_por_rol(id, rol)
     if not entidad:
         raise NotFoundError("Personal no encontrado.")
-
+    db.session.refresh(entidad, with_for_update={"of": type(entidad)})
+    if entidad.activo and entidad.deleted_at is None:
+        raise ConflictError("El registro ya se encuentra activo.")
+    if _obtener_historial_activo_unico(entidad) is None:
+        entidad.historial_horas.append(historial_model(**{
+            fk_field: entidad.id, "horas_semanales": entidad.horas_semanales,
+            "fecha_inicio": date.today(), "fecha_fin": None,
+        }))
     entidad.restore()
-
-    db.session.commit()
-
+    entidad.mark_updated(user_id)
+    AuditoriaService.registrar_cambios(rol, entidad.id, {
+        "activo": AuditoriaService.construir_cambio(False, True),
+    }, user_id)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
     return entidad
 
 
@@ -559,7 +599,7 @@ def obtener_historial_personal_por_rol(id, rol):
     if not entidad:
         raise NotFoundError("Registro no encontrado.")
 
-    return AuditoriaService.obtener_historial_entidad(
+    return obtener_historial_personal(
         entidad=rol,
         registro_id=entidad.id
     )
@@ -579,7 +619,8 @@ def snapshot_personal_para_memoria_version(memoria_version, user_id):
         snapshot = PersonalMemoriaVersion(
             memoria_version_id=memoria_version.id,
             personal_id=personal.id,
-            nombre_apellido=personal.nombre_apellido,
+            identidad_id=getattr(personal, "identidad_id", None),
+            nombre_apellido=nombre_para_memoria(personal),
             fecha_alta_grupo=personal.fecha_alta_grupo,
             horas_semanales=resolver_horas_al_fin(personal, memoria_version),
             tipo_personal_id=personal.tipo_personal_id,

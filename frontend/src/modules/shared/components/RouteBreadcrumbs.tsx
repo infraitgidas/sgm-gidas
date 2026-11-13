@@ -5,7 +5,7 @@ import { getRouteBreadcrumbs } from "@/modules/shared/utils/routeBreadcrumbs";
 
 export default function RouteBreadcrumbs() {
   const location = useLocation();
-  const items = getRouteBreadcrumbs(location.pathname);
+  const items = getRouteBreadcrumbs(location.pathname, location.state);
   if (items.length === 0) return null;
 
   const navigationState = stripSuccessMessageState(location.state);
@@ -19,7 +19,7 @@ export default function RouteBreadcrumbs() {
             {item.to ? (
               <Link
                 to={item.to}
-                state={navigationState}
+                state={"state" in item ? stripSuccessMessageState(item.state) : navigationState}
                 className="rounded-sm underline-offset-2 hover:text-sky-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
               >
                 {item.label}

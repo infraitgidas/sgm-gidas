@@ -1,3 +1,4 @@
+from modules.produccion.services.clasificacion_trabajo import validar_clasificacion
 from modules.memorias.services.memoria_periodo_service import (
     consultar_entidades_memoria, registro_puntual_en_memoria,
 )
@@ -271,6 +272,7 @@ class TrabajoReunionCientificaService:
             fecha_presentacion,
         )
 
+        clasificacion = validar_clasificacion(data, reunion=True)
         enlace = validar_enlace(data.get("enlace"))
         autores = validar_autores(data.get("autores", []))
 
@@ -282,6 +284,7 @@ class TrabajoReunionCientificaService:
             tipo_reunion_id=tipo_reunion_id,
             grupo_utn_id=grupo_utn_id,
             enlace=enlace,
+            **clasificacion,
             created_by=user_id
         )
 
@@ -304,6 +307,7 @@ class TrabajoReunionCientificaService:
         trabajo = TrabajoReunionCientificaService._get_activo_or_404(trabajo_id)
         autores = validar_autores(data["autores"], trabajo.autorias) if "autores" in data else None
         enlace = validar_enlace(data["enlace"]) if "enlace" in data else trabajo.enlace
+        clasificacion = validar_clasificacion(data, reunion=True)
         cambios = {}
 
         fecha_presentacion = trabajo.fecha_presentacion
@@ -404,6 +408,12 @@ class TrabajoReunionCientificaService:
                 cambios["enlace"] = cambio
                 trabajo.enlace = enlace
 
+            for campo, valor in clasificacion.items():
+                cambio = AuditoriaService.construir_cambio(getattr(trabajo, campo), valor)
+                if cambio:
+                    cambios[campo] = cambio
+                    setattr(trabajo, campo, valor)
+
             if cambios:
                 trabajo.mark_updated(user_id)
                 AuditoriaService.registrar_cambios(
@@ -477,6 +487,8 @@ class TrabajoReunionCientificaService:
                 memoria_version_id=memoria_version.id,
                 trabajo_reunion_id=trabajo.id,
                 enlace=trabajo.enlace,
+                referato=trabajo.referato,
+                alcance=trabajo.alcance,
                 titulo_trabajo=trabajo.titulo_trabajo,
                 nombre_reunion=trabajo.nombre_reunion,
                 procedencia=trabajo.procedencia,

@@ -1,7 +1,10 @@
+// @ts-expect-error Las pruebas nativas de Node requieren la extensión TypeScript.
+import { referatoLabel } from "./clasificacionTrabajo.ts";
 import type { HistorialTrabajoRevistaItem } from "@/modules/produccion/services/trabajosRevistasServices";
 
 const HIDDEN_FIELDS = new Set(["accion", "acciones"]);
 const FIELD_LABELS: Record<string, string> = {
+  referato: "Referato",
   titulo_trabajo: "Título del trabajo",
   nombre_revista: "Nombre de la revista",
   editorial: "Editorial",
@@ -57,6 +60,7 @@ export function isVisibleTrabajoRevistaHistoryItem(item: HistorialTrabajoRevista
   if (!field || HIDDEN_FIELDS.has(field)) return false;
   if (getAutorEvent(item)) return true;
   if (areEquivalentHistoryValues(item.valor_anterior, item.valor_nuevo)) return false;
+  if (["referato", "alcance"].includes(field)) return true;
   return !(isEmptyHistoryValue(item.valor_anterior) && !isEmptyHistoryValue(item.valor_nuevo));
 }
 
@@ -66,6 +70,7 @@ function formatDate(value: unknown) {
 }
 
 function formatHistoryValue(value: unknown, field: string, tipoNames: Record<number, string>) {
+  if (field === "referato") return referatoLabel(value);
   if (isEmptyHistoryValue(value)) return "Sin dato";
   if (field === "fecha_publicacion") return formatDate(value);
   if (field === "tipo_revista_id") {

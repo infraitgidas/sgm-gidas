@@ -39,6 +39,8 @@ export interface RelacionesPersonal {
 
 export interface PersonalCompleto {
   id: number;
+  nombre?: string | null;
+  apellido?: string | null;
   nombre_apellido: string;
   dni: string | null;
   cuil: string | null;
@@ -54,6 +56,7 @@ export interface PersonalCompleto {
   activo: boolean;
   tipo_personal_id?: number;
   tipo_formacion_id?: number;
+  tipo_formacion?: string | null;
   tipo_dedicacion_id?: number;
   categoria_utn_id?: number | null;
   programa_incentivos_id?: number | null;

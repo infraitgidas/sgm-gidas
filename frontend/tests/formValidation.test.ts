@@ -50,6 +50,6 @@ test("personal separa clase de registro de tipo real de catálogo", () => {
   assert.doesNotMatch(selector, />PTAA</);
   assert.doesNotMatch(selector, /<option value="PROFESIONAL"/);
   assert.match(professionalForm, /tiposPersonal\.map/);
-  assert.match(professionalForm, /Función del personal/);
+  assert.match(professionalForm, /Tipo de Personal/);
   assert.match(professionalForm, /role="alert"/);
 });

@@ -290,7 +290,7 @@ export default function ProyectoDetalle() {
           <h3 className="text-lg font-semibold text-slate-800">Prórroga de 12 meses</h3>
           <p className="mt-1 text-sm text-slate-500">Se agregará una única prórroga al período original. Puede registrarse después del vencimiento.</p>
           <label htmlFor="motivo-prorroga" className="mt-4 block text-sm font-medium text-slate-700">Justificación</label>
-          <textarea id="motivo-prorroga" className="input mt-2 w-full" value={motivoProrroga} maxLength={2000} aria-invalid={Boolean(prorrogaError)} aria-describedby={prorrogaError ? "motivo-prorroga-error" : undefined} onChange={(event) => {setMotivoProrroga(event.target.value); setProrrogaError("");}} />
+          <textarea id="motivo-prorroga" className="input mt-2 w-full" value={motivoProrroga} onBlur={() => setProrrogaError(motivoProrroga.trim().length < 10 ? "Ingrese una justificación de al menos 10 caracteres." : "")} maxLength={2000} aria-invalid={Boolean(prorrogaError)} aria-describedby={prorrogaError ? "motivo-prorroga-error" : undefined} onChange={(event) => {setMotivoProrroga(event.target.value); setProrrogaError(event.target.value.trim().length < 10 ? "Ingrese una justificación de al menos 10 caracteres." : "");}} />
           {prorrogaError && <p id="motivo-prorroga-error" role="alert" className="mt-2 text-sm text-rose-700">{prorrogaError}</p>}
           <div className="mt-4"><Button type="submit" size="sm" loading={prorrogaMutation.isPending} disabled={prorrogaMutation.isPending}>Registrar prórroga</Button></div>
         </form>

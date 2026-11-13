@@ -52,13 +52,62 @@ class PersonalAltaPTAATest(unittest.TestCase):
         self.context.pop()
 
     def payload(self, **changes):
-        return {"nombre_apellido": "Persona PTAA", "dni": "12345678", "cuil": "20-12345678-6", "horas_semanales": 20,
+        return {"nombre": "Persona", "apellido": "PTAA", "nombre_apellido": "Persona PTAA", "dni": "12345678", "cuil": "20-12345678-6", "horas_semanales": 20,
                 "tipo_personal_id": 1, "grupo_utn_id": 1,
                 "fecha_alta_grupo": "2026-09-01", **changes}
 
     def post(self, payload):
         return self.client.post("/api/v1/personal", json=payload,
                                 headers={"Authorization": "Bearer test"})
+
+    def test_baja_y_reactivacion_conservan_identidad_e_historial(self):
+        from modules.personal.services.personal_service import eliminar_personal_por_rol, restaurar_personal
+        from modules.shared.models.auditoria_campo import AuditoriaCampo
+        persona = crear_personal(self.payload(), 1)
+        identidad = persona.identidad_id
+        activo_duplicado = self.post(self.payload())
+        self.assertEqual(activo_duplicado.status_code, 409)
+        self.assertNotIn("Inactivos", activo_duplicado.get_json()["error"]["details"]["fields"]["dni"])
+        eliminar_personal_por_rol(persona.id, "personal", 1, "Reincorporacion posterior")
+        inactivo_duplicado = self.post(self.payload())
+        self.assertEqual(inactivo_duplicado.status_code, 409)
+        mensaje = inactivo_duplicado.get_json()["error"]["details"]["fields"]["dni"]
+        self.assertIn("Personal > Inactivos", mensaje)
+        self.assertIn("reactivacion", mensaje)
+        self.assertEqual(Personal.query.count(), 1)
+        self.assertEqual(db.session.get(Personal, persona.id).identidad_id, identidad)
+        with self.assertRaises(ConflictError) as conflicto:
+            crear_personal(self.payload(), 1)
+        self.assertIn("Inactivos", str(conflicto.exception.details))
+        db.session.rollback()
+        with patch.object(db.session, "commit", side_effect=db.session.flush):
+            restaurada = restaurar_personal(persona.id, "personal", 1)
+            self.assertEqual(sum(h.fecha_fin is None for h in restaurada.historial_horas), 1)
+        db.session.commit()
+        self.assertTrue(restaurada.activo)
+        self.assertIsNone(restaurada.deleted_at)
+        self.assertEqual(restaurada.identidad_id, identidad)
+        self.assertEqual(sum(h.fecha_fin is None for h in restaurada.historial_horas), 1)
+        self.assertEqual(AuditoriaCampo.query.filter_by(campo="activo").count(), 2)
+        with self.assertRaises(ConflictError):
+            restaurar_personal(persona.id, "personal", 1)
+
+    def test_reactivacion_becario_investigador_y_permiso_lectura(self):
+        from modules.personal.services.personal_service import eliminar_personal_por_rol, restaurar_personal
+        for rol, model in (("becario", Becario), ("investigador", Investigador)):
+            persona = model(nombre_apellido="Persona prueba", horas_semanales=20, activo=True,
+                            **({"tipo_formacion_id": 1} if rol == "becario" else {}))
+            db.session.add(persona)
+            db.session.commit()
+            eliminar_personal_por_rol(persona.id, rol, 1)
+            restaurada = restaurar_personal(persona.id, rol, 1)
+            self.assertTrue(restaurada.activo)
+            self.assertEqual(len(restaurada.historial_horas), 1)
+        with patch("modules.shared.services.middleware.AuthService.verify_token",
+                   return_value={"sub": "1", "rol": "LECTURA"}):
+            response = self.client.put("/api/v1/personal/becario/1/restore",
+                                      headers={"Authorization": "Bearer test"})
+            self.assertEqual(response.status_code, 403)
 
     def test_alta_consulta_listado_y_busqueda(self):
         response = self.post(self.payload())
@@ -164,7 +213,7 @@ class PersonalAltaPTAATest(unittest.TestCase):
         self.assertEqual(self.post(self.payload()).status_code, 400)
 
     def test_obligatorios_y_horas_enteras(self):
-        for field in ("nombre_apellido", "horas_semanales", "tipo_personal_id", "grupo_utn_id", "fecha_alta_grupo"):
+        for field in ("nombre", "apellido", "horas_semanales", "tipo_personal_id", "grupo_utn_id", "fecha_alta_grupo"):
             with self.subTest(field=field):
                 payload = self.payload()
                 del payload[field]

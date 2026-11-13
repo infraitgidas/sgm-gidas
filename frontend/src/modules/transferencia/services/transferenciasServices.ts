@@ -1,6 +1,7 @@
 import { http } from "@/lib/http";
 import { isMockMode } from "./tiposContratoService";
 import type { Adoptante } from "./adoptantesServices";
+import type { Moneda } from "@/utils/money";
 
 const useMock = () => isMockMode();
 
@@ -11,6 +12,7 @@ interface TransferenciaBackend {
   demandante: string;
   descripcion_actividad: string;
   monto: number | null;
+  moneda?: Moneda;
   fecha_inicio: string;
   fecha_fin: string | null;
   tipo_contrato: string | null;
@@ -40,6 +42,7 @@ export interface Transferencia {
   demandante: string;
   descripcionActividad: string;
   monto: number | null;
+  moneda: Moneda;
   fechaInicio: string;
   fechaFin?: string;
   tipoContrato: string | null;
@@ -78,6 +81,7 @@ export interface TransferenciaPayload {
   demandante: string;
   descripcionActividad: string;
   monto: number;
+  moneda?: Moneda;
   fechaInicio: string;
   fechaFin?: string;
   tipoContratoId: number;
@@ -91,6 +95,7 @@ function fromBackend(raw: TransferenciaBackend): Transferencia {
     id: raw.id,
     numeroTransferencia: raw.numero_transferencia ?? 0,
     denominacion: raw.denominacion ?? "",
+    moneda: raw.moneda ?? "ARS",
     demandante: raw.demandante ?? "",
     descripcionActividad: raw.descripcion_actividad ?? "",
     monto:
@@ -134,6 +139,7 @@ function toBackend(data: Partial<TransferenciaPayload>): Record<string, unknown>
   if ("monto" in data) {
     body.monto = data.monto;
   }
+  if ("moneda" in data) body.moneda = data.moneda;
   if ("fechaInicio" in data) {
     body.fecha_inicio = data.fechaInicio;
   }
@@ -178,7 +184,7 @@ export async function getTransferencias(
 export type TransferenciasPageParams = {
   page: number; activos: "true" | "false" | "all"; q: string;
   direction: "asc" | "desc"; ids?: Array<number | string>;
-  filters: { tipo: string; grupo: string; anio: string };
+  filters: { tipo: string; grupo: string; anio: string; moneda?: string };
 };
 
 export async function getTransferenciasPage(params: TransferenciasPageParams) {

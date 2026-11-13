@@ -1,5 +1,6 @@
 from flask import Blueprint, current_app, g, jsonify, request
 from modules.auth.controllers.auth_controller import AuthController
+from modules.auth.controllers.password_reset_controller import PasswordResetController, email_rate_key
 from modules.shared.services.middleware import requiere_auth, requiere_rol
 from extension import limiter
 from modules.auth.services.uct_membership_service import allowed_ucts
@@ -8,6 +9,26 @@ from modules.shared.controllers.pagination import pagination_requested, parse_pa
 from modules.shared.exceptions import DomainError
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
+
+
+@auth_bp.route("/password-reset/request", methods=["POST"])
+@limiter.limit(lambda: current_app.config["PASSWORD_RESET_REQUEST_IP_LIMIT"])
+@limiter.limit(lambda: current_app.config["PASSWORD_RESET_REQUEST_EMAIL_LIMIT"], key_func=email_rate_key)
+def request_password_reset():
+    return PasswordResetController.request_public()
+
+
+@auth_bp.route("/password-reset/confirm", methods=["POST"])
+@limiter.limit(lambda: current_app.config["PASSWORD_RESET_CONFIRM_LIMIT"])
+def confirm_password_reset():
+    return PasswordResetController.confirm()
+
+
+@auth_bp.route("/usuarios/<int:user_id>/password-reset", methods=["POST"])
+@requiere_rol("ADMIN")
+@limiter.limit(lambda: current_app.config["AUTH_CHANGE_PASSWORD_LIMIT"])
+def request_admin_password_reset(user_id):
+    return PasswordResetController.request_admin(user_id)
 
 
 @auth_bp.route("/ucts-permitidas", methods=["GET"])

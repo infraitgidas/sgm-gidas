@@ -1,5 +1,60 @@
 # Recursos
 
+## Monto cero en Equipamiento (ISS-46)
+
+Alta y edición de Equipamiento admiten `monto_invertido: 0` en ARS o USD.
+`EquipamientoService._validar_monto` exige un número finito no negativo y
+rechaza vacíos, nulos, booleanos, negativos y valores no finitos con HTTP 400
+y `error.details.fields.monto_invertido`. Los campos obligatorios restantes,
+endpoints, permisos y relaciones no cambian.
+
+El monto cero se conserva al consultar, listar, editar, auditar y generar
+snapshots, junto a su moneda original. El almacenamiento ya lo admite; no hay
+migración ni conversión. Esta regla corresponde a Equipamiento; Movimientos
+conserva su requisito de monto positivo.
+
+`tests/test_montos_cero.py` cubre persistencia, edición de positivo a cero,
+historial, ARS/USD, valores inválidos y fotos de memoria. Aceptación funcional
+del usuario: 05/11/2026. Validación conjunta con ISS-44: 59 pruebas backend,
+242 frontend, TypeScript y build aprobados.
+
+## Contrato consumido por la validacion preventiva (ISS-33)
+
+Becas, equipos y movimientos conservan validaciones de nombres, fechas, montos, moneda, cotizacion y relaciones; los controles financieros siguen siendo responsabilidad del servidor.
+
+El frontend reutiliza sus comprobaciones durante la interaccion y muestra
+conjuntamente los errores al guardar. Los errores de campo de la API mantienen
+`error.details.fields`; los no asociados a un control conservan feedback general.
+La etapa no cambia endpoints, payloads, modelos, permisos ni eventos auditados.
+Escribir o corregir un campo no genera una mutacion de dominio; la autoridad
+definitiva sigue siendo el backend. Aceptado por el usuario el 05/11/2026.
+
+## Moneda original de Equipamiento
+
+`Equipamiento` y `EquipamientoMemoriaVersion` guardan `moneda` como `ARS` o
+`USD`, con restricción de base y valor predeterminado ARS. POST y PUT de
+Equipamiento aceptan ese campo; las consultas y fotos lo devuelven junto a
+`monto_invertido`. Omitirlo en alta conserva compatibilidad con clientes que
+registraban pesos; en edición se conserva el valor actual si no se envía.
+Un valor explícito inválido devuelve validación con `details.fields.moneda`.
+El importe original no se convierte ni se agrega una cotización.
+
+La edición registra diferencias de moneda en auditoría. Un equipamiento
+vinculado a un movimiento, incluido uno dado de baja, no permite cambiar su
+moneda. El selector de equipos de Movimientos y su validación backend admiten
+solo ARS; un egreso USD puede registrarse sin ese vínculo automático. Edición
+del equipo y vinculación bloquean y refrescan la misma fila para serializar
+operaciones concurrentes. Se conservan los permisos, las bajas lógicas y la
+validación de monto no negativo.
+
+La migración `f6b8d0e2a4c6`, sucesora de `e4a6c8f0b2d3`, agrega moneda a
+las tablas de Equipamiento y Transferencias y sus versiones. Identifica los
+datos anteriores como ARS sin cambiar importes ni otras columnas. El downgrade
+se rechaza mientras alguna tabla conserve USD, para evitar perder su unidad.
+Las nuevas fotos copian la moneda vigente al cerrar la versión. Las pruebas
+de persistencia, auditoría, vínculos y migración están en
+`tests/test_moneda_equipamiento_transferencia.py`.
+
 ## Becas y vencimientos (ISS-93)
 
 Las rutas de Becas se publican bajo `/api/v1/recursos/becas` mediante
@@ -102,7 +157,8 @@ en la auditoría y mantiene inmutables los snapshots de
 Memorias ya creados.
 
 Los controladores delegan en el contrato uniforme de errores. Los datos ausentes,
-formatos invalidos, montos no positivos, grupos inexistentes y fechas fuera del
+formatos invalidos, montos negativos en Equipamiento o no positivos en Movimientos,
+grupos inexistentes y fechas fuera del
 rango se responden como errores de validacion sin exponer detalles internos.
 
 ISS-19: equipamiento identifica `denominacion`, `descripcion_breve`, `monto_invertido` y `fecha_incorporacion` en `error.details.fields`. Movimientos identifica `tipo_movimiento`, `fecha`, `monto`, `fuente_financiamiento_id`, `categoria_erogacion_id` y `equipamiento_id` según corresponda. Los conflictos de saldo o de vínculo duplicado responden HTTP 409.

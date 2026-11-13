@@ -28,11 +28,13 @@ class HttpsDeploymentTemplateTestCase(unittest.TestCase):
         self.assertIn("map $http_x_forwarded_proto $gidas_forwarded_proto", internal_proxy)
         self.assertIn("https https;", internal_proxy)
         self.assertNotIn("proxy_set_header X-Forwarded-Proto $scheme;", internal_proxy)
+        # 9 = las 7 locations originales mas las 2 que agrega el portal bajo
+        # /sgm-gidas/, todas con la variable validada y ninguna con $scheme.
         self.assertEqual(
             internal_proxy.count(
                 "proxy_set_header X-Forwarded-Proto $gidas_forwarded_proto;"
             ),
-            7,
+            9,
         )
         self.assertIn("proxy_connect_timeout 10s;", internal_proxy)
         self.assertIn("proxy_send_timeout 120s;", internal_proxy)

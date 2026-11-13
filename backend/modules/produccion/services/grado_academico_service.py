@@ -41,7 +41,7 @@ class GradoAcademicoService:
     def _get_or_404(grado_id: int):
         grado = GradoAcademico.query.get(GradoAcademicoService._validar_id(grado_id))
         if not grado:
-            raise NotFoundError("Grado Academico no encontrado")
+            raise NotFoundError("Grado académico no encontrado")
         return grado
 
     @staticmethod
@@ -68,7 +68,7 @@ class GradoAcademicoService:
         ).first()
 
         if existente:
-            raise ConflictError("Ya existe un grado academico con ese nombre")
+            raise ConflictError("Ya existe un grado académico con ese nombre")
 
         grado = GradoAcademico(nombre=nombre)
         CatalogoAuditoriaService.marcar_creacion(grado, user_id)
@@ -88,7 +88,7 @@ class GradoAcademicoService:
         grado = GradoAcademicoService._get_or_404(grado_id)
 
         if grado.deleted_at is not None:
-            raise ConflictError("No se puede editar un grado academico inactivo")
+            raise ConflictError("No se puede editar un grado académico inactivo")
 
         if "nombre" in data:
             nombre = GradoAcademicoService._validar_nombre(data["nombre"])
@@ -99,7 +99,7 @@ class GradoAcademicoService:
             ).first()
 
             if existente:
-                raise ConflictError("Ya existe un grado academico con ese nombre")
+                raise ConflictError("Ya existe un grado académico con ese nombre")
 
             cambios = CatalogoAuditoriaService.construir_cambios(
                 grado,
@@ -122,7 +122,7 @@ class GradoAcademicoService:
 
         if grado.participaciones:
             raise ConflictError(
-                "No se puede eliminar el grado academico porque tiene actividades asociadas"
+                "No se puede eliminar el grado académico porque tiene actividades asociadas"
             )
 
         CatalogoAuditoriaService.marcar_baja(grado, user_id)

@@ -1,5 +1,60 @@
 # Catalogos frontend
 
+## Filtros desplegables (ISS-47)
+
+CatalogosHome: estado de valores; las opciones de estado siguen deshabilitadas cuando el catálogo no informa estado.
+Los filtros del listado utilizan `TableFilterSelect`, con nombre accesible y
+selección mediante teclado. Todos/Todas elimina la restricción del criterio.
+La adaptación del selector conserva valores, setters y opciones de consulta;
+se mantienen services, permisos, nueve filas por página, contexto de Memoria
+y persistencia de filtros de ISS-50. No se modifican campos de formularios.
+
+Aceptado visual y funcionalmente el 06/11/2026. Validación integrada:
+269 pruebas frontend, TypeScript y build de producción aprobados.
+`tests/homeFilterSelect.test.ts` comprueba selección y limpieza en las cuatro
+pantallas principales y ausencia de chips de filtrado en los homes.
+
+## Retorno al origen y breadcrumb (ISS-45)
+
+Al abrir Gestionar Catálogos desde `Sidebar`, el enlace guarda en el estado
+de navegación `catalogosReturnTo`, con `pathname`, `search`, `hash` y `state`
+del origen. `utils/catalogNavigation.ts` valida el destino interno y excluye
+mensajes de éxito y retornos anidados del contexto que se restaura.
+
+`CatalogosHome` resuelve el destino con `getCatalogReturn`. Volver restaura
+la URL y el estado del origen y reemplaza la entrada de Catálogos. Un acceso
+directo sin origen válido vuelve a Inicio. Reingresar al mismo enlace conserva
+el origen inicial y recargar la entrada mantiene su estado. Los filtros y
+borradores siguen usando sus mecanismos existentes; esta navegación no guarda
+valores nuevos de formularios ni ejecuta mutaciones de catálogo.
+
+El breadcrumb incorpora la jerarquía del origen, por ejemplo
+`Inicio > Proyectos > Detalle > Editar > Catálogos`. Su enlace al origen
+conserva query, hash y contexto. Sin origen válido muestra `Inicio > Catálogos`.
+La resolución compartida y las pruebas de enlaces están en `shared`.
+
+Se mantienen roles, validaciones, services y contratos HTTP existentes.
+Pruebas de retorno y componentes reales en `tests/catalogNavigation.test.ts`;
+breadcrumb en `tests/routeBreadcrumbs.test.ts`. Aceptado visual y funcionalmente
+el 06/11/2026: 264 pruebas frontend, TypeScript y build aprobados.
+
+## Validacion preventiva de formularios (ISS-33)
+
+`CatalogosHome` muestra el error junto al nombre durante alta y edicion,
+al escribir y al salir del campo. Reutiliza la regla descriptiva del catalogo;
+autores bibliograficos y adoptantes conservan la restriccion de letras Unicode
+y espacios. El guardado conserva sus comprobaciones, normalizacion y control
+definitivo de duplicados en servidor. Abrir otra edicion o completar un alta
+limpia el feedback local correspondiente. No se persiste el catalogo al validar.
+
+El panel mantiene errores locales separados para el nombre de alta y el de
+edicion, con su comprobacion especifica `validateName`. No agrega hooks
+compartidos ni modifica componentes globales.
+Las validaciones no disparan escrituras de dominio. Se conservan services,
+contratos, permisos, borradores, navegacion y feedback de exito.
+La etapa fue aceptada visual y funcionalmente por el usuario el 05/11/2026;
+la regresion transversal esta en `tests/liveValidation.test.ts`.
+
 ## ISS-83: administracion de adoptantes
 
 `CatalogosHome` incluye `Adoptantes` sin ruta nueva. El service generico consulta
@@ -141,3 +196,26 @@ administra desde Personal > Becas y ya no forma parte de `CatalogosHome`.
 Los resultados paginados muestran controles centrados de anterior, números
 de página y siguiente, inmediatamente debajo de las tarjetas o resultados.
 El máximo de resultados por página conserva el contrato del módulo.
+
+## Denominaciones y tipos de personal
+
+Los nombres de Gestionar Catálogos son la referencia para las etiquetas y
+selectores de los formularios consumidores. Se usa Tipo de Registro de Propiedad
+para ese catálogo. Los mensajes visibles mantienen tildes y signos de apertura.
+
+La API de Tipo de Personal rechaza nombres equivalentes por tildes, mayúsculas,
+espacios o puntuación, incluidos registros inactivos. Los errores se muestran
+en el flujo existente. Una opción retirada conserva su historial y referencias;
+la depuración no reasigna personas. Los permisos, nueve valores por página y
+tres eventos por página de historial mantienen sus contratos.
+
+
+## Recuperacion del contexto de consulta (ISS-50)
+
+CatalogosHome recupera el catalogo seleccionado; cada CatalogPanel conserva busqueda, estado y pagina por endpoint. Los borradores y las acciones de alta/edicion siguen su flujo propio.
+
+Los homes con estado local usan `shared/hooks/useHomeState.ts`; Busqueda conserva
+su contrato de URL. La persistencia validada se limita a la pestana y al usuario,
+sin guardar filas ni acciones pendientes. Se mantienen services, permisos,
+validaciones y paginacion vigentes. Contrato y pruebas en `../shared/README.md`.
+Aceptado funcionalmente por el usuario el 06/11/2026.

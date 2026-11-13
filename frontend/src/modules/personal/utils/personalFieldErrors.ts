@@ -1,5 +1,7 @@
 const fieldNames: Record<string, string> = {
   nombre_apellido: "nombre",
+  nombre: "nombre",
+  apellido: "apellido",
   dni: "dni",
   cuil: "cuil",
   horas_semanales: "horas",

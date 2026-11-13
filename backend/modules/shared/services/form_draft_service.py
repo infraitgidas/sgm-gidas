@@ -13,6 +13,7 @@ RETENTION = timedelta(days=7)
 MAX_BYTES = 65536
 SENSITIVE_KEY = re.compile(r"token|password|contrasena|contraseña|secret|credential|authorization|cookie|clave", re.I)
 MODULES = {
+    "catalogos": ("Catalogo", "/catalogos", "/catalogos"),
     "personal-personal": ("Personal", "/personal/nuevo?tipo=PERSONAL", "/personal/personal/{id}/editar"),
     "personal-becario": ("Becario", "/personal/nuevo?tipo=BECARIO", "/personal/becario/{id}/editar"),
     "personal-investigador": ("Investigador", "/personal/nuevo?tipo=INVESTIGADOR", "/personal/investigador/{id}/editar"),
@@ -33,7 +34,18 @@ MODULES = {
     "produccion-revistas": ("Trabajo en revista", "/trabajos-revistas/nuevo", "/trabajos-revistas/{id}/editar"),
 }
 
+# Cada corrección tiene una clave propia: no comparte borrador con el alta,
+# la edición de origen ni una persona destino con el mismo ID numérico.
+for origen in ("personal", "becario", "investigador"):
+    for destino in ("personal", "becario", "investigador"):
+        if origen != destino:
+            ruta = f"/personal/{origen}/{{id}}/editar?tipo={destino.upper()}&reclasificar=true"
+            MODULES[f"personal-reclasificar-{origen}-{destino}"] = (
+                "Reclasificación de personal", "/personal", ruta,
+            )
+
 DISPLAY_FIELDS = {
+    "catalogos": ("name",),
     "grupo-uct": ("data.nombreSigla", "data.facultadRegional"),
     "grupo-visitantes": ("razon", "procedencia"),
     "proyectos": ("nombreProyecto", "codigoProyecto"),

@@ -1,5 +1,16 @@
 # Autenticación y usuarios en backend
 
+## Contrato consumido por la validacion preventiva (ISS-33)
+
+Credenciales, rol propio, politica de contrasenas, bloqueo de acceso y sesiones mantienen sus validaciones definitivas. La validacion preventiva del cliente no sustituye esos controles.
+
+El frontend reutiliza sus comprobaciones durante la interaccion y muestra
+conjuntamente los errores al guardar. Los errores de campo de la API mantienen
+`error.details.fields`; los no asociados a un control conservan feedback general.
+La etapa no cambia endpoints, payloads, modelos, permisos ni eventos auditados.
+Escribir o corregir un campo no genera una mutacion de dominio; la autoridad
+definitiva sigue siendo el backend. Aceptado por el usuario el 05/11/2026.
+
 ## Listados paginados (ISS-89)
 
 `GET /api/v1/auth/usuarios` (ADMIN) y `GET /api/v1/auth/ucts-permitidas`
@@ -40,8 +51,8 @@ para serializar intentos concurrentes en PostgreSQL. El evento de bloqueo regist
 solo un prefijo del HMAC, sin credenciales ni tokens. El límite de frecuencia por
 IP existente sigue aplicándose.
 
-El cambio de contraseña autenticado no levanta un bloqueo de login activo. La
-recuperación de contraseña futura deberá definir su propia regla de desbloqueo.
+El cambio de contraseña autenticado y la recuperación por correo no levantan un
+bloqueo de login activo; conserva su vencimiento original.
 Antes de desplegar, ejecutar la migración `f0a8c1d2e3b4`.
 
 ## Errores de autenticación (ISS-09)
@@ -104,6 +115,10 @@ El refresh token no aparece en el JSON. Una recarga conserva la sesión nueva.
 
 - `JWT_EXPIRATION_MINUTES` define la vigencia del access token (15 minutos por defecto).
 - `REFRESH_TOKEN_EXPIRATION_MINUTES` define la vigencia renovable de la sesion (10080 minutos, siete dias, por defecto).
+  Su mínimo es de 2 minutos con `APP_ENV=local`, `development`, `docker` o
+  `testing`, para probar vencimientos. En los demás entornos, incluidos
+  producción y staging, conserva el mínimo de 60 minutos. El máximo sigue
+  siendo 43200 minutos. Ajuste aprobado por el usuario el 05/11/2026.
 - `SESSION_WARNING_SECONDS` define con cuanta anticipacion el frontend muestra el aviso de vencimiento (300 segundos por defecto).
 - Login, registro y refresh devuelven `access_expires_at`, `session_expires_at` y
   `session_warning_seconds`. Son metadatos de temporizacion; los tokens siguen sin
@@ -129,3 +144,76 @@ metadatos personales.
 ## Verificación
 
 Desde `backend/`, ejecutar las pruebas de middleware, expiración, cookies y rotación de refresh incluidas en `tests/test_auth_*.py`. Antes del despliegue también se debe ejecutar la suite completa con la base de datos del entorno de pruebas.
+
+## Recuperacion por correo (ISS-53)
+
+Aprobada por el usuario el 06/11/2026. Las rutas siguientes usan el prefijo
+`/api/v1/auth` y responden `{data, meta, error}` con `Cache-Control: no-store`.
+
+| Metodo | Ruta | Acceso y payload | Resultado |
+| --- | --- | --- | --- |
+| POST | `/password-reset/request` | Publico; `{email}` | 202 con mensaje generico, exista o no una cuenta habilitada. |
+| POST | `/password-reset/confirm` | Publico; `{token, password_nueva, password_confirmacion}` | 200 con `data.message`; sin login automatico. |
+| POST | `/usuarios/<id>/password-reset` | ADMIN con alcance UCT vigente; sin payload | 202; solicita el mismo correo para el usuario activo. |
+
+`password_reset_controller.py` adapta HTTP; `password_reset_service.py` controla
+el ciclo de vida y `credentials_policy.py` comparte validaciones entre altas,
+ediciones y cambios de password. El correo se normaliza con trim y minusculas;
+el indice funcional unico tambien impide duplicados por mayusculas o espacios.
+La password requiere al menos 6 caracteres y hasta 72 bytes UTF-8 para bcrypt.
+
+`PasswordResetRequest` registra UUID, usuario, hash SHA256 de un token aleatorio
+de 256 bits, fechas de solicitud/activacion/vencimiento/consumo/revocacion,
+HMAC de IP, administrador solicitante opcional y referencia al mensaje de outbox.
+Solo existe una solicitud no consumida ni revocada por usuario. Solicitar otra
+revoca la anterior y cancela cualquier envio pendiente. Cambiar el correo,
+desactivar, eliminar o cambiar password tambien invalida los enlaces anteriores.
+
+El token viaja en el fragmento del enlace, nunca en una respuesta API. Su vigencia
+de 30 minutos comienza al aceptar SMTP el mensaje. Confirmar bloquea usuario y
+solicitud en orden estable, consume una sola vez, actualiza bcrypt y auditoria,
+desactiva `primer_login` y revoca todos los refresh con motivo `password_reset`
+en una transaccion. Los bloqueos de login existentes conservan su vencimiento.
+
+Los campos incorrectos devuelven 400 `VALIDATION_ERROR` con `details.fields`.
+Un token ausente, incorrecto, no activado, vencido, revocado, consumido o asociado
+a una cuenta no habilitada devuelve el mismo 400 `INVALID_PASSWORD_RESET_TOKEN`.
+La solicitud publica conserva 202 generico ante errores internos de encolado;
+estos se registran solo por clase. ADMIN recibe 404 para cuentas no disponibles
+y 503 ante imposibilidad de encolar. Se mantienen 401/403 de autenticacion/rol.
+
+Limites configurables: request 5 por 15 minutos por IP y 3 por hora por HMAC del
+correo normalizado; confirm 10 por 15 minutos por IP; ADMIN usa el limite de
+cambio de password. Un exceso responde 429 con mensaje seguro.
+
+La migracion `e5a7c9d1f3b6` depende de `c3e5a7b9d1f2`, valida duplicados antes
+de cambiar datos, normaliza correos y crea ambas tablas e indices. Ante duplicados
+aborta sin fusionar cuentas. El downgrade retira tablas e indice funcional; no
+restaura mayusculas ni espacios eliminados. El transporte y operacion estan
+documentados en [notifications](../notifications/README.md).
+
+La funcionalidad está implementada; la entrega en producción requiere provisionar
+SMTP institucional, secretos y URL HTTPS autorizada, además de mantener activo
+`email-worker`. El 202 de solicitud pública no confirma entrega de correo, y el
+health de la API no prueba SMTP. El procedimiento de configuración y aceptación
+del servidor está en la [guía de despliegue](../../../docs/despliegue_produccion.md#recuperación-de-contraseña-en-producción).
+
+`tests/test_auth_password_reset.py` cubre estados, cifrado, permisos, limites,
+revocacion, SMTP/TLS, retries y retencion. Las pruebas PostgreSQL se habilitan
+con `PASSWORD_RESET_PG_TEST=1`, usan exclusivamente la base dedicada
+`gidas_reset_validation` derivada de la URL configurada y schemas temporales;
+requieren permiso para crear schemas y la extension `pg_trgm` del metadata global.
+Incluyen confirmacion concurrente, claims disjuntos y upgrade/downgrade/upgrade.
+
+## Fixture de recuperacion administrativa (ISS-99)
+
+La prueba de las rutas versionadas crea una UCT y una pertenencia activa real
+del destinatario. Ejecuta la politica ORM de aislamiento sin simular la UCT
+permitida: ADMIN obtiene 202 para el usuario de su UCT y 404 para un usuario
+ajeno; GESTOR conserva 403 y una peticion sin autenticacion conserva 401.
+
+El ajuste corrige los datos de prueba; no modifica autenticacion, endpoints,
+payloads, permisos, envio de correo ni el contrato consumido por frontend.
+Aceptado el 07/11/2026. Regresion dirigida de esta etapa: 55 pruebas, OK,
+19 omitidas por PostgreSQL dedicado. Suite Linux completa: 777 pruebas, OK,
+40 omitidas por PostgreSQL dedicado, incluidas las pruebas locales de Busqueda.

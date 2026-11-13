@@ -39,6 +39,8 @@ class TrabajoReunionMemoriaHistorialTestCase(unittest.TestCase):
             created_by=1
         )
         trabajo = SimpleNamespace(
+            referato=True,
+            alcance="internacional",
             enlace=None,
             id=5,
             titulo_trabajo="Arquitectura institucional",

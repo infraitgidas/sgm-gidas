@@ -20,6 +20,7 @@ from modules.transferencia.models.transferencia_socio import (
 from modules.grupo.models.grupo import GrupoInvestigacionUtn
 from modules.shared.services.auditoria_service import AuditoriaService
 from modules.shared.services.date_time import INSTITUTIONAL_MIN_DATE
+from modules.shared.services.moneda import validar_moneda
 from modules.memorias.services.memoria_periodo_service import estuvo_activo_en_periodo_memoria
 from modules.shared.exceptions import ConflictError, NotFoundError, ValidationError as ValueError
 from modules.shared.controllers.pagination import table_query_page, table_scope_predicate
@@ -113,13 +114,15 @@ class TransferenciaSocioProductivaService:
 
     @staticmethod
     def _validar_monto(monto):
+        if isinstance(monto, bool):
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"monto": "Ingrese un monto numérico válido."}})
         try:
             monto = float(monto)
         except (TypeError, builtins.ValueError):
             raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"monto": "Ingrese un monto numérico válido."}})
 
-        if not math.isfinite(monto) or monto <= 0:
-            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"monto": "Ingrese un monto mayor que cero."}})
+        if not math.isfinite(monto) or monto < 0:
+            raise ValueError("Revise los campos indicados e intente nuevamente.", details={"fields": {"monto": "Ingrese un monto mayor o igual a cero."}})
 
         return monto
 
@@ -194,13 +197,14 @@ class TransferenciaSocioProductivaService:
         fields = {"denominacion": TransferenciaSocioProductiva.denominacion,
                   "numero": TransferenciaSocioProductiva.numero_transferencia,
                   "demandante": TransferenciaSocioProductiva.demandante,
+                  "moneda": TransferenciaSocioProductiva.moneda,
                   "descripcion": TransferenciaSocioProductiva.descripcion_actividad,
                   "tipo": TipoContrato.nombre, "grupo": GrupoInvestigacionUtn.nombre_sigla_grupo,
                   "anio": cast(func.extract("year", TransferenciaSocioProductiva.fecha_inicio), Integer)}
         return table_query_page(query, TransferenciaSocioProductiva, args, fields,
                                 default_sort="denominacion",
                                 searchable=("numero", "denominacion", "demandante", "descripcion", "tipo", "grupo"),
-                                facets=("tipo", "grupo", "anio"),
+                                facets=("tipo", "grupo", "anio", "moneda"),
                                 extra_search=lambda term: TransferenciaSocioProductiva.participaciones.any(
                                     (AdoptanteTransferencia.deleted_at.is_(None)) &
                                     table_scope_predicate(AdoptanteTransferencia) &
@@ -270,6 +274,7 @@ class TransferenciaSocioProductivaService:
         monto = TransferenciaSocioProductivaService._validar_monto(
             data.get("monto")
         )
+        moneda = validar_moneda(data.get("moneda", "ARS"))
 
         fecha_inicio = TransferenciaSocioProductivaService._validar_fecha(data.get("fecha_inicio"), "fecha_inicio")
 
@@ -303,6 +308,7 @@ class TransferenciaSocioProductivaService:
             demandante=demandante,
             descripcion_actividad=descripcion_actividad,
             monto=monto,
+            moneda=moneda,
             fecha_inicio=fecha_inicio,
             fecha_fin=fecha_fin,
             tipo_contrato_id=tipo_contrato_id,
@@ -339,6 +345,13 @@ class TransferenciaSocioProductivaService:
             raise ConflictError("No se puede modificar una transferencia eliminada")
 
         cambios = {}
+
+        if "moneda" in data:
+            moneda = validar_moneda(data["moneda"])
+            cambio = AuditoriaService.construir_cambio(transferencia.moneda, moneda)
+            if cambio:
+                cambios["moneda"] = cambio
+                transferencia.moneda = moneda
 
         if "denominacion" in data:
             nuevo_valor = TransferenciaSocioProductivaService._validar_texto(
@@ -634,6 +647,7 @@ class TransferenciaSocioProductivaService:
                 demandante=transferencia.demandante,
                 descripcion_actividad=transferencia.descripcion_actividad,
                 monto=transferencia.monto,
+                moneda=getattr(transferencia, "moneda", None) or "ARS",
                 fecha_inicio=transferencia.fecha_inicio,
                 fecha_fin=transferencia.fecha_fin,
                 tipo_contrato_id=transferencia.tipo_contrato_id,

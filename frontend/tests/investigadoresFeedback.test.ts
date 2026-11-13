@@ -20,6 +20,7 @@ function load(file: string, mocks: Record<string, unknown> = {}) {
     if (name.startsWith("@/modules/produccion/components/")) return { default: name.split("/").at(-1) };
     if (name.startsWith("@/components/")) return { default: name.split("/").at(-1) };
     if (name === "../../../lib/textValidation") return require("../src/lib/textValidation.ts");
+    if (name === "@/modules/produccion/utils/clasificacionTrabajo") return require("../src/modules/produccion/utils/clasificacionTrabajo.ts");
     if (name.startsWith("@/")) return {};
     return require(name);
   } });

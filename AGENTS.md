@@ -6,6 +6,8 @@ Establecer reglas de trabajo consistentes para acelerar el desarrollo y reducir 
 
 ## Tareas del agente
 
+- Crear y mantener tareas únicamente para resolver issues; no registrar
+  asistencias operativas incidentales como tareas ni agregarlas a tareas ajenas.
 - Las tareas del agente viven en `tasks/` organizadas por estado:
   - `tasks/in-progress/`
   - `tasks/pendient/`
@@ -99,6 +101,8 @@ No modificar sin pedir permiso:
 
 ## Validacion esperada
 
+- Al finalizar cada tarea, dejar el stack de desarrollo levantado y comprobar
+  que la interfaz y la API respondan para que el usuario pueda validar el ajuste.
 - las validaciones tecnicas automatizadas corresponden al agente
 - la validacion visual y del comportamiento del modulo corresponde al usuario
 - test backend para el modulo actualizado

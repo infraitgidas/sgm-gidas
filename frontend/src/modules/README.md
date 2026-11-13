@@ -36,8 +36,11 @@ Los errores generales usan `getErrorMessage`, que conserva mensajes publicos
 seguros y descarta detalles tecnicos e identificadores de seguimiento. El ID
 permanece en el contrato HTTP y en `X-Request-ID` para logs y diagnostico interno,
 pero nunca se agrega al texto visible. Los mensajes de éxito,
-las reglas de validación y el momento de validación existentes se conservan.
-No se incorporan validaciones en tiempo real ni indicadores verdes.
+las reglas de validacion se conservan. ISS-33 incorpora validacion preventiva
+al escribir y al salir del campo, con la misma comprobacion conjunta al guardar.
+La utilidad pura `src/lib/liveValidation.ts` preserva errores ajenos y revalida
+dependencias sin persistir cambios. Personal usa su utilidad especifica
+`personalValidation.ts:updatePersonalErrors`. No se agregan indicadores verdes.
 
 ## Contrato transversal de fechas institucionales
 
@@ -192,3 +195,24 @@ ayuda que el control ya tenía y evita referencias a mensajes inexistentes. El
 mensaje mantiene `role="alert"`; al limpiarse el error se restauran los
 atributos anteriores. La comprobación manual con NVDA confirmó la descripción
 de los controles del sistema.
+
+## Ortografía de los textos visibles
+
+Los títulos, etiquetas, opciones, ayudas, confirmaciones y mensajes se escriben
+en español con tildes y signos de apertura. Los nombres de los campos asociados
+a catálogos deben coincidir con Gestionar Catálogos, también en detalle e historial.
+Los archivos usan UTF-8. Las correcciones de presentación conservan rutas,
+identificadores, claves API y valores persistidos.
+
+Los mensajes de carga, validación, éxito y error siguen el estilo del sistema.
+La revisión incluye estados menos frecuentes, como errores de métricas,
+confirmaciones de eliminación y avisos de exportación vacía.
+
+
+## Contexto de consulta despues del reingreso (ISS-50)
+
+Los 18 homes con controles locales recuperan filtros, texto, pagina y orden
+por usuario. Busqueda conserva su URL. El contrato comun de persistencia,
+aislacion, validaciones y pruebas se documenta en `shared/README.md`.
+Autenticacion valida el propietario del destino antes de restaurarlo.
+Aceptado por el usuario el 06/11/2026; sin cambios de contratos HTTP ni roles.

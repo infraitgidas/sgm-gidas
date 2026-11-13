@@ -8,6 +8,8 @@ import {
   type SearchPageResult,
   type SearchResult,
 } from "@/modules/search/services/searchService";
+import { useAuth } from "@/context/AuthContext";
+import { useUct } from "@/modules/grupo/hooks/useUct";
 import { getErrorMessage } from "@/lib/httpError";
 
 const DEBOUNCE_MS = 400;
@@ -27,6 +29,9 @@ function parsePage(value: string | null): number {
 }
 
 export function useSearch() {
+  const { user, token } = useAuth();
+  const { uct } = useUct();
+  const scopeKey = `${user?.id ?? "anonymous"}|${uct?.id ?? "none"}|${token ?? ""}`;
   const [searchParams, setSearchParams] = useSearchParams();
   const initialEstadoParam = searchParams.get("eliminados");
   const initialEstado: EstadoBusqueda = initialEstadoParam === "true"
@@ -49,6 +54,8 @@ export function useSearch() {
   const requestIdRef = useRef(0);
   const cacheRef = useRef(new Map<string, CacheEntry>());
   const debounceTimerRef = useRef<number | null>(null);
+  const previousScopeRef = useRef(scopeKey);
+  const previousIdentityRef = useRef({ userId: user?.id, groupId: uct?.id });
 
   useEffect(() => {
     const params: Record<string, string> = {};
@@ -73,7 +80,7 @@ export function useSearch() {
     const nextOrden = ordenOverride ?? orden;
     const nextEstado = estadoOverride ?? estado;
     const nextPage = pageOverride ?? page;
-    const key = `${query.toLocaleLowerCase("es")}|${nextOrden}|${nextEstado}|${nextPage}`;
+    const key = `${scopeKey}|${query.toLocaleLowerCase("es")}|${nextOrden}|${nextEstado}|${nextPage}`;
 
     if (query.length < 2) {
       controllerRef.current?.abort();
@@ -121,14 +128,14 @@ export function useSearch() {
       setError(
         getErrorMessage(
           caught,
-          "Lo sentimos, no pudimos recuperar la informacion. Intente nuevamente."
+          "Lo sentimos, no pudimos recuperar la información. Intente nuevamente."
         )
       );
       setHasSearched(false);
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [q, orden, estado, page]);
+  }, [q, orden, estado, page, scopeKey]);
 
   useEffect(() => {
     debounceTimerRef.current = window.setTimeout(() => {
@@ -138,6 +145,18 @@ export function useSearch() {
       if (debounceTimerRef.current !== null) window.clearTimeout(debounceTimerRef.current);
     };
   }, [q, orden, estado, page, executeSearch]);
+
+  useEffect(() => {
+    if (previousScopeRef.current === scopeKey) return;
+    previousScopeRef.current = scopeKey;
+    cacheRef.current.clear();
+    controllerRef.current?.abort();
+    ++requestIdRef.current;
+    setRawResults([]); setMeta(EMPTY_META);
+    const previous = previousIdentityRef.current;
+    if (previous.userId !== user?.id || previous.groupId != null && uct?.id != null && previous.groupId !== uct.id) setPage(1);
+    previousIdentityRef.current = { userId: user?.id, groupId: uct?.id };
+  }, [scopeKey]);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 

@@ -510,6 +510,7 @@ class DashboardService:
             "tipo_contrato": "Sin tipo",
             "total": 0,
             "monto_total": 0.0,
+            "monto_total_usd": 0.0,
         })
 
         for transferencia in transferencias:
@@ -520,11 +521,13 @@ class DashboardService:
 
             agrupado[tipo]["tipo_contrato"] = tipo
             agrupado[tipo]["total"] += 1
-            agrupado[tipo]["monto_total"] += float(transferencia.monto or 0)
+            campo = "monto_total_usd" if getattr(transferencia, "moneda", None) == "USD" else "monto_total"
+            agrupado[tipo][campo] += float(transferencia.monto or 0)
 
         data = list(agrupado.values())
         for item in data:
             item["monto_total"] = round(item["monto_total"], 2)
+            item["monto_total_usd"] = round(item["monto_total_usd"], 2)
 
         data.sort(key=lambda item: item["total"], reverse=True)
         return data

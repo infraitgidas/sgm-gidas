@@ -26,6 +26,26 @@ npm install
 npm run dev
 ```
 
+## Desarrollo con Docker (ISS-97)
+
+El override `docker-compose.dev.yml` ejecuta Vite con 2 CPU y 1 GiB de memoria
+por defecto. `DEV_FRONTEND_CPUS` y `DEV_FRONTEND_MEMORY`, en el entorno de Compose
+o en el `.env` de la raíz, permiten adaptar esos límites al equipo.
+
+Desde la raíz, aplicar cambios de recursos sin recrear servicios dependientes:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --no-deps backend frontend
+```
+
+El polling Windows se mantiene en 500 ms para detectar cambios en bind mounts.
+Vite conserva el proxy `/api` hacia el backend y los contratos de cada módulo.
+Comprobar la interfaz en el puerto local configurado y la API en
+`/api/v1/health/ready`. Los tiempos HTTP no representan tiempos de renderizado;
+para investigar demoras de pantalla, medir también solicitudes y primera carga
+con sesión iniciada. Ver [desarrollo backend](../backend/DEVELOPMENT.md).
+
 ## Arquitectura frontend
 
 El alcance de datos por UCT de la sesion, los contratos y el comportamiento

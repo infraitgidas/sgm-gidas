@@ -1,6 +1,9 @@
+import { getCatalogReturn } from "@/modules/catalogos/utils/catalogNavigation";
+
 export type BreadcrumbItem = {
   label: string;
   to?: string;
+  state?: unknown;
 };
 
 const sectionNames: Record<string, string> = {
@@ -45,7 +48,7 @@ function sectionTrail(section: string): BreadcrumbItem[] {
   return [start, { label: sectionNames[section], to: `/${section}` }];
 }
 
-export function getRouteBreadcrumbs(pathname: string): BreadcrumbItem[] {
+export function getRouteBreadcrumbs(pathname: string, navigationState?: unknown): BreadcrumbItem[] {
   const segments = pathname.split("/").filter(Boolean);
   const [section, second, third, fourth] = segments;
 
@@ -53,6 +56,39 @@ export function getRouteBreadcrumbs(pathname: string): BreadcrumbItem[] {
   if (pathname === "/") return [{ label: "Portada" }];
   if (pathname === "/login") return [{ label: "Portada", to: "/" }, { label: "Iniciar sesión" }];
   if (pathname === "/registro") return [{ label: "Portada", to: "/" }, { label: "Crear cuenta" }];
+
+  if (section === "catalogos" && segments.length === 1) {
+    const origin = getCatalogReturn(navigationState);
+    const trail = getRouteBreadcrumbs(origin.pathname, origin.state);
+    if (trail[trail.length - 1]?.label !== "Página no encontrada") {
+      return [
+        ...trail.map((item, index) => index === trail.length - 1
+          ? { ...item, to: `${origin.pathname}${origin.search}${origin.hash}`, state: origin.state }
+          : { ...item, state: item.state ?? origin.state }),
+        { label: sectionNames.catalogos },
+      ];
+    }
+    return [start, { label: sectionNames.catalogos }];
+  }
+
+  // La relación becario → beca conserva el origen, también durante la edición.
+  if (section === "becas" && /^[1-9]\d*$/.test(second ?? "") &&
+    (segments.length === 2 || (segments.length === 3 && third === "editar")) &&
+    navigationState && typeof navigationState === "object" && "becarioReturnTo" in navigationState) {
+    const origin = navigationState.becarioReturnTo;
+    if (origin && typeof origin === "object" && "pathname" in origin &&
+      typeof origin.pathname === "string" && /^\/personal\/becario\/[1-9]\d*$/.test(origin.pathname)) {
+      const search = "search" in origin && typeof origin.search === "string" && origin.search.startsWith("?") ? origin.search : "";
+      const hash = "hash" in origin && typeof origin.hash === "string" && origin.hash.startsWith("#") ? origin.hash : "";
+      const trail: BreadcrumbItem[] = [
+        ...sectionTrail("personal"),
+        { label: "Becario", to: `${origin.pathname}${search}${hash}`, state: "state" in origin ? origin.state : undefined },
+      ];
+      return third === "editar"
+        ? [...trail, { label: "Beca", to: `/becas/${second}`, state: navigationState }, { label: "Editar" }]
+        : [...trail, { label: "Beca" }];
+    }
+  }
 
   if (section === "uct" && second === "nueva" && segments.length === 2) {
     return [start, { label: "Nueva UCT" }];

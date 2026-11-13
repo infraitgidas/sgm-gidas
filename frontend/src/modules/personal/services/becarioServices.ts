@@ -1,6 +1,8 @@
 import { http } from "@/lib/http";
 
 export interface BecarioPayload {
+  nombre?: string | null;
+  apellido?: string | null;
   nombre_apellido: string;
   dni: string;
   cuil: string;
@@ -30,6 +32,8 @@ export interface BecarioBeca {
 
 export interface Becario {
   id: number;
+  nombre?: string | null;
+  apellido?: string | null;
   nombre_apellido: string;
   dni: string | null;
   cuil: string | null;

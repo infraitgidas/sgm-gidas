@@ -26,7 +26,7 @@ class DistincionRecibidaService:
 
     @staticmethod
     def _validar_id(valor, campo: str):
-        if not isinstance(valor, int) or valor <= 0:
+        if isinstance(valor, bool) or not isinstance(valor, int) or valor <= 0:
             if campo == "proyecto_investigacion_id":
                 raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {campo: "Seleccione un proyecto disponible."}})
             raise ValidationError("No pudimos procesar la solicitud. Intente nuevamente.")
@@ -82,6 +82,8 @@ class DistincionRecibidaService:
 
     @staticmethod
     def _validar_proyecto(proyecto_id):
+        if proyecto_id is None:
+            return None
         proyecto_id = DistincionRecibidaService._validar_id(
             proyecto_id, "proyecto_investigacion_id"
         )

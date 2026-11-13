@@ -1,3 +1,5 @@
+from modules.memorias.services.memoria_excel_template import meeting_category, publication_category
+from modules.personal.services.nombre_service import nombre_para_memoria
 from types import SimpleNamespace
 from copy import copy
 from io import BytesIO
@@ -1103,9 +1105,9 @@ class ExportService:
         row = cls._write_table(ws, row, "1.6.- Autoridades y cargos de gestion del grupo", ["Nro.", "Apellido y nombre", "Cargo desempenado", "Fecha de inicio", "Fecha de finalizacion"], directivos_rows, merge_span=8, date_cols={4, 5})
         row = cls._write_multiline_block(ws, row, "1.7.- Objetivos y desarrollo", grupo.objetivo_desarrollo)
         row = cls._write_subsection(ws, row, "2.- PERSONAL", span=10)
-        investigadores_rows = [[idx, inv.nombre_apellido, inv.categoria_utn.nombre if inv.categoria_utn else "-", inv.programa_incentivos.nombre if inv.programa_incentivos else "-", inv.tipo_dedicacion.nombre if inv.tipo_dedicacion else "-", cls._current_hours(inv)] for idx, inv in enumerate(investigadores, start=1)]
+        investigadores_rows = [[idx, nombre_para_memoria(inv), inv.categoria_utn.nombre if inv.categoria_utn else "-", inv.programa_incentivos.nombre if inv.programa_incentivos else "-", inv.tipo_dedicacion.nombre if inv.tipo_dedicacion else "-", cls._current_hours(inv)] for idx, inv in enumerate(investigadores, start=1)]
         row = cls._write_table(ws, row, "2.1.- Investigadores", ["Nro.", "Apellido y nombre", "Categoria UTN", "Programa de incentivos", "Tipo de dedicacion", "Carga horaria semanal"], investigadores_rows, merge_span=8)
-        personal_rows = [[idx, persona.nombre_apellido, persona.tipo_personal.nombre if persona.tipo_personal else "-", cls._current_hours(persona)] for idx, persona in enumerate(personal, start=1)]
+        personal_rows = [[idx, nombre_para_memoria(persona), persona.tipo_personal.nombre if persona.tipo_personal else "-", cls._current_hours(persona)] for idx, persona in enumerate(personal, start=1)]
         row = cls._write_table(ws, row, "2.2.- Personal tecnico, administrativo y de apoyo", ["Nro.", "Apellido y nombre", "Categoria de personal", "Carga horaria semanal"], personal_rows, merge_span=8)
 
         becarios_rows = []
@@ -1113,10 +1115,10 @@ class ExportService:
             relaciones_activas = [rel for rel in becario.becas if rel.deleted_at is None and rel.beca and rel.beca.deleted_at is None]
             nombres_becas = ", ".join(sorted({rel.beca.nombre_beca for rel in relaciones_activas})) or "-"
             fuentes = ", ".join(sorted({rel.beca.fuente_financiamiento.nombre for rel in relaciones_activas if rel.beca.fuente_financiamiento is not None})) or "-"
-            becarios_rows.append([idx, becario.nombre_apellido, becario.tipo_formacion.nombre if becario.tipo_formacion else "-", nombres_becas, fuentes, cls._current_hours(becario)])
+            becarios_rows.append([idx, nombre_para_memoria(becario), becario.tipo_formacion.nombre if becario.tipo_formacion else "-", nombres_becas, fuentes, cls._current_hours(becario)])
         row = cls._write_table(ws, row, "2.3.- Becarios y personal en formacion", ["Nro.", "Apellido y nombre", "Tipo de formacion", "Becas asociadas", "Fuente de financiamiento", "Carga horaria semanal"], becarios_rows, merge_span=8)
-        equipamiento_rows = [[idx, item.denominacion, item.descripcion_breve, item.fecha_incorporacion, cls._money(item.monto_invertido)] for idx, item in enumerate(equipamiento, start=1)]
-        row = cls._write_table(ws, row, "3.- EQUIPAMIENTO DEL GRUPO", ["Nro.", "Denominacion del equipamiento", "Descripcion breve", "Fecha de incorporacion", "Monto invertido"], equipamiento_rows, accent=True, merge_span=8, date_cols={4}, money_cols={5})
+        equipamiento_rows = [[idx, item.denominacion, item.descripcion_breve, item.fecha_incorporacion, cls._money(item.monto_invertido), item.moneda or "ARS"] for idx, item in enumerate(equipamiento, start=1)]
+        row = cls._write_table(ws, row, "3.- EQUIPAMIENTO DEL GRUPO", ["Nro.", "Denominacion del equipamiento", "Descripcion breve", "Fecha de incorporacion", "Monto invertido", "Moneda"], equipamiento_rows, accent=True, merge_span=8, date_cols={4}, money_cols={5})
         docs_rows = [[idx, doc.titulo, ", ".join(a.nombre_apellido for a in doc.autores if not hasattr(a, "deleted_at") or a.deleted_at is None) or "-", doc.editorial, doc.anio] for idx, doc in enumerate(documentacion, start=1)]
         row = cls._write_table(ws, row, "4.- DOCUMENTACION Y BIBLIOTECA", ["Nro.", "Titulo de la obra", "Autores", "Editorial", "Anio de publicacion"], docs_rows, merge_span=8)
 
@@ -1139,15 +1141,44 @@ class ExportService:
         row = cls._write_table(ws, row, "6.2.- Participaciones institucionales y academicas relevantes", ["Nro.", "Evento o actividad", "Forma de participacion", "Fecha", "Participante", "Categoria"], participaciones_rows, merge_span=8, date_cols={4})
         visitas_rows = [[idx, visita.razon, visita.procedencia, visita.tipo_visita.nombre if visita.tipo_visita else "-", visita.fecha] for idx, visita in enumerate(visitas, start=1)]
         row = cls._write_table(ws, row, "6.3.- Visitantes del pais y del extranjero", ["Nro.", "Motivo o razon de la visita", "Procedencia", "Tipo de visita", "Fecha"], visitas_rows, merge_span=8, date_cols={5})
-        reuniones_grouped = {}
-        for trabajo in trabajos_reunion:
-            tipo = trabajo.tipo_reunion_cientifica.nombre if trabajo.tipo_reunion_cientifica else "Sin tipo definido"
-            reuniones_grouped.setdefault(tipo, []).append([len(reuniones_grouped.get(tipo, [])) + 1, trabajo.titulo_trabajo + ("\nEnlace: " + trabajo.enlace if trabajo.enlace else ""), trabajo.nombre_reunion, trabajo.procedencia, trabajo.fecha_presentacion, cls._autores_texto([a.serialize() for a in trabajo.autorias])])
-        row = cls._write_grouped_tables(ws, row, "7", "TRABAJOS PRESENTADOS EN CONGRESOS Y REUNIONES CIENTIFICAS CON REFERATO", list(reuniones_grouped.items()), ["Nro.", "Titulo del trabajo", "Reunion cientifica", "Institucion de procedencia", "Fecha de presentacion", "Autores"], merge_span=10, date_cols={5})
+        row = cls._write_section(ws, row, "7.- TRABAJOS PRESENTADOS EN CONGRESOS Y REUNIONES CIENTIFICAS", span=10)
+        for category, title, location in (
+            ("nacional", "7.1.- Reunión Científica Nacional con Referato", "Ciudad"),
+            ("internacional", "7.2.- Reunión Científica Internacional", "País"),
+            ("sin clasificar", "Trabajos en reuniones sin clasificar para la memoria", "Procedencia"),
+        ):
+            items = [trabajo for trabajo in trabajos_reunion if meeting_category({
+                "alcance": trabajo.alcance, "referato": trabajo.referato,
+                "tipo_reunion_nombre": trabajo.tipo_reunion_cientifica.nombre if trabajo.tipo_reunion_cientifica else None,
+            }) == category]
+            if category == "sin clasificar" and not items:
+                continue
+            rows = [[idx, trabajo.nombre_reunion, trabajo.procedencia, trabajo.fecha_presentacion,
+                     cls._autores_texto([a.serialize() for a in trabajo.autorias]),
+                     trabajo.titulo_trabajo + ("\nEnlace: " + trabajo.enlace if trabajo.enlace else "")]
+                    for idx, trabajo in enumerate(items, 1)]
+            row = cls._write_table(ws, row, title, ["Nro.", "Nombre reunión", location,
+                "Fecha de presentación", "Autores", "Título trabajo"], rows, merge_span=10, date_cols={4})
         articulos_rows = [[idx, articulo.titulo, articulo.descripcion, articulo.fecha_publicacion] for idx, articulo in enumerate(articulos, start=1)]
         row = cls._write_table(ws, row, "8.- TRABAJOS REALIZADOS Y PUBLICADOS", ["Nro.", "Titulo del articulo", "Descripcion o sintesis", "Fecha de publicacion"], articulos_rows, merge_span=8, date_cols={4})
-        revistas_rows = [[idx, trabajo.titulo_trabajo + ("\nEnlace: " + trabajo.enlace if trabajo.enlace else ""), trabajo.nombre_revista, trabajo.editorial, trabajo.issn, trabajo.pais, trabajo.tipo_revista.nombre if trabajo.tipo_revista else "-", trabajo.fecha_publicacion, cls._autores_texto([a.serialize() for a in trabajo.autorias])] for idx, trabajo in enumerate(trabajos_revista, start=1)]
-        row = cls._write_table(ws, row, "8.1.- Trabajos en revistas con referato", ["Nro.", "Titulo del trabajo", "Revista", "Editorial", "ISSN", "Pais", "Tipo de revista", "Fecha de publicacion", "Autores"], revistas_rows, merge_span=10, date_cols={8})
+        for category, title in (
+            ("revista", "8.1.- Trabajos publicados en revistas con referato"),
+            ("libro", "8.3.- Libros o capítulos de libros"),
+            ("sin clasificar", "Publicaciones sin clasificar para la memoria"),
+        ):
+            items = [trabajo for trabajo in trabajos_revista if publication_category({
+                "referato": trabajo.referato, "issn": trabajo.issn,
+                "tipo_revista_nombre": trabajo.tipo_revista.nombre if trabajo.tipo_revista else None,
+            }) == category]
+            if category != "revista" and not items:
+                continue
+            rows = [[idx, trabajo.nombre_revista, trabajo.pais, trabajo.editorial, trabajo.issn,
+                     trabajo.titulo_trabajo + "\nAutores: " + cls._autores_texto([a.serialize() for a in trabajo.autorias]) +
+                     "\nFecha: " + cls._format_date(trabajo.fecha_publicacion) +
+                     ("\nEnlace: " + trabajo.enlace if trabajo.enlace else "")]
+                    for idx, trabajo in enumerate(items, 1)]
+            row = cls._write_table(ws, row, title, ["Nro.", "Nombre de la revista", "País", "Editorial", "ISSN", "Título trabajo"], rows, merge_span=10)
+
         registros_grouped = {}
         for registro in registros:
             tipo = registro.tipo_registro.nombre if registro.tipo_registro else "Sin tipo definido"
@@ -1160,15 +1191,17 @@ class ExportService:
 
         row = cls._write_section(ws, row, "IV.- VINCULACION CON EL MEDIO SOCIO PRODUCTIVO")
         transferencias_grouped = {}
-        total_transferencias = 0.0
+        total_transferencias = {"ARS": 0.0, "USD": 0.0}
         for transferencia in transferencias:
             monto = cls._money(transferencia.monto)
-            total_transferencias += monto
+            moneda = transferencia.moneda or "ARS"
+            total_transferencias[moneda] += monto
             tipo = transferencia.tipo_contrato_transferencia.nombre if transferencia.tipo_contrato_transferencia else "Sin tipo definido"
             adoptantes = ", ".join(sorted({participacion.adoptante.nombre for participacion in transferencia.participaciones if participacion.deleted_at is None and participacion.adoptante is not None})) or "-"
-            transferencias_grouped.setdefault(tipo, []).append([len(transferencias_grouped.get(tipo, [])) + 1, transferencia.numero_transferencia, transferencia.denominacion, transferencia.demandante, monto, transferencia.fecha_inicio, transferencia.fecha_fin, adoptantes])
-        row = cls._write_grouped_tables(ws, row, "11", "TRANSFERENCIAS SOCIO-PRODUCTIVAS", list(transferencias_grouped.items()), ["Nro.", "Numero de transferencia", "Denominacion", "Demandante", "Monto comprometido", "Fecha de inicio", "Fecha de finalizacion", "Adoptantes vinculados"], accent=True, merge_span=10, date_cols={6, 7}, money_cols={5})
-        row = cls._write_totals(ws, row, "Total monto transferencias", [(5, total_transferencias)])
+            transferencias_grouped.setdefault(tipo, []).append([len(transferencias_grouped.get(tipo, [])) + 1, transferencia.numero_transferencia, transferencia.denominacion, transferencia.demandante, monto, transferencia.fecha_inicio, transferencia.fecha_fin, adoptantes, moneda])
+        row = cls._write_grouped_tables(ws, row, "11", "TRANSFERENCIAS SOCIO-PRODUCTIVAS", list(transferencias_grouped.items()), ["Nro.", "Numero de transferencia", "Denominacion", "Demandante", "Monto comprometido", "Fecha de inicio", "Fecha de finalizacion", "Adoptantes vinculados", "Moneda"], accent=True, merge_span=10, date_cols={6, 7}, money_cols={5})
+        for moneda, total in total_transferencias.items():
+            row = cls._write_totals(ws, row, f"Total monto transferencias {moneda}", [(5, total)])
 
         row = cls._write_section(ws, row, "V.- INFORME SOBRE RENDICION DE CUENTAS")
         erogaciones_grouped = {}

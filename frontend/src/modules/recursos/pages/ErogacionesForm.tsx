@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -156,12 +157,12 @@ export default function ErogacionesForm() {
 
   const setField = <K extends keyof FormData>(field: K, value: FormData[K]) => {
     setData((previous) => ({ ...previous, [field]: value }));
-    setErrors((previous) => ({ ...previous, [field]: "" }));
+    validateChangedField(field, { data: { ...data, [field]: value } });
   };
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (isPending || checkingSaldo || !uct) return;
+  const validationValues = { data };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { data } = { ...validationValues, ...changes };
     const nextErrors: Record<string, string> = {};
     if (data.tipo_movimiento !== "INGRESO" && data.tipo_movimiento !== "EGRESO") nextErrors.tipo_movimiento = "Seleccione ingreso o egreso.";
     if (data.moneda === "USD" && !isEdit && !cotizacion) nextErrors.moneda = "No existe una cotización oficial disponible. Seleccione otra fecha o reintente.";
@@ -175,6 +176,24 @@ export default function ErogacionesForm() {
     if (data.tipo_movimiento === "EGRESO" && !data.categoria_erogacion_id) {
       nextErrors.categoria_erogacion_id = "Seleccione la categoría de erogación.";
     }
+    return nextErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  // La consulta de cotización puede terminar después de salir del selector.
+  useEffect(() => {
+    if (!cotizacion && data.moneda === "USD") return;
+    setErrors((previous) => previous.moneda === "No existe una cotización oficial disponible. Seleccione otra fecha o reintente."
+      ? updateLiveValidationErrors(previous, {}, {}, "moneda") : previous);
+  }, [cotizacion, data.moneda]);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isPending || checkingSaldo || !uct) return;
+    const nextErrors = getValidationErrors();
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
     setErrorMessage("");
@@ -260,8 +279,8 @@ export default function ErogacionesForm() {
           {isEdit ? <p className="rounded-lg border border-slate-200 bg-slate-50 p-2">{data.tipo_movimiento === "INGRESO" ? "Ingreso" : "Egreso"}</p> : (
             <select className="input" value={data.tipo_movimiento} onChange={(event) => {
               setData((previous) => ({ ...previous, tipo_movimiento: event.target.value as TipoMovimiento, fuente_financiamiento_id: "", categoria_erogacion_id: "", equipamiento_id: "" }));
-              setErrors({});
-            }}>
+              validateChangedField("tipo_movimiento", { data: { ...data, tipo_movimiento: event.target.value as TipoMovimiento, fuente_financiamiento_id: "", categoria_erogacion_id: "", equipamiento_id: "" } });
+            }} onBlur={() => validateChangedField("tipo_movimiento")}>
               <option value="">Seleccione el tipo</option>
               <option value="INGRESO">Ingreso</option>
               <option value="EGRESO">Egreso</option>
@@ -285,8 +304,13 @@ export default function ErogacionesForm() {
               monto: equipo ? movimiento?.equipamiento_id === equipo.id ? movimiento.monto : equipo.monto_invertido : previous.monto,
               categoria_erogacion_id: equipo && categoriaCapital ? String(categoriaCapital.id) : previous.categoria_erogacion_id,
             }));
-            setErrors((previous) => ({ ...previous, equipamiento_id: "", monto: "" }));
-          }}>
+            validateChangedField("equipamiento_id", { data: {
+                ...data,
+                equipamiento_id: equipoId,
+                monto: equipo ? movimiento?.equipamiento_id === equipo.id ? movimiento.monto : equipo.monto_invertido : data.monto,
+                categoria_erogacion_id: equipo && categoriaCapital ? String(categoriaCapital.id) : data.categoria_erogacion_id,
+              } });
+          }} onBlur={() => validateChangedField("equipamiento_id")}>
             <option value="">Sin equipamiento relacionado</option>
             {data.equipamiento_id && movimiento?.equipamiento_id === Number(data.equipamiento_id) && !equipos.some((item) => item.id === movimiento.equipamiento_id) && <option value={data.equipamiento_id}>{movimiento.equipamiento?.denominacion ?? "Equipamiento vinculado"}</option>}
             {equipos.map((equipo) => <option key={equipo.id} value={equipo.id}>{equipo.denominacion}</option>)}
@@ -294,12 +318,12 @@ export default function ErogacionesForm() {
           {equiposError && <p role="alert" className="mt-2 text-sm text-rose-700">Lo sentimos, no pudimos recuperar el equipamiento. <button type="button" className="underline" onClick={() => refetchEquipos()}>Intente nuevamente.</button></p>}
         </Field>}
         <Field required label="Monto" name="monto" error={errors.monto}>
-          <input type="number" min="0.01" step="0.01" readOnly={Boolean(data.equipamiento_id)} className="input" value={data.monto} placeholder="Ej.: 150000.00" onChange={(event) => setField("monto", event.target.value)} />
+          <input type="number" min="0.01" step="0.01" readOnly={Boolean(data.equipamiento_id)} className="input" value={data.monto} placeholder="Ej.: 150000.00" onChange={(event) => setField("monto", event.target.value)} onBlur={() => validateChangedField("monto")} />
           {data.equipamiento_id && <p className="mt-1 text-xs text-slate-500">El monto se toma del equipamiento al vincularlo y se conserva como importe histórico.</p>}
         </Field>
         <Field required label="Moneda" name="moneda" error={errors.moneda}>
           {isEdit ? <p className="rounded-lg border border-slate-200 bg-slate-50 p-2">{data.moneda}</p> :
-            <select className="input" value={data.moneda} onChange={(event) => setData((previous) => ({ ...previous, moneda: event.target.value as MonedaMovimiento, equipamiento_id: "" }))}>
+            <select className="input" value={data.moneda} onChange={(event) => { setData((previous) => ({ ...previous, moneda: event.target.value as MonedaMovimiento, equipamiento_id: "" })); validateChangedField("moneda", { data: { ...data, moneda: event.target.value as MonedaMovimiento, equipamiento_id: "" } }); }} onBlur={() => validateChangedField("moneda")}>
               <option value="ARS">ARS</option><option value="USD">USD</option>
             </select>}
         </Field>
@@ -319,14 +343,14 @@ export default function ErogacionesForm() {
             : `Serie ${(isEdit ? movimiento?.tipo_cambio : cotizacion)?.serie_bcra ?? "—"}`}</p>
         </div>}
         <Field required label="Fuente de financiamiento" name="fuente_financiamiento_id" error={errors.fuente_financiamiento_id}>
-            <select className="input" value={data.fuente_financiamiento_id} onChange={(event) => setField("fuente_financiamiento_id", event.target.value)}>
+            <select className="input" value={data.fuente_financiamiento_id} onChange={(event) => setField("fuente_financiamiento_id", event.target.value)} onBlur={() => validateChangedField("fuente_financiamiento_id")} >
               <option value="">Seleccione una fuente</option>
               {fuentes.map((fuente) => <option key={fuente.id} value={fuente.id}>{fuente.nombre}</option>)}
             </select>
         </Field>
         {data.tipo_movimiento === "EGRESO" && (
           <Field required label="Categoría de erogación" name="categoria_erogacion_id" error={errors.categoria_erogacion_id}>
-            <select className="input" value={data.categoria_erogacion_id} onChange={(event) => setField("categoria_erogacion_id", event.target.value)}>
+            <select className="input" value={data.categoria_erogacion_id} onChange={(event) => setField("categoria_erogacion_id", event.target.value)} onBlur={() => validateChangedField("categoria_erogacion_id")} >
               <option value="">Seleccione una categoría</option>
               {categorias.map((categoria) => <option key={categoria.id} value={categoria.id}>{categoria.nombre}</option>)}
             </select>

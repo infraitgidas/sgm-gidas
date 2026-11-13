@@ -39,6 +39,7 @@ class TrabajoRevistaMemoriaHistorialTestCase(unittest.TestCase):
             created_by=1
         )
         trabajo = SimpleNamespace(
+            referato=False,
             enlace=None,
             id=6,
             titulo_trabajo="Modelo de versionado",

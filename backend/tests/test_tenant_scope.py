@@ -213,6 +213,36 @@ class TenantScopeTest(unittest.TestCase):
             self.assertEqual(len(options["curso"]), 11)
             self.assertTrue(all(len(row["historial_grados"]) == 2 for row in rows))
 
+    def test_distincion_sin_proyecto_conserva_uct_y_acceso(self):
+        from modules.produccion.services.distincion_service import DistincionRecibidaService as Service
+        from modules.proyectos.models.proyecto_investigacion import ProyectoInvestigacion, TipoProyecto
+        db.session.add(TipoProyecto(id=99, nombre="Tipo de prueba"))
+        db.session.add(ProyectoInvestigacion(id=99, codigo_proyecto="TEST", nombre_proyecto="Proyecto", descripcion_proyecto="Prueba", fecha_inicio=date(2025, 1, 1), tipo_proyecto_id=99, grupo_utn_id=1))
+        db.session.commit()
+        db.session.remove()
+        with self.app.test_request_context("/distinciones"):
+            g.current_grupo_utn_id = 1
+            saved = Service.create({"fecha": "2025-02-01", "descripcion": "Premio", "proyecto_investigacion_id": 99}, 1)
+            record_id = saved["id"]
+            self.assertIsNone(Service.update(record_id, {"proyecto_investigacion_id": None}, 1)["proyecto"])
+        db.session.remove()
+        with self.app.test_request_context("/distinciones"):
+            g.current_grupo_utn_id = 1
+            self.assertIsNone(Service.get_by_id(record_id)["proyecto"])
+            self.assertEqual(len(Service.get_historial(record_id)), 1)
+            self.assertIn(record_id, [row["id"] for row in Service.get_all()])
+            Service.update(record_id, {"descripcion": "Premio nacional"}, 1)
+            orphan = Service.create({"fecha": "2025-03-01", "descripcion": "Trayectoria"}, 1)
+            self.assertEqual(orphan["grupo_utn_id"], 1)
+            self.assertEqual(Service.update(record_id, {"proyecto_investigacion_id": 99}, 1)["proyecto"]["id"], 99)
+        db.session.remove()
+        with self.app.test_request_context("/distinciones"):
+            g.current_grupo_utn_id = 2
+            self.assertEqual(Service.get_all(), [])
+            for identifier in (record_id, orphan["id"]):
+                with self.assertRaises(NotFoundError):
+                    Service.get_by_id(identifier)
+
     def setUp(self):
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, SQLALCHEMY_DATABASE_URI="sqlite:///:memory:")

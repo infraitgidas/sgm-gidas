@@ -1,5 +1,36 @@
 # Informes por período (ISS-85)
 
+## Filtros desplegables (ISS-47)
+
+InformesHome: período de Memoria; Todos los períodos conserva el valor 0 del filtro.
+Los filtros del listado utilizan `TableFilterSelect`, con nombre accesible y
+selección mediante teclado. Todos/Todas elimina la restricción del criterio.
+La adaptación del selector conserva valores, setters y opciones de consulta;
+se mantienen services, permisos, nueve filas por página, contexto de Memoria
+y persistencia de filtros de ISS-50. No se modifican campos de formularios.
+
+Aceptado visual y funcionalmente el 06/11/2026. Validación integrada:
+269 pruebas frontend, TypeScript y build de producción aprobados.
+`tests/homeFilterSelect.test.ts` comprueba selección y limpieza en las cuatro
+pantallas principales y ausencia de chips de filtrado en los homes.
+
+## Validacion preventiva de formularios (ISS-33)
+
+`InformeForm` reutiliza `utils/validation.ts:validateInforme` al escribir,
+al salir de los controles nativos y al guardar. Se mantienen Memoria obligatoria,
+titulo de hasta 200 caracteres, secciones de hasta 20000, fecha institucional
+y vinculos obligatorios cuando el tipo los exige. `changeLinks` revalida las
+altas y bajas de seleccion sin persistir cada una; cambiar Memoria contempla
+la limpieza de vinculos. El guardado conserva payload, permisos y diferencias.
+
+La actualizacion de errores usa `src/lib/liveValidation.ts`, que revalida el
+campo editado y las reglas cuyo resultado cambia por dependencia, preservando
+los demas errores. No agrega hooks compartidos ni modifica componentes globales.
+Las validaciones no disparan escrituras de dominio. Se conservan services,
+contratos, permisos, borradores, navegacion y feedback de exito.
+La etapa fue aceptada visual y funcionalmente por el usuario el 05/11/2026;
+la regresion transversal esta en `tests/liveValidation.test.ts`.
+
 ## Vistas y permisos
 
 `InformesHome`, `InformeForm` e `InformeDetalle` atienden las rutas
@@ -57,3 +88,14 @@ dirigidas y una nueva comprobación de tipos.
 En InformeDetalle, las etiquetas de datos y los encabezados de tarjetas
 usan peso seminegrita y color pizarra oscuro para distinguirse del contenido.
 La disposición, los textos, las acciones y el contrato permanecen iguales.
+
+
+## Recuperacion del contexto de consulta (ISS-50)
+
+InformesHome conserva el periodo de Memoria seleccionado y la pagina, separando el contexto de cada tipo de informe mediante su ruta.
+
+Los homes con estado local usan `shared/hooks/useHomeState.ts`; Busqueda conserva
+su contrato de URL. La persistencia validada se limita a la pestana y al usuario,
+sin guardar filas ni acciones pendientes. Se mantienen services, permisos,
+validaciones y paginacion vigentes. Contrato y pruebas en `../shared/README.md`.
+Aceptado funcionalmente por el usuario el 06/11/2026.

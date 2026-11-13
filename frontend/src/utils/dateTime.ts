@@ -84,5 +84,10 @@ export function formatFechaHora(
   fallback = "-"
 ): string {
   const date = parseApiTimestamp(value);
-  return date ? date.toLocaleString("es-AR") : fallback;
+  return date
+    ? date.toLocaleString("es-AR", {
+        timeZone: "America/Argentina/Buenos_Aires",
+        hourCycle: "h23",
+      })
+    : fallback;
 }

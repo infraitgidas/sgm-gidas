@@ -6,7 +6,7 @@ const FIELD_LABELS: Record<string, string> = {
   nombre_articulo: "Nombre del artículo",
   organismo_registrante: "Organismo registrante",
   fecha_registro: "Fecha de registro",
-  tipo_registro_id: "Tipo de registro",
+  tipo_registro_id: "Tipo de Registro de Propiedad",
   grupo_utn_id: "Grupo UTN",
 };
 

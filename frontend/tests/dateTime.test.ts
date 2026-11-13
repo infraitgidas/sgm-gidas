@@ -44,7 +44,7 @@ test("interpreta timestamps sin zona del contrato heredado como UTC", () => {
   assert.equal(parsed?.getHours(), 23);
   assert.equal(
     formatFechaHora("2026-09-07T02:13:31"),
-    new Date("2026-09-07T02:13:31Z").toLocaleString("es-AR")
+    "6/9/2026, 23:13:31"
   );
 });
 
@@ -53,4 +53,34 @@ test("respeta timestamps que ya incluyen una zona explícita", () => {
     parseApiTimestamp("2026-09-07T02:13:31-03:00")?.toISOString(),
     "2026-09-07T05:13:31.000Z"
   );
+});
+
+test("muestra horas argentinas de 24 horas independientemente de la zona del equipo", () => {
+  const originalZone = process.env.TZ;
+  try {
+    for (const zone of ["UTC", "America/New_York", "Asia/Tokyo"]) {
+      process.env.TZ = zone;
+      for (const timestamp of [
+        "2026-09-07T02:13:31",
+        "2026-09-07T02:13:31Z",
+        "2026-09-06T23:13:31-03:00",
+      ]) {
+        assert.equal(formatFechaHora(timestamp), "6/9/2026, 23:13:31");
+      }
+      assert.equal(formatFechaHora("2026-09-07T03:00:00Z"), "7/9/2026, 00:00:00");
+      assert.equal(formatFechaHora("2026-09-07T16:00:00Z"), "7/9/2026, 13:00:00");
+      assert.equal(formatFechaHora("2026-01-01T02:59:59Z"), "31/12/2025, 23:59:59");
+    }
+  } finally {
+    if (originalZone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalZone;
+  }
+});
+
+test("conserva los fallbacks de marcas ausentes o inválidas", () => {
+  assert.equal(formatFechaHora(null), "-");
+  assert.equal(formatFechaHora(undefined), "-");
+  assert.equal(formatFechaHora(""), "-");
+  assert.equal(formatFechaHora("inválida"), "-");
+  assert.equal(formatFechaHora("inválida", "Sin fecha"), "Sin fecha");
 });

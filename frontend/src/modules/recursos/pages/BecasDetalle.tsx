@@ -9,11 +9,13 @@ import { useAuth } from "@/context/AuthContext";
 import { useAuditoria } from "@/modules/shared/hooks/useAuditoria";
 import { getBecaById, getBecaHistorial } from "@/modules/recursos/services/becasService";
 import { formatFecha, formatFechaHora } from "@/utils/dateTime";
+import { getBecaNavigationState } from "@/modules/recursos/utils/becaNavigation";
 
 export default function BecasDetalle() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const navigationState = getBecaNavigationState(location.state);
   const { canEditRecords } = useAuth();
   const [success, setSuccess] = useState("");
   const beca = useQuery({ queryKey: ["beca", id], queryFn: () => getBecaById(Number(id)), enabled: Boolean(id) });
@@ -24,8 +26,8 @@ export default function BecasDetalle() {
     const message = (location.state as { successMessage?: string } | null)?.successMessage;
     if (!message) return;
     setSuccess(message);
-    navigate(location.pathname, { replace: true });
-  }, [location.pathname, location.state, navigate]);
+    navigate(`${location.pathname}${location.search}${location.hash}`, { replace: true, state: getBecaNavigationState(location.state) });
+  }, [location.pathname, location.search, location.hash, location.state, navigate]);
 
   if (beca.isLoading) return <LoadingSkeleton variant="detail" label="Cargando beca..." />;
   if (beca.isError || !beca.data) return <p role="alert">Lo sentimos, no pudimos recuperar la información. Intente nuevamente.</p>;
@@ -34,7 +36,7 @@ export default function BecasDetalle() {
     <section className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h2 className="text-2xl font-semibold md:text-3xl">{item.nombre_beca}</h2><span className="text-sm text-slate-600">{item.deleted_at ? "Inactiva" : "Activa"}</span></div>
-        {!item.deleted_at && canEditRecords() && <Button size="sm" onClick={() => navigate(`/becas/${item.id}/editar`)}>Editar</Button>}
+        {!item.deleted_at && canEditRecords() && <Button size="sm" onClick={() => navigate(`/becas/${item.id}/editar`, { state: navigationState })}>Editar</Button>}
       </div>
       <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h3 className="mb-4 text-lg font-semibold text-slate-800">Datos de la beca</h3>
@@ -84,7 +86,11 @@ export default function BecasDetalle() {
           return typeof value === "object" ? "Cambio en vinculación" : String(value);
         }} />
       {history.isError && <div role="alert" className="text-sm text-rose-700">No pudimos cargar el historial. <button type="button" className="underline" onClick={() => void history.refetch()}>Reintentar</button></div>}
-      <div><Button variant="secondary" size="sm" onClick={() => navigate("/becas")}>Volver</Button></div>
+      <div><Button variant="secondary" size="sm" onClick={() => {
+        const origin = navigationState?.becarioReturnTo;
+        if (origin) navigate(`${origin.pathname}${origin.search}${origin.hash}`, { state: origin.state });
+        else navigate("/becas");
+      }}>Volver</Button></div>
     </section>
     <SuccessToast open={Boolean(success)} message={success} onClose={() => setSuccess("")} />
   </>;

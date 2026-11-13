@@ -151,7 +151,7 @@ export default function RegistrosPropiedadDetalle() {
 
             <p>
               <span className="font-semibold text-slate-800">
-                Tipo de registro:
+                Tipo de Registro de Propiedad:
               </span>{" "}
               {toTitleCase(data.tipo_registro) || "-"}
             </p>

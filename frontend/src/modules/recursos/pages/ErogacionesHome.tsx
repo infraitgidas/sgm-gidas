@@ -1,3 +1,4 @@
+import { useHomeState, useHomeFilterEffect } from "@/modules/shared/hooks/useHomeState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -6,7 +7,7 @@ import Button from "@/components/Button";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import MemoriaFilterBanner from "@/components/MemoriaFilterBanner";
 import SuccessToast from "@/components/SuccessToast";
-import Table, { TableActionButton, TableActions, TableFilterChip, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
+import Table, { TableActionButton, TableActions, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
 import type { TableColumn, TableSortDirection } from "@/components/Table";
 import TableFilterSelect from "@/components/TableFilterSelect";
 import { useAuth } from "@/context/AuthContext";
@@ -36,13 +37,13 @@ export default function ErogacionesLanding() {
   const { uct, isLoading: uctLoading, isError: uctError } = useUct();
   const { fuentes } = useFuentesFinanciamiento();
   const { data: categorias = [] } = useCategoriasErogacion();
-  const [filters, setFilters] = useState(initialFilters);
-  const [fuenteDashboard, setFuenteDashboard] = useState<string | undefined>();
-  const [fuentesPage, setFuentesPage] = useState(1);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [page, setPage] = useState(1);
-  const [sortKey, setSortKey] = useState("fecha");
-  const [sortDirection, setSortDirection] = useState<TableSortDirection>("desc");
+  const [filters, setFilters] = useHomeState("filters", initialFilters);
+  const [fuenteDashboard, setFuenteDashboard] = useHomeState<string | undefined>("fuenteDashboard", undefined, { kind: "text" });
+  const [fuentesPage, setFuentesPage] = useHomeState("fuentesPage", 1);
+  const [searchQuery, setSearchQuery] = useHomeState("searchQuery", "");
+  const [page, setPage] = useHomeState("page", 1);
+  const [sortKey, setSortKey] = useHomeState("sortKey", "fecha", { allowed: ["fecha", "numero", "monto"] });
+  const [sortDirection, setSortDirection] = useHomeState<TableSortDirection>("sortDirection", "desc", { allowed: ["asc", "desc"] });
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [pendingDelete, setPendingDelete] = useState<Erogacion | null>(null);
@@ -103,8 +104,8 @@ export default function ErogacionesLanding() {
     staleTime: 5 * 60_000,
   });
 
-  useEffect(() => { setPage(1); setExpandedRow(null); }, [filters, searchQuery]);
-  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+  useHomeFilterEffect(() => { setPage(1); setExpandedRow(null); }, [filters, searchQuery]);
+  useEffect(() => { if (!movimientos.isLoading && !movimientos.isError && page > totalPages) setPage(totalPages); }, [page, totalPages, movimientos.isLoading, movimientos.isError]);
   useEffect(() => {
     if (!location.state?.successMessage) return;
     setSuccessMessage(location.state.successMessage);
@@ -236,10 +237,13 @@ export default function ErogacionesLanding() {
         toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
           <TableSearch label="Buscar movimientos" placeholder="Buscar por número, fuente o categoría" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de movimientos">
-            <span className="shrink-0 text-xs font-medium text-slate-500">Estado</span>
-            <TableFilterChip className="shrink-0" active={!filters.estado} onClick={() => setFilter("estado", "")}>Activos</TableFilterChip>
-            <TableFilterChip className="shrink-0" active={filters.estado === "todos"} onClick={() => setFilter("estado", "todos")}>Todos</TableFilterChip>
-            <TableFilterChip className="shrink-0" active={filters.estado === "inactivos"} onClick={() => setFilter("estado", "inactivos")}>Inactivos</TableFilterChip>
+            <TableFilterSelect
+              label="Filtrar por estado"
+              placeholder="Todos"
+              value={filters.estado === "todos" ? undefined : (filters.estado || "activos")}
+              onValueChange={(value) => setFilter("estado", value === "activos" ? "" : value ?? "todos")}
+              options={[{ value: "activos", label: "Activos" }, { value: "inactivos", label: "Inactivos" }]}
+            />
             <TableFilterSelect label="Filtrar por tipo" placeholder="Todos los tipos" value={filters.tipo || undefined} onValueChange={(value) => setFilter("tipo", value)} options={[{ value: "INGRESO", label: "Ingreso" }, { value: "EGRESO", label: "Egreso" }]} />
             <TableFilterSelect label="Filtrar por fuente" placeholder="Todas las fuentes" value={filters.fuente || undefined} onValueChange={(value) => setFilter("fuente", value)} options={fuentes.map((fuente) => ({ value: String(fuente.id), label: fuente.nombre }))} />
             <TableFilterSelect label="Filtrar por categoría" placeholder="Todas las categorías" value={filters.categoria || undefined} onValueChange={(value) => setFilter("categoria", value)} options={categorias.map((categoria) => ({ value: String(categoria.id), label: categoria.nombre }))} />

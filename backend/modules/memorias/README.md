@@ -1,16 +1,75 @@
 # Memorias
 
+## Consumo desde el home (ISS-100)
+
+El frontend reutiliza `PUT /api/v1/memorias/{id}/reabrir` desde la fila
+principal y `GET /api/v1/memorias/{id}/versiones/{version_id}/exportar-excel`
+desde cada versión cerrada del panel desplegable, incluidas las históricas.
+Ambas operaciones requieren ADMIN/GESTOR y conservan las validaciones existentes.
+Reabrir genera una versión abierta sin modificar la cerrada; exportar lee los
+snapshots de la versión solicitada. Las confirmaciones de cierre y reapertura
+explican esta inmutabilidad antes de ejecutar la operación.
+
+Aceptado el 07/11/2026. No se modifican endpoints, payloads, modelos, auditoría
+ni reglas de negocio. Regresiones de estados y períodos: 23 pruebas aprobadas;
+formato Excel y seguridad de exportaciones: 15 pruebas aprobadas.
+
+## Contrato consumido por la validacion preventiva (ISS-33)
+
+Creacion y correccion de periodo conservan validaciones de UCT, fechas, estado y diferencias, sin modificar versiones cerradas ni sus fotos.
+
+El frontend reutiliza sus comprobaciones durante la interaccion y muestra
+conjuntamente los errores al guardar. Los errores de campo de la API mantienen
+`error.details.fields`; los no asociados a un control conservan feedback general.
+La etapa no cambia endpoints, payloads, modelos, permisos ni eventos auditados.
+Escribir o corregir un campo no genera una mutacion de dominio; la autoridad
+definitiva sigue siendo el backend. Aceptado por el usuario el 05/11/2026.
+
+## Moneda en Equipamiento y Transferencias
+
+Al cerrar una versión se copian importe original y `moneda` ARS/USD de cada
+equipamiento y transferencia. Las lecturas de esas fotos devuelven la moneda
+guardada; editar la ficha operativa no modifica una versión anterior. Las fotos
+heredadas se identifican como ARS sin cambiar sus importes.
+
+El Excel institucional conserva las celdas numéricas y la disposición de la
+plantilla; el formato de cada importe indica ARS o USD. No calcula conversiones.
+La exportación de grupo incorpora la columna Moneda y separa los totales de
+transferencias por moneda. Las regresiones de formato y preservación del importe
+están en `tests/test_memoria_excel_formato.py`.
+
+## Nombres estructurados de Personal (ISS-34)
+
+Los nuevos snapshots de Personal, Becario e Investigador componen el nombre como
+`Nombre, APELLIDO` a partir de sus campos independientes, conservando nombres y
+apellidos compuestos. El Excel del grupo usa la misma función
+`personal.services.nombre_service.nombre_para_memoria`; por ejemplo,
+`María del Carmen, DE LA CRUZ`. Si una fuente anterior no tiene datos estructurados,
+conserva su texto completo. Las versiones ya congeladas siguen exportando su
+snapshot original y no se reescriben por la normalización del dataset ficticio.
+El contenido real del Excel de las tres clases y el formato institucional están
+cubiertos por las regresiones backend; aceptación del usuario el 04/11/2026.
+
+## Continuidad de acceso (ISS-52)
+
+La corrección de navegación ADMIN agrega el enlace a Memorias en frontend y
+no modifica el contrato backend. Listado y detalle siguen disponibles con la
+versión actual cerrada. Alta, cierre y reapertura conservan autorización
+ADMIN/GESTOR, validaciones de UCT, auditoría y snapshots existentes. Reabrir
+crea una nueva versión abierta y preserva la cerrada; exige que no exista otra
+memoria abierta o en revisión en la UCT.
+
 ## Excel institucional y seed de validación (ISS-94)
 
 `GET /api/v1/memorias/{id}/versiones/{version_id}/exportar-excel` requiere
 ADMIN o GESTOR y una versión cerrada con contexto institucional válido. El
 exportador lee únicamente snapshots y completa
 `backend/assets/Memorias 2025 - GIDAS.xlsx` mediante `memoria_excel_template.py`.
-Conserva las dos hojas, encabezados, combinaciones, dimensiones, bordes y
-configuración de impresión. Cuando una tabla excede sus filas disponibles,
-inserta filas copiando su formato y desplaza las secciones siguientes. Los datos
-usan Calibri 11 negro; los títulos mantienen su diseño institucional. Los textos
-largos ajustan su altura y las celdas se escriben como datos, sin ejecutar fórmulas.
+Conserva la estructura y los encabezados institucionales, sus colores, márgenes
+y anchos de columnas. Cuando una tabla excede sus filas disponibles, inserta
+filas y desplaza las secciones siguientes. Los bordes y prototipos de datos se
+uniforman; los textos ajustan su altura y se escriben como datos, sin ejecutar
+fórmulas. El archivo contiene `Hoja1` y `Detalle académico`, según ISS-98.
 
 El cierre congela identificación, autoridades, planificación del año siguiente
 y resultados de informes PID asociados. Las horas y relaciones corresponden al
@@ -40,6 +99,56 @@ y valida el flujo desde la interfaz. Los datos ficticios tienen redacción forma
 Pruebas: `test_memoria_excel_formato`, `test_memoria_2025_seed` y
 `test_memoria_seed_validacion` verifican desbordes, estilos, filtros, idempotencia,
 protección de datos existentes e inmutabilidad histórica.
+
+## Integridad y presentación del Excel académico (ISS-98)
+
+El endpoint de exportación de versión mantiene ruta, permisos ADMIN/GESTOR,
+validación de pertenencia UCT, estado cerrado y requisito de contexto histórico.
+No cambia el payload ni se agregan migraciones. Una versión sin contexto válido
+continúa devolviendo el conflicto existente; no se reconstruye con datos actuales.
+
+`memoria_excel_template.py` utiliza la plantilla exclusivamente como formato:
+conserva una lista explícita de filas estructurales y elimina ejemplos, notas,
+hipervínculos y hojas ajenas. La identificación y los valores proceden de los
+snapshots/contexto. El organigrama, disciplinas y campos de aplicación sin fuente
+histórica se señalan como sin información. Se presentan las autoridades al cierre;
+las autoridades del período y sus vigencias permanecen en el detalle.
+
+`memoria_excel_detail.py` define los campos académicos de las 16 colecciones y
+construye `Detalle académico`. Incluye fechas, participantes/autores, roles docentes,
+relaciones con proyectos, montos, monedas y movimientos individuales que no tienen
+columna en el formulario. Conserva referencias históricas, sin exportar campos de
+auditoría ni datos personales ajenos al informe. Los campos ausentes se identifican
+expresamente. La planificación utiliza el año conservado en el contexto.
+
+La clasificación usa atributos explícitos, cuando existen, y denominaciones del
+catálogo: reunión nacional exige referato positivo o un tipo que lo indique;
+internacional exige ese alcance. Libros/capítulos e identificadores ISBN se separan
+de revistas con referato. Una negación explícita de referato prevalece sobre la
+etiqueta del tipo. Tipos ambiguos de formación, personal, transferencias, reuniones,
+publicaciones o registros quedan sin clasificar en el detalle, sin asignación por
+defecto a una sección. No se reintroducen los campos revertidos de ISS-25.
+
+Las fechas tabulares se almacenan como fechas Excel con formato `dd/mm/yyyy`.
+Equipamiento y transferencias conservan importes originales y moneda. El resumen
+financiero usa equivalentes ARS o el importe original si es ARS; no suma USD como
+pesos cuando falta conversión. Un movimiento sin clasificación contable o
+equivalencia se excluye del resumen, se conserva en el detalle y genera una
+advertencia visible. Los ingresos no se duplican entre corriente y capital.
+
+El generador completa bordes faltantes, usa filas de datos coherentes para apoyo
+y tesinas, elimina rotación/apilado y formatos de edición de los ejemplos, ajusta
+texto y oculta reservas vacías. Respeta las dimensiones implícitas K/L al medir
+celdas combinadas y configura impresión A:L, una página de ancho y altura libre.
+Los textos extensos se distribuyen en filas/fragmentos para respetar los límites
+de Excel; si una celda tabular supera su capacidad, remite al texto completo del
+detalle. Los strings se guardan como texto incluso si comienzan con `=`.
+
+Aceptado visual y funcionalmente por el usuario el 07/11/2026. Regresiones en
+`test_memoria_excel_formato`, `test_trabajo_enlace`, `test_trabajo_autores`,
+`test_memoria_periodos_uct`, exportación de `test_movimiento_financiero_alta` y
+`test_memoria_2025_seed`. Se conciliaron 245 registros de 16 conjuntos de la memoria
+2026 v3: ingresos ARS 9.600.000 y egresos ARS 2.400.000, sin escrituras en la base.
 
 ## Listado y snapshots paginados (ISS-89)
 
@@ -182,3 +291,68 @@ redujo el cierre de 1540 a 413 consultas, con tiempos variables; no es
 una garantia de duracion para otros volumenes. La suite de cierre,
 snapshots, exportacion y aislamiento forma parte de los 648 casos
 backend correctos de esta etapa.
+
+## Personal histórico y corrección de clase
+
+Las fotos de Personal, Becario e Investigador conservan sus datos, etiquetas,
+horas y clase al corregir un alta errónea en el registro actual. Se relacionan
+con `IdentidadPersonal` mediante `identidad_id`; el ID original de clase queda
+como procedencia histórica. Las lecturas y el Excel utilizan los campos de la
+foto y no completan información con la ficha actual. El contrato de captura
+agrega únicamente la referencia de identidad, nullable para datos heredados.
+
+Reabrir genera una versión vacía; al cerrarla se captura la clase corregida,
+respetando las reglas existentes de UCT, período e intervalos de horas. Una
+persona no se incorpora a dos clases por conservar fotos de versiones anteriores.
+Los permisos y endpoints de versiones y exportación conservan sus contratos.
+
+Este alcance admite corregir un alta errónea; no define cambios de categoría
+posteriores durante la trayectoria. Las relaciones operativas con becas,
+proyectos, autorías o antecedentes continúan bloqueando el traslado y no se
+eliminan. La migración y sus condiciones de reversión se detallan en Personal.
+Las pruebas comparan fotos y celdas Excel de seis correcciones sucesivas, con
+aislamiento UCT y conservación de contenido durante la migración.
+
+## Regresiones de CI y datos de validacion (ISS-99)
+
+La carga `tools/seed_memoria_validacion.py` asigna `grupo_utn_id` a cada
+distincion, ademas del proyecto relacionado. La prueba comprueba las ocho
+distinciones del escenario y su pertenencia a la UCT seleccionada.
+
+La exportacion de reuniones usa el encabezado `Fecha de presentación`.
+`tests/test_trabajo_fecha_presentacion.py` verifica ese encabezado y la fecha
+del snapshot en Detalle academico como fecha nativa Excel con formato
+`dd/mm/yyyy`. No se cambia el generador ni el contrato de exportacion.
+La prueba CLI de la carga 2025 cierra explicitamente su conexion SQLite antes
+de eliminar el directorio temporal, para permitir su ejecucion en Windows.
+
+Aceptado el 07/11/2026. La suite completa Linux ejecuto 777 pruebas sin fallos,
+con 40 omisiones que requieren PostgreSQL dedicado; incluye las pruebas locales
+de Busqueda pendientes de versionar. No se modifican endpoints, payloads,
+permisos ni vistas frontend.
+
+## ISS-25: referato y alcance en exportaciones
+
+Los snapshots de reuniones y revistas conservan el referato; reuniones conserva
+además el alcance. La plantilla institucional mantiene las tablas 7.1 Reunión
+Científica Nacional con Referato (Ciudad), 7.2 Reunión Científica Internacional
+(País) y 8.1 Trabajos publicados en revistas con referato. Se reutilizan
+`procedencia` de reuniones y `pais` de revistas, sin duplicar datos.
+
+Los clasificadores existentes `meeting_category` y `publication_category`
+se reutilizan también en la exportación por grupo. 7.1 requiere alcance nacional
+y referato positivo; 7.2 requiere alcance internacional; 8.1 requiere referato
+positivo. Los valores explícitos prevalecen sobre las etiquetas de catálogo.
+Para datos heredados null se conserva la compatibilidad de la plantilla con
+catálogos que indican expresamente Nacional/Internacional y Con referato.
+Congreso o Jornada por sí solos no determinan alcance ni referato.
+
+La clasificación de libros mantiene su precedencia y sección 8.3. Los registros
+sin clasificación suficiente no se incluyen en las tablas anteriores: permanecen
+en Detalle académico del Excel institucional y en secciones separadas del Excel
+de grupo. Ninguna exportación modifica la ficha original. Las versiones cerradas
+usan exclusivamente sus snapshots, sin tomar una clasificación posterior.
+
+Aceptado visual y funcionalmente el 07/11/2026. Las pruebas verifican ubicación
+de Ciudad/País, inclusión sin duplicados, conservación de registros sin clasificar,
+estilos y estructura institucional, así como inmutabilidad de snapshots.

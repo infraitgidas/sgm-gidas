@@ -167,7 +167,7 @@ export default function DistincionesDetalle() {
               </span>{" "}
               {data.proyecto
                 ? `${data.proyecto.codigo} - ${data.proyecto.nombre}`
-                : "-"}
+                : "Sin proyecto asociado"}
             </p>
           </div>
         </article>

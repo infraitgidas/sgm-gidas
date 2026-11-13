@@ -8,6 +8,7 @@ from modules.memorias.models.memorias import Memoria
 from modules.memorias.services.memoria_service import MemoriaService
 from modules.memorias.services.exportacion_service_impl import ExportService
 from modules.proyectos.models.proyecto_investigacion import ProyectoInvestigacion
+from modules.produccion.models.distinciones import DistincionRecibida
 from modules.proyectos.services.proyecto_investigacion_service import ProyectoInvestigacionService
 from tests import test_memoria_2025_seed as seed_fixtures
 from tools.seed_memoria_validacion import populate, DATES
@@ -40,6 +41,9 @@ class MemoriaSeedValidacionTest(unittest.TestCase):
         self.assertEqual(result["creados"]["transferencia_socio_productiva"], 48)
         self.assertEqual(result["creados"]["trabajo_reunion_cientifica"], 16)
         self.assertEqual(result["creados"]["trabajos_revista"], 16)
+        distinciones = DistincionRecibida.query.all()
+        self.assertEqual(len(distinciones), 8)
+        self.assertTrue(all(item.grupo_utn_id == self.group_id for item in distinciones))
         for project in ProyectoInvestigacion.query.all():
             ProyectoInvestigacionService._validar_duracion(project.fecha_inicio, project.fecha_fin)
             self.assertEqual(project.fecha_fin_original, project.fecha_fin)

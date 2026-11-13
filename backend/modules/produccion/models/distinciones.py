@@ -5,6 +5,7 @@ class DistincionRecibida(db.Model, AuditMixin):
     __tablename__ = 'distincion_recibida'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True, nullable=False)
+    grupo_utn_id = db.Column(db.Integer, db.ForeignKey("grupo_utn.id"), nullable=False, index=True)
     fecha = db.Column(db.Date, nullable=False)
     descripcion = db.Column(db.Text, nullable=False)
 

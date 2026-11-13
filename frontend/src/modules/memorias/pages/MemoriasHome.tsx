@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useHomeState, useHomeFilterEffect } from "@/modules/shared/hooks/useHomeState";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Eye, RotateCcw, LockKeyhole, Send } from "lucide-react";
+import { Download, Eye, Loader2, LockKeyhole, Send } from "lucide-react";
 
 import Button from "@/components/Button";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -10,7 +11,6 @@ import SuccessToast from "@/components/SuccessToast";
 import Table, {
   TableActionButton,
   TableActions,
-  TableFilterChip,
   TableRowActionButton,
   TableSearch,
   TableToolbar,
@@ -21,6 +21,7 @@ import { useAuth } from "@/context/AuthContext";
 import { getErrorMessage } from "@/lib/httpError";
 import {
   deleteMemoria,
+  exportarExcelMemoria,
   cambiarEstadoMemoria,
   reabrirMemoria,
   getMemoriaById,
@@ -30,6 +31,7 @@ import {
   type MemoriaEstado,
 } from "@/modules/memorias/services/memoriasService";
 import { formatFecha, formatFechaHora } from "@/utils/dateTime";
+import { CERRAR_MEMORIA_MESSAGE, REABRIR_MEMORIA_MESSAGE } from "@/modules/memorias/utils/confirmacionesMemoria";
 
 const ITEMS_PER_PAGE = 9;
 
@@ -62,12 +64,28 @@ function MemoriaVersions({ memoria, puedeCrear, onFeedback }: {
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [accion, setAccion] = useState<"reabrir" | "cerrada" | "en revision" | null>(null);
+  const [accion, setAccion] = useState<"cerrada" | "en revision" | null>(null);
+  const exportInFlight = useRef(false);
+  const exportMutation = useMutation({
+    mutationFn: (versionId: number) => exportarExcelMemoria(memoria.id, versionId),
+    onSuccess: (result) => onFeedback(`Excel generado con éxito: ${result.filename}`, false),
+    onError: (error) => onFeedback(getErrorMessage(error, "Lo sentimos, no pudimos exportar la memoria. Intente nuevamente."), true),
+  });
+  const descargarExcel = async (versionId: number) => {
+    if (!puedeCrear || exportInFlight.current) return;
+    exportInFlight.current = true;
+    try {
+      await exportMutation.mutateAsync(versionId);
+    } catch {
+      // El error se informa mediante onFeedback en la mutacion.
+    } finally {
+      exportInFlight.current = false;
+    }
+  };
   const mutation = useMutation({
     mutationFn: async () => {
       if (!accion || !puedeCrear || memoria.deleted_at || memoria.activo === false) return;
-      if (accion === "reabrir") await reabrirMemoria(memoria.id);
-      else await cambiarEstadoMemoria(memoria.id, { estado: accion });
+      await cambiarEstadoMemoria(memoria.id, { estado: accion });
     },
     onSuccess: async () => {
       setAccion(null);
@@ -122,9 +140,13 @@ function MemoriaVersions({ memoria, puedeCrear, onFeedback }: {
                   <Eye aria-hidden="true" className="h-4 w-4" />
                 </TableActionButton>
                 {puedeCrear && <>
-                  <TableActionButton title="Reabrir: crear nueva versión" aria-label={`Reabrir la versión ${version.numero_version}`} disabled={!editable || version.estado !== "cerrada" || mutation.isPending} onClick={() => setAccion("reabrir")}>
-                    <RotateCcw aria-hidden="true" className="h-4 w-4" />
-                  </TableActionButton>
+                  {version.estado === "cerrada" && (
+                    <TableActionButton title="Generar Excel" aria-label={`Descargar Excel de la versión ${version.numero_version}`} disabled={exportMutation.isPending} aria-busy={exportMutation.isPending && exportMutation.variables === version.id} onClick={() => descargarExcel(version.id)}>
+                      {exportMutation.isPending && exportMutation.variables === version.id
+                        ? <><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /><span role="status" className="sr-only">Generando el archivo...</span></>
+                        : <Download aria-hidden="true" className="h-4 w-4" />}
+                    </TableActionButton>
+                  )}
                   <TableActionButton title="Cerrar memoria" aria-label={`Cerrar la versión ${version.numero_version}`} disabled={!editable || version.estado === "cerrada" || mutation.isPending} onClick={() => setAccion("cerrada")}>
                     <LockKeyhole aria-hidden="true" className="h-4 w-4" />
                   </TableActionButton>
@@ -139,8 +161,10 @@ function MemoriaVersions({ memoria, puedeCrear, onFeedback }: {
       </ul>
       <ConfirmDialog
         open={accion !== null}
-        title={accion === "reabrir" ? "Reabrir memoria" : accion === "cerrada" ? "Cerrar memoria" : "Enviar a revisión"}
-        message={accion === "reabrir" ? "Se creará una nueva versión abierta. La versión cerrada conservará sus datos. ¿Desea continuar?" : accion === "cerrada" ? "Se congelarán los datos del período en esta versión. ¿Desea cerrar la memoria?" : "¿Desea enviar la versión actual a revisión?"}
+        title={accion === "cerrada" ? "Cerrar memoria" : "Enviar a revisión"}
+        message={accion === "cerrada" ? CERRAR_MEMORIA_MESSAGE : "¿Desea enviar la versión actual a revisión?"}
+        confirmText="Continuar"
+        cancelText="Volver"
         onCancel={() => { if (!mutation.isPending) setAccion(null); }}
         onConfirm={() => mutation.mutateAsync()}
         loadingText="Guardando..."
@@ -157,12 +181,13 @@ export default function MemoriasHome() {
   const puedeCrear = isAdmin() || isGestor();
   const puedeEliminar = isAdmin();
 
-  const [estado, setEstado] = useState<MemoriaActivosFilter>("true");
-  const [estadoVersion, setEstadoVersion] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [page, setPage] = useState(1);
+  const [estado, setEstado] = useHomeState<MemoriaActivosFilter>("estado", "true", { allowed: ["true", "false", "all"] });
+  const [estadoVersion, setEstadoVersion] = useHomeState("estadoVersion", "", { allowed: ["", "abierta", "en revision", "cerrada"] });
+  const [searchQuery, setSearchQuery] = useHomeState("searchQuery", "");
+  const [page, setPage] = useHomeState("page", 1);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(() => new Set());
   const [pendingDelete, setPendingDelete] = useState<Memoria | null>(null);
+  const [pendingReopen, setPendingReopen] = useState<Memoria | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [showError, setShowError] = useState(false);
@@ -192,14 +217,14 @@ export default function MemoriasHome() {
   const totalPages = Math.ceil(filteredList.length / ITEMS_PER_PAGE);
   const paginatedItems = filteredList.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
-  useEffect(() => {
+  useHomeFilterEffect(() => {
     setPage(1);
     setExpandedRows(new Set());
   }, [estado, estadoVersion, searchQuery]);
 
   useEffect(() => {
-    if (page > Math.max(totalPages, 1)) setPage(Math.max(totalPages, 1));
-  }, [page, totalPages]);
+    if (!memoriasQuery.isLoading && !memoriasQuery.isError && page > Math.max(totalPages, 1)) setPage(Math.max(totalPages, 1));
+  }, [page, totalPages, memoriasQuery.isLoading, memoriasQuery.isError]);
 
   useEffect(() => {
     if (!location.state?.successMessage) return;
@@ -211,6 +236,30 @@ export default function MemoriasHome() {
   const { mutateAsync: eliminarMemoria } = useMutation({
     mutationFn: (id: number) => deleteMemoria(id),
   });
+
+  const reopenMutation = useMutation({
+    mutationFn: (id: number) => reabrirMemoria(id),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["memorias"] }),
+        queryClient.invalidateQueries({ queryKey: ["memoria"] }),
+        queryClient.invalidateQueries({ queryKey: ["memoria-historial"] }),
+      ]);
+      setPendingReopen(null);
+      setSuccessMessage("Memoria reabierta con éxito.");
+      setShowSuccess(true);
+    },
+    onError: (error) => {
+      setPendingReopen(null);
+      setErrorMessage(getErrorMessage(error, "Lo sentimos, no pudimos completar la operación. Intente nuevamente."));
+      setShowError(true);
+    },
+  });
+
+  const confirmReopen = async () => {
+    if (!pendingReopen || !puedeCrear || pendingReopen.deleted_at || pendingReopen.activo === false || pendingReopen.version_actual?.estado !== "cerrada") return;
+    await reopenMutation.mutateAsync(pendingReopen.id);
+  };
 
   const confirmDelete = async () => {
     if (!pendingDelete || pendingDelete.deleted_at || pendingDelete.activo === false || !puedeEliminar) return;
@@ -270,6 +319,16 @@ export default function MemoriasHome() {
             aria-label={`Ver detalle de ${memoriaTitle(memoria)}`}
             onClick={() => navigate(`/memorias/${memoria.id}`)}
           />
+          {!memoria.deleted_at && memoria.activo !== false && puedeCrear && memoria.version_actual?.estado === "cerrada" && (
+            <TableRowActionButton
+              action="restore"
+              label="Reabrir memoria"
+              title="Reabrir: crear nueva versión"
+              aria-label={`Reabrir ${memoriaTitle(memoria)}`}
+              disabled={reopenMutation.isPending}
+              onClick={() => setPendingReopen(memoria)}
+            />
+          )}
           {!memoria.deleted_at && memoria.activo !== false && puedeEliminar && (
             <TableRowActionButton
               action="delete"
@@ -335,10 +394,13 @@ export default function MemoriasHome() {
                   className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent"
                   aria-label="Filtros de memorias"
                 >
-                  <span className="shrink-0 text-xs font-medium text-slate-500">Estado</span>
-                  <TableFilterChip className="shrink-0" active={estado === "true"} onClick={() => setEstado("true")}>Activas</TableFilterChip>
-                  <TableFilterChip className="shrink-0" active={estado === "all"} onClick={() => setEstado("all")}>Todas</TableFilterChip>
-                  <TableFilterChip className="shrink-0" active={estado === "false"} onClick={() => setEstado("false")}>Inactivas</TableFilterChip>
+                  <TableFilterSelect
+                    label="Filtrar por estado"
+                    placeholder="Todas"
+                    value={estado === "all" ? undefined : estado}
+                    onValueChange={(value) => setEstado((value ?? "all") as typeof estado)}
+                    options={[{ value: "true", label: "Activas" }, { value: "false", label: "Inactivas" }]}
+                  />
                   <TableFilterSelect
                     label="Filtrar por estado de versión"
                     placeholder="Todos los estados de versión"
@@ -352,6 +414,18 @@ export default function MemoriasHome() {
           }
         />
 
+        <ConfirmDialog
+          open={Boolean(pendingReopen)}
+          title="Reabrir memoria"
+          message={REABRIR_MEMORIA_MESSAGE}
+          items={pendingReopen ? [memoriaTitle(pendingReopen)] : []}
+          confirmText="Continuar"
+          cancelText="Volver"
+          loading={reopenMutation.isPending}
+          loadingText="Reabriendo..."
+          onCancel={() => setPendingReopen(null)}
+          onConfirm={confirmReopen}
+        />
         <ConfirmDialog
           open={Boolean(pendingDelete)}
           title="Eliminar memoria"

@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import { applyFieldErrors, focusFieldErrors, getApiFieldErrors, mapFieldErrors } from "@/lib/httpError";
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -64,7 +65,9 @@ export default function UsuariosForm() {
     },
   });
 
-  function validateForm(): boolean {
+  const validationValues = { nombre, email, password, rol };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { nombre, email, password, rol } = { ...validationValues, ...changes };
     const newErrors: typeof errors = {};
 
     if (!nombre.trim()) {
@@ -92,6 +95,15 @@ export default function UsuariosForm() {
       newErrors.rol = "Debes seleccionar un rol válido";
     }
 
+    return newErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  function validateForm(): boolean {
+    const newErrors = getValidationErrors();
     setErrors(newErrors);
     if (Object.keys(newErrors).length) focusFieldErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -113,30 +125,22 @@ export default function UsuariosForm() {
 
   function handleNombreChange(value: string) {
     setNombre(value);
-    if (errors.nombre) {
-      setErrors((prev) => ({ ...prev, nombre: undefined }));
-    }
+    validateChangedField("nombre", { nombre: value });
   }
 
   function handleEmailChange(value: string) {
     setEmail(value);
-    if (errors.email) {
-      setErrors((prev) => ({ ...prev, email: undefined }));
-    }
+    validateChangedField("email", { email: value });
   }
 
   function handlePasswordChange(value: string) {
     setPassword(value);
-    if (errors.password) {
-      setErrors((prev) => ({ ...prev, password: undefined }));
-    }
+    validateChangedField("password", { password: value });
   }
 
   function handleRolChange(value: Rol) {
     setRol(value);
-    if (errors.rol) {
-      setErrors((prev) => ({ ...prev, rol: undefined }));
-    }
+    validateChangedField("rol", { rol: value });
   }
 
   async function copiarPassword() {
@@ -260,7 +264,7 @@ export default function UsuariosForm() {
               type="text"
               className={`input ${errors.nombre ? "border-rose-300" : ""}`}
               value={nombre}
-              onChange={(e) => handleNombreChange(e.target.value)}
+              onChange={(e) => handleNombreChange(e.target.value)} onBlur={() => validateChangedField("nombre")}
               placeholder="Ej: juan.perez"
               disabled={crearMutation.isPending}
             />
@@ -271,7 +275,7 @@ export default function UsuariosForm() {
               type="email"
               className={`input ${errors.email ? "border-rose-300" : ""}`}
               value={email}
-              onChange={(e) => handleEmailChange(e.target.value)}
+              onChange={(e) => handleEmailChange(e.target.value)} onBlur={() => validateChangedField("email")}
               placeholder="Ej: juan@email.com"
               disabled={crearMutation.isPending}
             />
@@ -284,7 +288,7 @@ export default function UsuariosForm() {
                   type={showPassword ? "text" : "password"}
                   className={`input pr-24 ${errors.password ? "border-rose-300" : ""}`}
                   value={password}
-                  onChange={(e) => handlePasswordChange(e.target.value)}
+                  onChange={(e) => handlePasswordChange(e.target.value)} onBlur={() => validateChangedField("password")}
                   placeholder="Mínimo 6 caracteres"
                   disabled={crearMutation.isPending}
                 />

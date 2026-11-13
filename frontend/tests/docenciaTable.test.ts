@@ -13,7 +13,7 @@ test("Actividades en Docencia usa la grilla comun y acciones por fila", () => {
 
   assert.match(home, /<Table/);
   assert.match(home, /<TableSearch label="Buscar actividades en docencia"/);
-  assert.match(home, /<TableFilterChip[^>]+active=\{activeFilter === "true"\}/);
+  assert.match(home, /<TableFilterSelect[\s\S]*?label="Filtrar por estado"/);
   assert.match(home, /<TableRowActionButton action="view"/);
   assert.match(home, /<TableRowActionButton action="edit"/);
   assert.match(home, /<TableRowActionButton action="delete"/);

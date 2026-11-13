@@ -62,7 +62,7 @@ test("formulario real guarda coordinador en una petición, conserva edición y m
     .replace(/from "([^"]+)"/g, (_match, path: string) => {
       const target = path === "../../../lib/textValidation" ? new URL("../src/lib/textValidation.ts", import.meta.url).href
         : path === "@/modules/proyectos/services/proyectosServices" ? serviceUrl
-        : path === "@/lib/httpError" || path === "@/utils/dateTime" || path === "@/modules/proyectos/utils/proyectoValidation"
+        : (path === "@/lib/httpError" || path === "@/lib/liveValidation") || path === "@/utils/dateTime" || path === "@/modules/proyectos/utils/proyectoValidation"
           ? new URL(`../src/${path.slice(2)}.ts`, import.meta.url).href : mockUrl;
       return `from ${JSON.stringify(target)}`;
     });

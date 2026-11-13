@@ -1,7 +1,74 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { getRouteBreadcrumbs } from "../src/modules/shared/utils/routeBreadcrumbs.ts";
+import { createRequire } from "node:module";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
+import * as catalogNavigation from "../src/modules/catalogos/utils/catalogNavigation.ts";
+import * as memoriaNavigation from "../src/lib/memoriaNavigation.ts";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
+
+const require = createRequire(import.meta.url);
+const module = { exports: {} as typeof import("../src/modules/shared/utils/routeBreadcrumbs.ts") };
+const code = ts.transpileModule(readFileSync(new URL("../src/modules/shared/utils/routeBreadcrumbs.ts", import.meta.url), "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+runInNewContext(code, { module, exports: module.exports, Array, Object, require: (name: string) =>
+  name === "@/modules/catalogos/utils/catalogNavigation" ? catalogNavigation : require(name) });
+// Normaliza los objetos del contexto VM para conservar las comparaciones del resolvedor.
+const getRouteBreadcrumbs = (pathname: string, state?: unknown) =>
+  JSON.parse(JSON.stringify(module.exports.getRouteBreadcrumbs(pathname, state)));
+
+test("Catálogos incluye la pantalla de origen y recupera su breadcrumb al volver", () => {
+  const context = { memoriaFilter: { memoriaId: 2 }, searchReturnTo: "/busqueda?q=ana" };
+  for (const [pathname, labels] of [
+    ["/personal", ["Inicio", "Personal", "Catálogos"]],
+    ["/proyectos/7/editar", ["Inicio", "Proyectos", "Detalle", "Editar", "Catálogos"]],
+    ["/memorias/2/versiones/3", ["Inicio", "Memorias", "Detalle", "Versión", "Catálogos"]],
+    ["/busqueda", ["Inicio", "Búsqueda", "Catálogos"]],
+  ] as const) {
+    const state = catalogNavigation.buildCatalogNavigationState({ pathname, search: "?page=2", hash: "#datos", state: context });
+    const items = getRouteBreadcrumbs("/catalogos", state);
+    assert.deepEqual(items.map((item: any) => item.label), labels);
+    assert.equal(items.at(-2).to, `${pathname}?page=2#datos`);
+    assert.deepEqual(items.at(-2).state, context);
+    assert.equal(items.at(-1).to, undefined);
+    const destination = catalogNavigation.getCatalogReturn(state);
+    assert.deepEqual(getRouteBreadcrumbs(destination.pathname, destination.state), getRouteBreadcrumbs(pathname, context));
+  }
+  for (const state of [undefined, { catalogosReturnTo: { pathname: "//otro.test" } },
+    { catalogosReturnTo: { pathname: "/catalogos" } }, { catalogosReturnTo: { pathname: "/ruta-inexistente" } }]) {
+    assert.deepEqual(getRouteBreadcrumbs("/catalogos", state), [{ label: "Inicio", to: "/inicio" }, { label: "Catálogos" }]);
+  }
+});
+
+test("el breadcrumb renderizado enlaza el origen con su contexto y marca Catálogos como pantalla actual", () => {
+  const links: any[] = [];
+  const component = { exports: {} as any };
+  const source = readFileSync(new URL("../src/modules/shared/components/RouteBreadcrumbs.tsx", import.meta.url), "utf8");
+  const code = ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
+  } }).outputText;
+  runInNewContext(code, { module: component, exports: component.exports, require: (name: string) => {
+    if (name === "@/modules/shared/utils/routeBreadcrumbs") return module.exports;
+    if (name === "@/lib/memoriaNavigation") return memoriaNavigation;
+    if (name === "react-router-dom") return { ...require(name), Link: (props: any) => {
+      links.push(props); return createElement(require(name).Link, props);
+    } };
+    return require(name);
+  } });
+  const context = { memoriaFilter: { memoriaId: 2 } };
+  const state = catalogNavigation.buildCatalogNavigationState({ pathname: "/proyectos/7/editar", search: "?page=2", hash: "#datos", state: context });
+  const html = renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [{ pathname: "/catalogos", state }] },
+    createElement(component.exports.default)));
+  assert.match(html, /aria-current="page"[^>]*>Catálogos/);
+  assert.equal((html.match(/aria-current="page"/g) ?? []).length, 1);
+  const originLink = links.find(link => link.to === "/proyectos/7/editar?page=2#datos");
+  assert.deepEqual(originLink.state, context);
+  assert.ok(links.every(link => !link.state?.catalogosReturnTo));
+});
 
 test("resuelve detalle y edición de Personal con enlaces a rutas reales", () => {
   assert.deepEqual(getRouteBreadcrumbs("/personal/investigador/42"), [
@@ -19,6 +86,24 @@ test("resuelve detalle y edición de Personal con enlaces a rutas reales", () =>
     label: "Detalle",
     to: "/becarios/7",
   });
+});
+
+test("becas refleja el origen del becario y restaura su contexto en detalle y edición", () => {
+  const originState = {memoriaFilter: {anio: 2026}, memoriaReturnTo: "/memorias/1", searchReturnTo: "/busqueda?q=Ana"};
+  const state = {becarioReturnTo: {pathname: "/personal/becario/3", search: "?tab=datos", hash: "#becas", state: originState}};
+  const detail = getRouteBreadcrumbs("/becas/7", state);
+  assert.deepEqual(detail.map(item => item.label), ["Inicio", "Personal", "Becario", "Beca"]);
+  assert.equal(detail[2].to, "/personal/becario/3?tab=datos#becas");
+  assert.deepEqual(detail[2].state, originState);
+  assert.equal(detail.at(-1)?.to, undefined);
+  const edit = getRouteBreadcrumbs("/becas/7/editar", state);
+  assert.deepEqual(edit.map(item => item.label), ["Inicio", "Personal", "Becario", "Beca", "Editar"]);
+  assert.equal(edit[3].to, "/becas/7");
+  assert.deepEqual(edit[3].state, state);
+  for (const origin of [undefined, null, {}, {pathname: "https://example.com"}, {pathname: "/personal/becario/0"}])
+    assert.deepEqual(getRouteBreadcrumbs("/becas/7", {becarioReturnTo: origin}), getRouteBreadcrumbs("/becas/7"));
+  assert.deepEqual(getRouteBreadcrumbs("/becas", state), getRouteBreadcrumbs("/becas"));
+  assert.deepEqual(getRouteBreadcrumbs("/becas/nueva", state), getRouteBreadcrumbs("/becas/nueva"));
 });
 
 test("resuelve rutas de edición de los módulos y el alias anterior de Proyectos", () => {

@@ -1,3 +1,4 @@
+import { useHomeState } from "@/modules/shared/hooks/useHomeState";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -5,6 +6,7 @@ import Button from "@/components/Button";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import SuccessToast from "@/components/SuccessToast";
+import TableFilterSelect from "@/components/TableFilterSelect";
 import Table, { TableActionButton, TableActions, TableRowActionButton, TableToolbar } from "@/components/Table";
 import type { TableColumn } from "@/components/Table";
 import { getErrorMessage } from "@/lib/httpError";
@@ -29,8 +31,8 @@ export default function InformesHome() {
   const navigate = useNavigate();
   const location = useLocation();
   const qc = useQueryClient();
-  const [page, setPage] = useState(1);
-  const [memoriaId, setMemoriaId] = useState(0);
+  const [page, setPage] = useHomeState("page", 1);
+  const [memoriaId, setMemoriaId] = useHomeState("memoriaId", 0);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<InformeSummary | null>(null);
   const [message, setMessage] = useState("");
@@ -90,7 +92,15 @@ export default function InformesHome() {
         totalPages={informes.data?.meta.total_pages ?? 0}
         totalRecords={informes.data?.meta.total ?? 0}
         onPageChange={(nextPage) => { setExpandedId(null); setPage(nextPage); }}
-        toolbar={<TableToolbar><label className="flex w-full max-w-sm flex-col gap-1 text-sm font-medium text-slate-700" htmlFor="filtro-memoria-informes"><span>Período de Memoria</span><select id="filtro-memoria-informes" value={memoriaId} onChange={(event) => { setExpandedId(null); setMemoriaId(Number(event.target.value)); setPage(1); }} className="input w-full"><option value={0}>Todos los períodos</option>{(memorias.data ?? []).filter((item) => item.grupo_utn_id && !item.deleted_at).map((item) => <option key={item.id} value={item.id}>{formatFecha(item.periodo_inicio)} a {formatFecha(item.periodo_fin)}</option>)}</select></label>{memorias.isError && <p role="alert" className="text-sm text-rose-700">Lo sentimos, no pudimos recuperar los períodos. <button type="button" onClick={() => memorias.refetch()} className="underline">Reintentar</button></p>}</TableToolbar>}
+        toolbar={<TableToolbar><TableFilterSelect
+          label="Filtrar por período de Memoria"
+          placeholder="Todos los períodos"
+          value={memoriaId ? String(memoriaId) : undefined}
+          onValueChange={(value) => { setExpandedId(null); setMemoriaId(value ? Number(value) : 0); setPage(1); }}
+          options={(memorias.data ?? []).filter((item) => item.grupo_utn_id && !item.deleted_at).map((item) => ({
+            value: String(item.id), label: `${formatFecha(item.periodo_inicio)} a ${formatFecha(item.periodo_fin)}`,
+          }))}
+        />{memorias.isError && <p role="alert" className="text-sm text-rose-700">Lo sentimos, no pudimos recuperar los períodos. <button type="button" onClick={() => memorias.refetch()} className="underline">Reintentar</button></p>}</TableToolbar>}
       />
       <ConfirmDialog open={!!pendingDelete} title="Eliminar informe" message={`¿Desea eliminar ${pendingDelete?.titulo ?? "este informe"}?`} confirmText="Eliminar" onCancel={() => setPendingDelete(null)} onConfirm={() => pendingDelete ? remove.mutateAsync(pendingDelete.id) : undefined} />
       <SuccessToast open={!!message} message={message} onClose={() => setMessage("")} />

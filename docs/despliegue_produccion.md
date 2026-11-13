@@ -22,9 +22,10 @@ Topologia prevista:
 
 Si el acceso inicial debe limitarse al propio host, definir
 `NGINX_BIND_ADDRESS=127.0.0.1` y usar un tunel SSH para las comprobaciones tecnicas.
-Para acceso desde una red autorizada, usar `NGINX_BIND_ADDRESS=0.0.0.0` y restringir
-`NGINX_PORT` mediante el firewall de la VM. El acceso HTTP no debe exponerse a
-Internet ni tratarse como produccion con datos reales.
+El acceso productivo usa HTTPS mediante Cloudflare Tunnel o un proxy TLS del host
+con origen en loopback. Publicar en una LAN es una excepción del operador:
+requiere `NGINX_BIND_ADDRESS=0.0.0.0`, firewall y `GIDAS_ALLOW_LAN_BIND=1` al
+ejecutar el preflight. HTTP directo no representa un despliegue productivo.
 
 > Estado de seguridad actualizado el 2026-08-24: antes de habilitar datos reales se
 > deben cerrar HTTPS, el aislamiento multi-UCT y la provision segura de secretos.
@@ -59,6 +60,13 @@ los nombres y formatos.
 | `POSTGRES_ADMIN_PASSWORD` | Secreto administrativo, no utilizado por el backend en runtime. |
 | `POSTGRES_APP_PASSWORD` | Secreto exclusivo del usuario de aplicacion. |
 | `RATELIMIT_STORAGE_URI` | Redis interno compartido; nunca `memory://` en produccion. |
+| `EMAIL_OUTBOX_ENCRYPTION_KEY` | Clave Fernet estable y exclusiva para cifrar mensajes pendientes. |
+| `PASSWORD_RESET_HMAC_KEY` | Secreto aleatorio de al menos 32 caracteres, independiente de las claves anteriores. |
+| `PASSWORD_RESET_PUBLIC_URL` | URL HTTPS de `/restablecer-password`, con origen incluido en `FRONTEND_URLS`. |
+| `MAIL_SERVER` / `MAIL_PORT` | SMTP institucional accesible desde API/worker; puerto correspondiente a su modo TLS. |
+| `MAIL_DEFAULT_SENDER` | Remitente autorizado por el proveedor. |
+| `MAIL_USERNAME` / `MAIL_PASSWORD` | Credenciales si el proveedor requiere autenticación. |
+| `SMTP_TLS_MODE` | `starttls` o `ssl`; `none` no se permite en producción ni staging. |
 | `VITE_API_BASE_URL` | `/api/v1` para mantener frontend y API en el mismo origen. |
 | `MAX_CONTENT_LENGTH` | Debe conservar un valor positivo que no supere `NGINX_CLIENT_MAX_BODY_SIZE`. |
 
@@ -99,6 +107,8 @@ El arranque separa responsabilidades:
 - `migrate` usa `gidas_admin`, prepara el rol de aplicacion, aplica migraciones,
   ejecuta el seed y concede permisos; luego termina.
 - `backend` usa `gidas_app` durante toda la operacion normal.
+- `email-worker` usa la misma base y entorno del backend para entregar los
+  mensajes de recuperación; necesita conexión saliente al SMTP institucional.
 - `frontend` sirve el build estatico.
 - `nginx` publica frontend y `/api/v1`.
 
@@ -165,16 +175,16 @@ POSTGRES_ADMIN_PASSWORD=<CLAVE_ADMIN_ALEATORIA>
 POSTGRES_APP_USER=gidas_app
 POSTGRES_APP_PASSWORD=<CLAVE_APP_ALEATORIA_DISTINTA>
 MIGRATION_DATABASE_URL=postgresql://gidas_admin:<CLAVE_ADMIN_URL_ENCODED>@db:5432/gidas_db
-NGINX_BIND_ADDRESS=0.0.0.0
+NGINX_BIND_ADDRESS=127.0.0.1
 NGINX_PORT=8080
 BACKEND_ENV_FILE=.env.production
 LOG_MAX_SIZE=10m
 LOG_MAX_FILES=5
 ```
 
-`NGINX_BIND_ADDRESS=0.0.0.0` publica el proxy en las interfaces de la VM. Limitar
-su acceso mediante firewall a la red autorizada. `127.0.0.1` permite validar por
-tunel SSH sin publicar el servicio a la red.
+`127.0.0.1` mantiene el origen privado para Cloudflare Tunnel, un proxy TLS del
+host o la validación por túnel SSH. La excepción LAN requiere firewall y la
+habilitación explícita del validador indicada al inicio de esta guía.
 
 Las contrasenas incluidas en URLs deben codificarse como URL. Para reducir
 errores operativos, se recomiendan contrasenas aleatorias compatibles con URI y
@@ -193,20 +203,33 @@ APP_VERSION=<TAG_O_COMMIT>
 SECRET_KEY=<SECRETO_ALEATORIO_DE_32_O_MAS_CARACTERES>
 JWT_SECRET=<SECRETO_ALEATORIO_DISTINTO>
 REFRESH_SECRET=<SECRETO_ALEATORIO_DISTINTO>
-FRONTEND_URL=http://<IP_O_DNS_LAN>:8080
-FRONTEND_URLS=http://<IP_O_DNS_LAN>:8080
+FRONTEND_URL=https://gidas.laboratorio.example
+FRONTEND_URLS=https://gidas.laboratorio.example
 DATABASE_URL=postgresql://gidas_app:<CLAVE_APP_URL_ENCODED>@db:5432/gidas_db
 RATELIMIT_STORAGE_URI=redis://redis:6379/0
+MAIL_SERVER=smtp.laboratorio.example
+MAIL_PORT=587
+MAIL_DEFAULT_SENDER=GIDAS <no-reply@laboratorio.example>
+MAIL_USERNAME=<USUARIO_SMTP_SI_CORRESPONDE>
+MAIL_PASSWORD=<CREDENCIAL_SMTP_SI_CORRESPONDE>
+SMTP_TLS_MODE=starttls
+SMTP_TIMEOUT_SECONDS=20
+EMAIL_WORKER_POLL_SECONDS=5
+EMAIL_OUTBOX_ENCRYPTION_KEY=<CLAVE_FERNET_GENERADA>
+PASSWORD_RESET_HMAC_KEY=<SECRETO_ALEATORIO_INDEPENDIENTE>
+PASSWORD_RESET_PUBLIC_URL=https://gidas.laboratorio.example/restablecer-password
 ```
 
-Mientras el acceso sea HTTP, `SESSION_COOKIE_SECURE` no debe establecerse en
-`True`. Al activar HTTPS se actualizaran conjuntamente origen, cookies y proxy.
+Sustituir los dominios de ejemplo por los del laboratorio. La URL de recuperación
+debe compartir el origen HTTPS exacto, incluido puerto, con `FRONTEND_URLS` y no
+contener query, fragmento ni credenciales. Para SMTP SSL usar el puerto indicado
+por el proveedor (habitualmente 465) y `SMTP_TLS_MODE=ssl`; STARTTLS suele usar 587.
+El transporte de recuperación usa `SMTP_TLS_MODE`, no `MAIL_USE_TLS`.
 
-Para una calificacion tecnica temporal sin TLS usar `APP_ENV=staging`. Este modo
-mantiene `DEBUG=False`, CORS restringido al origen configurado y permite la cookie
-por HTTP. No debe usarse con datos reales ni como sustituto permanente de HTTPS.
-Para produccion real conservar `APP_ENV=production`, usar origenes `https://` y
-validar la cookie `Secure`.
+Producción activa cookies seguras y rechaza orígenes HTTP. Staging también exige
+HTTPS y SMTP con TLS para recuperación; ya no es un atajo para validar este flujo
+por HTTP. Para pruebas locales HTTP usar Compose de desarrollo y Mailpit, sin
+datos reales. El arranque de Flask, incluido el migrador, valida esta configuración.
 
 El archivo del backend no debe contener la clave administrativa ni
 `MIGRATION_DATABASE_URL`.
@@ -241,11 +264,10 @@ iniciar contenedores:
 
 ```bash
 docker compose --env-file .env.production config --quiet
-docker compose --env-file .env.production config > /tmp/gidas-compose-rendered.yml
 ```
 
-Revise el archivo renderizado localmente porque contiene valores sensibles y
-eliminelo al terminar. Confirme que:
+Evitar guardar o compartir el render completo: contiene secretos del entorno.
+El validador de topología lo inspecciona en memoria. Confirme que:
 
 - `backend` usa la URL de `gidas_app`.
 - `migrate` usa la URL de `gidas_admin`.
@@ -253,11 +275,15 @@ eliminelo al terminar. Confirme que:
 - solo Nginx publica `NGINX_PORT`.
 - no quedan textos `replace-with` en los archivos reales.
 
+El preflight valida Compose, topología, archivos versionados y Nginx; no inicia
+Flask ni comprueba SMTP. Su éxito no certifica la configuración de recuperación
+ni la entrega de correo. Completar también las verificaciones de la sección siguiente.
+
 Validar la configuracion Nginx incluida usando su misma imagen, sin iniciar el
 stack:
 
 ```bash
-docker run --rm -v "$PWD/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro" nginxinc/nginx-unprivileged:1.27-alpine nginx -t
+docker run --rm -v "$PWD/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro" nginxinc/nginx-unprivileged:1.31-alpine3.24 nginx -t
 ```
 
 ## 6. Respaldo previo
@@ -298,10 +324,73 @@ Comprobar el resultado del servicio efimero y el estado general:
 ```bash
 docker compose --env-file .env.production ps -a
 docker compose --env-file .env.production logs --tail=200 migrate
-docker compose --env-file .env.production logs --tail=200 backend nginx
+docker compose --env-file .env.production logs --tail=200 backend email-worker nginx
 ```
 
 `migrate` debe terminar con codigo `0`; no debe permanecer ejecutandose.
+
+## Recuperación de contraseña en producción
+
+El sistema incluye solicitud pública, solicitud asistida por ADMIN, confirmación
+de contraseña, persistencia de solicitudes, cola cifrada y worker SMTP. La
+migración `e5a7c9d1f3b6` incorpora las tablas e índices necesarios y debe estar
+aplicada junto con las revisiones posteriores de la entrega. No se necesitan
+cuentas de prueba ni Mailpit en producción.
+
+Antes de habilitarlo, el laboratorio debe aportar:
+
+- SMTP accesible desde la red Docker, con certificado confiable, remitente
+  autorizado y credenciales cuando correspondan. Habilitar la salida al puerto
+  del proveedor; no publicar puertos del worker. Configurar SPF/DKIM/DMARC según
+  las instrucciones del proveedor y del administrador del dominio remitente.
+- Clave Fernet generada con `Fernet.generate_key()` y secreto HMAC aleatorio
+  independiente de al menos 32 caracteres. API y worker comparten las claves;
+  el migrador también necesita configuración válida para arrancar Flask.
+- URL HTTPS pública terminada en `/restablecer-password`, perteneciente a uno de
+  los orígenes de `FRONTEND_URLS`. DNS, certificado y proxy deben permitir abrir
+  directamente esa ruta frontend. No colocar el token en query ni logs: la
+  aplicación lo agrega al fragmento y el frontend lo retira al abrirlo.
+- Servicio `email-worker` activo de manera continua. `docker compose up --build -d`
+  lo incluye; iniciar solamente `backend` y `frontend` no basta para entregar correo.
+
+Los secretos pueden inyectarse mediante variables o archivos `_FILE` montados
+explícitamente en cada servicio. Véase [gestión de secretos](../backend/SECRETS.md)
+y [operación de notificaciones](../backend/modules/notifications/README.md).
+Conservar las claves de cifrado para las colas pendientes; no rotarlas sin drenar
+o cancelar esos mensajes. No imprimir secretos ni enlaces en diagnósticos.
+
+Con el stack iniciado, estos comandos inspeccionan configuración y actividad
+sin solicitar ni enviar un correo:
+
+```bash
+docker compose --env-file .env.production exec -T backend python -c 'from app import create_app; from modules.notifications.services.settings import validate_email_settings; app=create_app(); validate_email_settings(app.config, required=True); print("Configuración de recuperación válida")'
+docker compose --env-file .env.production ps email-worker
+docker compose --env-file .env.production exec -T backend flask email-queue-stats
+docker compose --env-file .env.production logs --since=15m --tail=100 email-worker
+```
+
+La validación de configuración no abre conexión SMTP. El healthcheck de API
+comprueba disponibilidad de la aplicación y el del worker un heartbeat reciente;
+ninguno garantiza autenticación SMTP, recepción o llegada a la bandeja de entrada.
+El 202 público es deliberadamente genérico y tampoco confirma que exista la
+cuenta ni que el mensaje se haya encolado. `sent` significa aceptación por SMTP,
+no confirmación de recepción por la persona.
+
+La aceptación en el servidor debe probar el recorrido con una cuenta habilitada
+y un correo controlado por el operador: solicitar desde Recuperar contraseña,
+recibir el mensaje, abrir el enlace HTTPS, cambiar la contraseña e iniciar sesión
+con ella. Verificar también el rechazo de un enlace reutilizado y la revocación
+de refresh anteriores. El enlace vence 30 minutos después de ser aceptado por
+SMTP; un bloqueo de login activo conserva su vencimiento. No registrar el enlace,
+token o contraseña en la evidencia. La prueba debe realizarse expresamente por
+el operador; revisar documentación o ejecutar unit tests no envía ese correo.
+
+Ante demoras, revisar los conteos de pendientes, reintentos y fallidos; el worker
+reintenta a 1, 5, 15, 60 y 240 minutos y falla definitivamente tras el sexto
+intento fallido. Revisar salida de red, TLS, autenticación y autorización del
+remitente con el proveedor. El worker ejecuta mantenimiento de retención cada
+hora; las alertas son mensajes de log y requieren un recolector externo si se
+desean avisos operativos. No se incluye monitoreo externo automático.
 
 ## 8. Verificacion tecnica y funcional
 
@@ -314,7 +403,7 @@ Despues del arranque ejecutar:
 Opcionalmente puede indicarse la URL que realmente usaran los clientes:
 
 ```bash
-./scripts/smoke-vm-deployment.sh .env.production http://<IP_VM>:8080
+./scripts/smoke-vm-deployment.sh .env.production https://gidas.laboratorio.example
 ```
 
 Desde el servidor:
@@ -353,10 +442,10 @@ El resultado esperado es `Recuperacion validada para 24 modulos.`. No agregar
 `ALLOW_TEST_SEED` a archivos `.env`, Compose ni servicios persistentes. Este seed
 no se ejecuta en produccion y no reemplaza la validacion posterior con datos reales.
 
-Desde otro equipo autorizado de la LAN, verificar:
+Desde otro equipo autorizado, verificar el origen HTTPS real:
 
 ```text
-http://<IP_O_DNS_DEL_SERVIDOR>:<NGINX_PORT>
+https://gidas.laboratorio.example
 ```
 
 Prueba funcional minima:
@@ -400,7 +489,7 @@ df -h
 Logs recientes:
 
 ```bash
-docker compose --env-file .env.production logs --since=30m --tail=200 backend nginx db redis
+docker compose --env-file .env.production logs --since=30m --tail=200 backend email-worker nginx db redis
 docker compose --env-file .env.production logs -f backend
 ```
 

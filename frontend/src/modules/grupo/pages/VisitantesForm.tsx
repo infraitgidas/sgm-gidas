@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { applyFieldErrors } from "@/lib/httpError";
 import { useState, useEffect } from "react";
@@ -85,19 +86,13 @@ export default function VisitantesForm() {
     onRestore: (draft) => { setRazon(draft.razon); setFecha(draft.fecha ? new Date(`${draft.fecha}T00:00:00`) : null); setProcedencia(draft.procedencia); setTipoVisitaId(draft.tipoVisitaId); },
   });
 
-  const clearError = (field: string) => {
-    setErrors((prev) => {
-      const copy = { ...prev };
-      delete copy[field];
-      return copy;
-    });
-  };
-
-  const validate = () => {
+  const validationValues = { razon, fecha, procedencia, tipoVisitaId };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { razon, fecha, procedencia, tipoVisitaId } = { ...validationValues, ...changes };
     const newErrors: Record<string, string> = {};
 
     if (!razon.trim()) {
-      newErrors.razon = "Debe ingresar razon de la visita";
+      newErrors.razon = "Debe ingresar razón de la visita";
     }
 
     if (!fecha) {
@@ -114,6 +109,15 @@ export default function VisitantesForm() {
       newErrors.tipoVisita = "Debe seleccionar tipo de visita";
     }
 
+    return newErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  const validate = () => {
+    const newErrors = getValidationErrors();
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -261,15 +265,15 @@ export default function VisitantesForm() {
           </div>
         )}
 
-        <Field required label="Razon de la visita" name="razon" error={errors.razon}>
+        <Field required label="Razón de la visita" name="razon" error={errors.razon}>
           <>
             <textarea
               className={`${inputClass("razon")} min-h-[80px]`}
               value={razon}
               onChange={(e) => {
                 setRazon(e.target.value);
-                if (e.target.value.trim()) clearError("razon");
-              }}
+                validateChangedField("razon", { razon: e.target.value });
+              }} onBlur={() => validateChangedField("razon")}
             />
             {errors.razon && (
               <p className="mt-1 text-sm text-red-500">{errors.razon}</p>
@@ -282,7 +286,7 @@ export default function VisitantesForm() {
             value={fecha}
             onChange={(date) => {
               setFecha(date);
-              if (date) clearError("fecha");
+              validateChangedField("fecha", { fecha: date });
             }}
             className={inputClass("fecha")}
             helperText="DD/MM/AAAA"
@@ -297,8 +301,8 @@ export default function VisitantesForm() {
               value={procedencia}
               onChange={(e) => {
                 setProcedencia(e.target.value);
-                if (e.target.value.trim()) clearError("procedencia");
-              }}
+                validateChangedField("procedencia", { procedencia: e.target.value });
+              }} onBlur={() => validateChangedField("procedencia")}
               placeholder="Ej.: Universidad Nacional de Córdoba"
             />
             {!errors.procedencia && (
@@ -322,8 +326,8 @@ export default function VisitantesForm() {
               onChange={(e) => {
                 const value = e.target.value ? Number(e.target.value) : null;
                 setTipoVisitaId(value);
-                if (value) clearError("tipoVisita");
-              }}
+                validateChangedField("tipoVisita", { tipoVisitaId: value });
+              }} onBlur={() => validateChangedField("tipoVisita")}
             >
               <option value="" disabled>
                 Seleccionar tipo de visita

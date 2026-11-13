@@ -1,4 +1,5 @@
 import { http } from "@/lib/http";
+import type { Moneda } from "@/utils/money";
 
 export type Equipamiento = {
   id: number;
@@ -15,6 +16,7 @@ export type Equipamiento = {
   descripcion_breve: string;
   fecha_incorporacion: string;
   monto_invertido: number;
+  moneda: Moneda;
   grupo_utn_id: number;
   grupo?: string | null;
 };
@@ -34,6 +36,7 @@ export type EquipamientoPayload = {
   descripcion_breve: string;
   fecha_incorporacion: string;
   monto_invertido: number;
+  moneda?: Moneda;
   grupo_utn_id: number;
 };
 
@@ -59,6 +62,7 @@ const normalizeEquipamiento = (item: EquipamientoBackend): Equipamiento => ({
       ? item.monto_invertido
       : Number(item.monto_invertido ?? 0),
   grupo_utn_id: item.grupo_utn_id ?? 0,
+  moneda: item.moneda ?? "ARS",
   grupo: item.grupo ?? null,
 });
 
@@ -123,6 +127,7 @@ export async function updateEquipamiento(
     body.fecha_incorporacion = payload.fecha_incorporacion;
   }
   if ("monto_invertido" in payload) body.monto_invertido = payload.monto_invertido;
+  if ("moneda" in payload) body.moneda = payload.moneda;
   if ("grupo_utn_id" in payload) body.grupo_utn_id = payload.grupo_utn_id;
 
   const response = await http<EquipamientoBackend>(`/equipamiento/${id}`, {

@@ -1,3 +1,5 @@
+import { referatoValue } from "@/modules/produccion/utils/clasificacionTrabajo";
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { errorEnlace, MAX_ENLACE } from "@/modules/produccion/utils/trabajoEnlace";
 import { applyFieldErrors } from "@/lib/httpError";
@@ -55,6 +57,7 @@ export default function TrabajosRevistasForm() {
     enabled: isEdit,
   });
 
+  const [referato, setReferato] = useState<boolean | null>(null);
   const [enlace, setEnlace] = useState("");
   const [titulo, setTitulo] = useState("");
   const [nombreRevista, setNombreRevista] = useState("");
@@ -73,6 +76,7 @@ export default function TrabajosRevistasForm() {
     if (!initialData || datosCargadosId.current === initialData.id) return;
     datosCargadosId.current = initialData.id;
 
+    setReferato(initialData.referato ?? null);
     setEnlace(initialData.enlace ?? "");
     setTitulo(initialData.titulo_trabajo ?? "");
     setNombreRevista(initialData.nombre_revista ?? "");
@@ -88,22 +92,16 @@ export default function TrabajosRevistasForm() {
     userId: user?.id,
     module: "produccion-revistas",
     recordId: id,
-    value: { enlace, titulo, nombreRevista, editorial, issn, pais, fecha: toCivilDateString(fecha), tipoId, autores },
+    value: { referato, enlace, titulo, nombreRevista, editorial, issn, pais, fecha: toCivilDateString(fecha), tipoId, autores },
     ready: !isEdit || (!isLoading && Boolean(initialData)),
     autosave: false,
-    hasContent: (draft) => Boolean(draft.enlace || draft.titulo || draft.nombreRevista || draft.editorial || draft.issn || draft.pais || draft.fecha || draft.tipoId || draft.autores.length),
-    onRestore: (draft) => { setEnlace(draft.enlace); setTitulo(draft.titulo); setNombreRevista(draft.nombreRevista); setEditorial(draft.editorial); setIssn(draft.issn); setPais(draft.pais); setFecha(draft.fecha ? new Date(`${draft.fecha}T00:00:00`) : null); setTipoId(draft.tipoId); setAutores(draft.autores); },
+    hasContent: (draft) => Boolean(draft.referato != null || draft.enlace || draft.titulo || draft.nombreRevista || draft.editorial || draft.issn || draft.pais || draft.fecha || draft.tipoId || draft.autores.length),
+    onRestore: (draft) => { setReferato(draft.referato ?? null); setEnlace(draft.enlace); setTitulo(draft.titulo); setNombreRevista(draft.nombreRevista); setEditorial(draft.editorial); setIssn(draft.issn); setPais(draft.pais); setFecha(draft.fecha ? new Date(`${draft.fecha}T00:00:00`) : null); setTipoId(draft.tipoId); setAutores(draft.autores); },
   });
 
-  const clearError = (field: string) => {
-    setErrors((prev) => {
-      const copy = { ...prev };
-      delete copy[field];
-      return copy;
-    });
-  };
-
-  const validate = () => {
+  const validationValues = { enlace, titulo, nombreRevista, editorial, issn, pais, fecha, tipoId, autores };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { enlace, titulo, nombreRevista, editorial, issn, pais, fecha, tipoId, autores } = { ...validationValues, ...changes };
     const newErrors: Record<string, string> = {};
 
     if (!titulo.trim()) newErrors.titulo = "Debe ingresar título";
@@ -140,6 +138,15 @@ export default function TrabajosRevistasForm() {
 
     const enlaceError = errorEnlace(enlace);
     if (enlaceError) newErrors.enlace = enlaceError;
+    return newErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  const validate = () => {
+    const newErrors = getValidationErrors();
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -174,7 +181,7 @@ export default function TrabajosRevistasForm() {
       });
     },
     onError: (error) => {
-      if (applyFieldErrors(error, setErrors, ["enlace","titulo","nombreRevista","editorial","issn","pais","tipoId","fecha","autores"])) return;
+      if (applyFieldErrors(error, setErrors, ["referato","enlace","titulo","nombreRevista","editorial","issn","pais","tipoId","fecha","autores"])) return;
       const backendMessage = getErrorMessage(
         error,
         isEdit
@@ -196,6 +203,7 @@ export default function TrabajosRevistasForm() {
     if (!validate()) return;
 
     const payload = {
+      referato,
       enlace: enlace.trim() || null,
       autores: autores.map(({ id, rol }) => ({ id, rol })),
       titulo_trabajo: toTitleCase(titulo.trim()),
@@ -214,6 +222,7 @@ export default function TrabajosRevistasForm() {
     }
 
     const initialPayload = {
+      referato: initialData?.referato ?? null,
       enlace: initialData?.enlace ?? null,
       autores: initialData?.autores ?? [],
       titulo_trabajo: initialData?.titulo_trabajo ?? "",
@@ -273,6 +282,14 @@ export default function TrabajosRevistasForm() {
         onSubmit={submit}
         className="mt-6 space-y-6 rounded-2xl border border-slate-200 bg-white p-6"
       >
+        <Field label="Referato" name="referato" error={errors.referato}>
+          <select id="referato" className={inputClass("referato")} value={referato == null ? "" : String(referato)} onChange={(e) => { setReferato(referatoValue(e.target.value)); setErrors((previous) => ({ ...previous, referato: "" })); }}>
+            <option value="">Sin informar</option>
+            <option value="true">Sí</option>
+            <option value="false">No</option>
+          </select>
+        </Field>
+
         <Field required label="Título del trabajo" name="titulo" error={errors.titulo}>
           <>
             <input
@@ -281,7 +298,7 @@ export default function TrabajosRevistasForm() {
               placeholder="Ej: Modelo de optimización aplicado a sistemas distribuidos"
               onChange={(e) => {
                 setTitulo(e.target.value);
-                if (e.target.value.trim()) clearError("titulo");
+                validateChangedField("titulo", { titulo: e.target.value });
               }}
               onBlur={() => {
                 if (titulo.trim()) setTitulo(toTitleCase(titulo));
@@ -301,7 +318,7 @@ export default function TrabajosRevistasForm() {
               placeholder="Ej: Journal of Computer Science"
               onChange={(e) => {
                 setNombreRevista(e.target.value);
-                if (e.target.value.trim()) clearError("nombreRevista");
+                validateChangedField("nombreRevista", { nombreRevista: e.target.value });
               }}
               onBlur={() => {
                 if (nombreRevista.trim()) {
@@ -323,7 +340,7 @@ export default function TrabajosRevistasForm() {
               placeholder="Ej: Elsevier"
               onChange={(e) => {
                 setEditorial(e.target.value);
-                if (e.target.value.trim()) clearError("editorial");
+                validateChangedField("editorial", { editorial: e.target.value });
               }}
               onBlur={() => {
                 if (editorial.trim()) setEditorial(toTitleCase(editorial));
@@ -343,8 +360,8 @@ export default function TrabajosRevistasForm() {
               placeholder="Ej: 1234-5678"
               onChange={(e) => {
                 setIssn(e.target.value);
-                if (e.target.value.trim()) clearError("issn");
-              }}
+                validateChangedField("issn", { issn: e.target.value });
+              }} onBlur={() => validateChangedField("issn")}
             />
             {errors.issn && (
               <p className="mt-1 text-sm text-red-500">{errors.issn}</p>
@@ -360,7 +377,7 @@ export default function TrabajosRevistasForm() {
               placeholder="Ej: Argentina"
               onChange={(e) => {
                 setPais(e.target.value);
-                if (e.target.value.trim()) clearError("pais");
+                validateChangedField("pais", { pais: e.target.value });
               }}
               onBlur={() => {
                 if (pais.trim()) setPais(toTitleCase(pais));
@@ -382,8 +399,8 @@ export default function TrabajosRevistasForm() {
               onChange={(e) => {
                 const value = e.target.value ? Number(e.target.value) : null;
                 setTipoId(value);
-                if (value) clearError("tipoId");
-              }}
+                validateChangedField("tipoId", { tipoId: value });
+              }} onBlur={() => validateChangedField("tipoId")}
             >
               <option value="" disabled>
                 Seleccionar tipo de revista
@@ -403,7 +420,10 @@ export default function TrabajosRevistasForm() {
         <Field label="Enlace al trabajo o DOI (opcional)" name="enlace" error={errors.enlace}>
           <input type="url" className={inputClass("enlace")} value={enlace}
             maxLength={MAX_ENLACE} placeholder="https://doi.org/10.1234/ejemplo"
-            onChange={e => { setEnlace(e.target.value); clearError("enlace"); }} />
+            onChange={e => {
+              setEnlace(e.target.value);
+              validateChangedField("enlace", { enlace: e.target.value });
+            }} onBlur={() => validateChangedField("enlace")} />
         </Field>
 
         <Field required label="Autores" name="autores" error={errors.autores}>
@@ -411,7 +431,10 @@ export default function TrabajosRevistasForm() {
             <AutoresQueryFeedback query={autoresQuery} />
             <IntegrantesAutoresField value={autores} options={integrantes}
               disabled={guardadoBloqueado}
-              onChange={value => { setAutores(value); if (value.length) clearError("autores"); }} />
+              onChange={value => {
+                setAutores(value);
+                validateChangedField("autores", { autores: value });
+              }} />
           </>
         </Field>
 
@@ -420,7 +443,7 @@ export default function TrabajosRevistasForm() {
             value={fecha}
             onChange={(date) => {
               setFecha(date);
-              if (date) clearError("fecha");
+              validateChangedField("fecha", { fecha: date });
             }}
             className={inputClass("fecha")}
             helperText="DD/MM/AAAA"

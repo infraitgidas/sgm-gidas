@@ -74,7 +74,11 @@ class EnlaceTrabajoTest(unittest.TestCase):
         libro = load_workbook(BytesIO(archivo.getvalue()))
         texto = "\n".join(str(c.value) for h in libro for f in h for c in f if c.value)
         for tipo in ("reuniones", "revistas"):
-            self.assertIn(f"Enlace: https://example.org/{tipo}", texto)
+            self.assertIn(f"https://example.org/{tipo}", texto)
+        detalle = libro["Detalle académico"]
+        enlaces = [detalle.cell(row, 2).value for row in range(1, detalle.max_row + 1)
+                   if detalle.cell(row, 1).value == "Enlace"]
+        self.assertEqual(set(enlaces), {"https://example.org/reuniones", "https://example.org/revistas"})
 
 
 class MigracionEnlaceTest(unittest.TestCase):

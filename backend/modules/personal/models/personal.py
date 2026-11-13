@@ -10,6 +10,8 @@ class Personal(db.Model, AuditMixin):
     __tablename__ = 'personal'
 
     id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(60), nullable=True)
+    apellido = db.Column(db.String(60), nullable=True)
     nombre_apellido = db.Column(db.String(120), nullable=False)
     identidad_id = db.Column(db.Integer, db.ForeignKey('identidad_personal.id'), unique=True, nullable=True)
     identidad = db.relationship(IdentidadPersonal, lazy='joined')
@@ -72,9 +74,10 @@ class PersonalMemoriaVersion(db.Model, AuditMixin):
     )
     personal_id = db.Column(
         db.Integer,
-        db.ForeignKey("personal.id"),
         nullable=False
     )
+    # ID de origen congelado; la identidad mantiene el vínculo entre clases.
+    identidad_id = db.Column(db.Integer, db.ForeignKey("identidad_personal.id", ondelete="RESTRICT"), nullable=True, index=True)
 
     nombre_apellido = db.Column(db.String(120), nullable=False)
     fecha_alta_grupo = db.Column(db.Date, nullable=True)
@@ -95,11 +98,12 @@ class PersonalMemoriaVersion(db.Model, AuditMixin):
     grupo_utn_nombre = db.Column(db.String(255), nullable=True)
 
     memoria_version = db.relationship("MemoriaVersion", lazy="joined")
-    personal = db.relationship("Personal", lazy="joined")
+    identidad = db.relationship("IdentidadPersonal")
     tipo_personal = db.relationship("TipoPersonal", lazy="joined")
     grupo_utn = db.relationship("GrupoInvestigacionUtn", lazy="joined")
 
     __table_args__ = (
+        db.UniqueConstraint("memoria_version_id", "identidad_id", name="uq_personal_memoria_identidad"),
         db.UniqueConstraint(
             "memoria_version_id",
             "personal_id",
@@ -118,6 +122,8 @@ class Becario(db.Model, AuditMixin):
     __tablename__ = 'becario'
 
     id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(60), nullable=True)
+    apellido = db.Column(db.String(60), nullable=True)
     nombre_apellido = db.Column(db.String(120), nullable=False)
     identidad_id = db.Column(db.Integer, db.ForeignKey('identidad_personal.id'), unique=True, nullable=True)
     identidad = db.relationship(IdentidadPersonal, lazy='joined')
@@ -240,6 +246,8 @@ class Investigador(db.Model, AuditMixin):
     __tablename__ = 'investigador'
 
     id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(60), nullable=True)
+    apellido = db.Column(db.String(60), nullable=True)
     nombre_apellido = db.Column(db.String(120), nullable=False)
     identidad_id = db.Column(db.Integer, db.ForeignKey('identidad_personal.id'), unique=True, nullable=True)
     identidad = db.relationship(IdentidadPersonal, lazy='joined')
@@ -367,9 +375,9 @@ class BecarioMemoriaVersion(db.Model, AuditMixin):
     )
     becario_id = db.Column(
         db.Integer,
-        db.ForeignKey("becario.id"),
         nullable=False
     )
+    identidad_id = db.Column(db.Integer, db.ForeignKey("identidad_personal.id", ondelete="RESTRICT"), nullable=True, index=True)
 
     nombre_apellido = db.Column(db.String(120), nullable=False)
     fecha_alta_grupo = db.Column(db.Date, nullable=True)
@@ -392,11 +400,12 @@ class BecarioMemoriaVersion(db.Model, AuditMixin):
     fuentes_financiamiento_beca = db.Column(db.Text, nullable=True)
 
     memoria_version = db.relationship("MemoriaVersion", lazy="joined")
-    becario = db.relationship("Becario", lazy="joined")
+    identidad = db.relationship("IdentidadPersonal")
     tipo_formacion = db.relationship("TipoFormacion", lazy="joined")
     grupo_utn = db.relationship("GrupoInvestigacionUtn", lazy="joined")
 
     __table_args__ = (
+        db.UniqueConstraint("memoria_version_id", "identidad_id", name="uq_becario_memoria_identidad"),
         db.UniqueConstraint(
             "memoria_version_id",
             "becario_id",
@@ -425,9 +434,9 @@ class InvestigadorMemoriaVersion(db.Model, AuditMixin):
     )
     investigador_id = db.Column(
         db.Integer,
-        db.ForeignKey("investigador.id"),
         nullable=False
     )
+    identidad_id = db.Column(db.Integer, db.ForeignKey("identidad_personal.id", ondelete="RESTRICT"), nullable=True, index=True)
 
     nombre_apellido = db.Column(db.String(120), nullable=False)
     fecha_alta_grupo = db.Column(db.Date, nullable=True)
@@ -462,13 +471,14 @@ class InvestigadorMemoriaVersion(db.Model, AuditMixin):
     grupo_utn_nombre = db.Column(db.String(255), nullable=True)
 
     memoria_version = db.relationship("MemoriaVersion", lazy="joined")
-    investigador = db.relationship("Investigador", lazy="joined")
+    identidad = db.relationship("IdentidadPersonal")
     tipo_dedicacion = db.relationship("TipoDedicacion", lazy="joined")
     categoria_utn = db.relationship("CategoriaUtn", lazy="joined")
     programa_incentivos = db.relationship("ProgramaIncentivos", lazy="joined")
     grupo_utn = db.relationship("GrupoInvestigacionUtn", lazy="joined")
 
     __table_args__ = (
+        db.UniqueConstraint("memoria_version_id", "identidad_id", name="uq_investigador_memoria_identidad"),
         db.UniqueConstraint(
             "memoria_version_id",
             "investigador_id",

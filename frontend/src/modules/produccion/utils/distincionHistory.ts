@@ -30,6 +30,7 @@ export function isVisibleDistincionHistoryItem(item: HistorialDistincionItem) {
   const field = item.campo?.trim().toLocaleLowerCase("es") ?? "";
   if (!field || HIDDEN_FIELDS.has(field)) return false;
   if (areEquivalentHistoryValues(item.valor_anterior, item.valor_nuevo)) return false;
+  if (field === "proyecto_investigacion_id") return true;
   return !(
     isEmptyHistoryValue(item.valor_anterior) &&
     !isEmptyHistoryValue(item.valor_nuevo)
@@ -57,7 +58,7 @@ function formatHistoryValue(
   field: string,
   projectNames: Record<number, string>
 ) {
-  if (isEmptyHistoryValue(value)) return "Sin dato";
+  if (isEmptyHistoryValue(value)) return field === "proyecto_investigacion_id" ? "Sin proyecto asociado" : "Sin dato";
   if (field === "fecha") return formatDate(value);
   if (field === "proyecto_investigacion_id") {
     return projectNames[Number(value)] ?? "Proyecto actualizado";

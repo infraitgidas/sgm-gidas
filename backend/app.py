@@ -17,6 +17,8 @@ from modules.shared.services.logging_config import (
 )
 from modules.shared.services.request_security import register_request_body_security
 from modules.auth.commands.refresh_sessions import register_refresh_session_commands
+from modules.notifications.commands import register_email_commands
+from modules.notifications.services.settings import validate_email_settings
 from modules.shared.services.tenant_request import register_tenant_request_scope
 from modules.shared.services.tenant_scope import register_tenant_orm_policy
 
@@ -27,6 +29,7 @@ logger = get_logger(__name__)
 def create_app():
     app = Flask(__name__)
     app.config.from_object(get_config_class())
+    validate_email_settings(app.config)
     configure_logging(
         app.config["APP_ENV"], app.config["LOG_LEVEL"],
         app.config["LOG_FORMAT"], app.config["SERVICE_NAME"],
@@ -81,6 +84,7 @@ def create_app():
         return response
 
     register_refresh_session_commands(app)
+    register_email_commands(app)
 
     logger.info("Aplicación inicializada. Usa 'flask db upgrade' para crear/migrar tablas.")
 

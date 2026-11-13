@@ -16,6 +16,8 @@ const NotFound = lazy(() => import("@/modules/shared/pages/NotFound"));
 
 // auth
 const Login = lazy(() => import("@/modules/auth/pages/Login"));
+const RecuperarPassword = lazy(() => import("@/modules/auth/pages/RecuperarPassword"));
+const RestablecerPassword = lazy(() => import("@/modules/auth/pages/RestablecerPassword"));
 const Register = lazy(() => import("@/modules/auth/pages/Register"));
 const Landing = lazy(() => import("@/modules/auth/pages/Landing"));
 import { AuthProvider } from "@/context/AuthContext";
@@ -139,6 +141,8 @@ const routes = [
   { path: "/", element: <Landing /> },
   // rutas públicas (sin login)
   { path: "/login", element: <Login /> },
+  { path: "/recuperar-password", element: <RecuperarPassword /> },
+  { path: "/restablecer-password", element: <RestablecerPassword /> },
   { path: "/registro", element: <Register /> },
 
   // rutas protegidas (requieren estar logueado)

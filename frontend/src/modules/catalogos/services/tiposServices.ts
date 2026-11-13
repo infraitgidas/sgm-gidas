@@ -3,6 +3,7 @@ import { http } from "@/lib/http";
 export interface Tipo {
   id: number;
   nombre: string;
+  compatible_con_personal?: boolean;
 }
 
 export const getTiposPersonal = () =>

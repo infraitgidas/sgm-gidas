@@ -16,6 +16,7 @@ function harness(file: string) {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
   runInNewContext(code, { module, exports: module.exports, require: (name: string) => {
+    if (name === "@/lib/liveValidation") return require("../src/lib/liveValidation.ts");
     if (name === "react") return { useState(initial: unknown) {
       const index = cursor++;
       if (!(index in values)) values[index] = initial;

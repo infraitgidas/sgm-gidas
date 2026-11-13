@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { applyFieldErrors } from "@/lib/httpError";
 import { hasOnlyLettersAndSpaces } from "../../../lib/textValidation";
@@ -102,15 +103,9 @@ export default function DocumentacionForm() {
     );
   }, [autoresSistema, autores]);
 
-  const clearError = (field: string) => {
-    setErrors((prev) => {
-      const copy = { ...prev };
-      delete copy[field];
-      return copy;
-    });
-  };
-
-  const validate = () => {
+  const validationValues = { data, autores };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { data, autores } = { ...validationValues, ...changes };
     const newErrors: Record<string, string> = {};
 
     if (!data.titulo.trim()) newErrors.titulo = "Debe ingresar título";
@@ -130,6 +125,15 @@ export default function DocumentacionForm() {
       newErrors.autores = "Seleccione los autores existentes desde la lista.";
     }
 
+    return newErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  const validate = () => {
+    const newErrors = getValidationErrors();
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -296,8 +300,8 @@ export default function DocumentacionForm() {
               value={data.titulo}
               onChange={(e) => {
                 setData((prev) => ({ ...prev, titulo: e.target.value }));
-                if (e.target.value.trim()) clearError("titulo");
-              }}
+                validateChangedField("titulo", { data: { ...data, titulo: e.target.value } });
+              }} onBlur={() => validateChangedField("titulo")}
             />
           </>
         </Field>
@@ -309,7 +313,10 @@ export default function DocumentacionForm() {
             {autoresQuery.data?.length === 0 && <p role="status" className="mb-3 text-sm text-slate-500">No hay autores registrados. Puede añadir uno nuevo.</p>}
             <DocumentacionAutoresField value={autores} options={autoresDisponibles}
               disabled={isPending || autoresNoDisponibles}
-              onChange={(value) => { setAutores(value); if (value.length) clearError("autores"); }} />
+              onChange={(value) => {
+                setAutores(value);
+                validateChangedField("autores", { autores: value });
+              }} />
           </>
         </Field>
 
@@ -321,8 +328,8 @@ export default function DocumentacionForm() {
               value={data.editorial}
               onChange={(e) => {
                 setData((prev) => ({ ...prev, editorial: e.target.value }));
-                if (e.target.value.trim()) clearError("editorial");
-              }}
+                validateChangedField("editorial", { data: { ...data, editorial: e.target.value } });
+              }} onBlur={() => validateChangedField("editorial")}
             />
           </>
         </Field>
@@ -335,7 +342,10 @@ export default function DocumentacionForm() {
                 ...prev,
                 fecha: toCivilDateString(dt) ?? "",
               }));
-              if (dt) clearError("fecha");
+              validateChangedField("fecha", { data: {
+                  ...data,
+                  fecha: toCivilDateString(dt) ?? "",
+                } });
             }}
             helperText="DD/MM/AAAA"
             className={inputClass("fecha")}

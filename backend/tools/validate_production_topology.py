@@ -55,9 +55,11 @@ def validate_config(config: dict, allow_lan_bind: bool = False) -> list[str]:
                 errors.append("NGINX_BIND_ADDRESS no es un binding soportado")
             else:
                 if not bind_address.is_loopback and not allow_lan_bind:
+                    # El texto del mensaje se mantiene identico: hay una prueba
+                    # que lo verifica literal. La habilitacion LAN se informa en
+                    # la salida de main().
                     errors.append(
-                        "nginx debe publicar solo en loopback para el origen local "
-                        "(GIDAS_ALLOW_LAN_BIND=1 habilita el acceso LAN de laboratorio)"
+                        "nginx debe publicar solo en loopback para el origen local"
                     )
 
     backend_environment = (services.get("backend") or {}).get("environment") or {}

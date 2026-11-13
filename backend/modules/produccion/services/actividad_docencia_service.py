@@ -61,6 +61,8 @@ class ActividadDocenciaService:
 
     @staticmethod
     def _parse_fecha(valor, campo):
+        if campo == "fecha_fin" and valor in (None, ""):
+            return None
         try:
             fecha = datetime.strptime(valor, "%Y-%m-%d").date()
         except (TypeError, ValueError):
@@ -74,7 +76,7 @@ class ActividadDocenciaService:
         if fecha_inicio > date.today():
             raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"fecha_inicio": "Ingrese una fecha de inicio que no sea futura."}})
 
-        if fecha_fin < fecha_inicio:
+        if fecha_fin is not None and fecha_fin < fecha_inicio:
             raise ValidationError("Revise los campos indicados e intente nuevamente.", details={"fields": {"fecha_fin": "Ingrese una fecha de fin igual o posterior al inicio."}})
 
     @staticmethod
@@ -254,6 +256,7 @@ class ActividadDocenciaService:
                   "investigador": case((Investigador.deleted_at.is_(None), Investigador.nombre_apellido), else_=""),
                   "rol": RolActividad.nombre, "grado": grade,
                   "fecha_inicio": ActividadDocencia.fecha_inicio,
+                  "fecha_fin": ActividadDocencia.fecha_fin,
                   "estado": ActividadDocencia.deleted_at.isnot(None)}
         return table_query_page(query, ActividadDocencia, args, fields,
                                 default_sort="fecha_inicio",
@@ -577,7 +580,7 @@ class ActividadDocenciaService:
             actividad.id
         )
 
-        if historial_activo and historial_activo.fecha_inicio > actividad.fecha_fin:
+        if historial_activo and actividad.fecha_fin is not None and historial_activo.fecha_inicio > actividad.fecha_fin:
             raise ConflictError(
                 "El historial activo tiene una fecha de inicio invalida respecto de la actividad"
             )

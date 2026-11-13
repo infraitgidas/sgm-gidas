@@ -35,6 +35,7 @@ import {
   type PlanificacionGrupo,
 } from "@/modules/grupo/services/planificacionGrupoServices";
 import { formatFecha, getCivilYear } from "@/utils/dateTime";
+import PersonalSnapshotDialog from "@/modules/memorias/components/PersonalSnapshotDialog";
 
 type SnapshotSection = {
   key: string;
@@ -211,6 +212,7 @@ export default function MemoriaVersionDetalle() {
   const [showError, setShowError] = useState(false);
   const [message, setMessage] = useState("");
   const [showProgramaModal, setShowProgramaModal] = useState(false);
+  const [personalSnapshotSection, setPersonalSnapshotSection] = useState<string | null>(null);
   const programaDialogRef = useRef<HTMLDialogElement>(null);
   const [programaDescripcion, setProgramaDescripcion] = useState("");
   const [programaError, setProgramaError] = useState("");
@@ -355,6 +357,10 @@ export default function MemoriaVersionDetalle() {
   });
 
   const handleNavigateToSection = (section: SnapshotSection) => {
+    if (["personal", "becarios", "investigadores"].includes(section.key)) {
+      setPersonalSnapshotSection(section.key);
+      return;
+    }
     if (!section.homePath) return;
 
     const entries = sectionData.find((current) => current.key === section.key)?.items ?? [];
@@ -530,7 +536,7 @@ export default function MemoriaVersionDetalle() {
                     onClick={() => handleNavigateToSection(section)}
                     className="mt-3 text-xs font-semibold uppercase tracking-wider text-slate-500 transition-colors hover:text-slate-700"
                   >
-                    Ver registros en el módulo
+                    {["personal", "becarios", "investigadores"].includes(section.key) ? "Ver datos de esta versión" : "Ver registros en el módulo"}
                   </button>
                 )}
               </article>
@@ -561,6 +567,13 @@ export default function MemoriaVersionDetalle() {
         onClose={() => setShowError(false)}
         variant="error"
       />
+
+      {personalSnapshotSection && <PersonalSnapshotDialog
+        sectionKey={personalSnapshotSection}
+        title={sectionData.find(section => section.key === personalSnapshotSection)?.label ?? "Personal"}
+        versionLabel={`Versión ${numeroVersionMemoria}`}
+        items={sectionData.find(section => section.key === personalSnapshotSection)?.items ?? []}
+        onClose={() => setPersonalSnapshotSection(null)} />}
 
       {showProgramaModal && (
         <dialog

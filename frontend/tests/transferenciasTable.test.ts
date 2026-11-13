@@ -1,3 +1,4 @@
+import { loadHomeStateHooks } from "./helpers/homeStateHooks.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -31,13 +32,16 @@ function loadPagedHome(file: string) {
   const code = ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
-  runInNewContext(code, { module, exports: module.exports, require: (name: string) => {
-    if (name === "react") return {
+  runInNewContext(code, { module, exports: module.exports, require: function dependency(name: string): any {
+    if (name === "@/modules/shared/hooks/useHomeState") return loadHomeStateHooks(dependency("react"), dependency("@/context/AuthContext"), dependency("react-router-dom"));
+      if (name === "react") return {
       useState(initial: any) {
         const index = cursor++;
-        if (!(index in values)) values[index] = initial;
+        if (!(index in values)) values[index] = typeof initial === "function" ? initial() : initial;
         return [values[index], (next: any) => { values[index] = typeof next === "function" ? next(values[index]) : next; }];
       },
+      useRef(initial: any) { const index = cursor++; return values[index] ??= { current: initial }; },
+      useCallback: (fn: any) => fn,
       useMemo: (fn: () => any) => fn(),
       useEffect(fn: () => void, deps: any[]) {
         const index = effectCursor++;

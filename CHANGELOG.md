@@ -8,6 +8,336 @@ semántico cuando se publica una entrega.
 
 ## [Sin publicar]
 
+### ISS-25: referato y alcance de trabajos científicos
+
+- Reuniones y revistas permiten indicar referato Sí/No/Sin informar. Reuniones
+  incorpora alcance Nacional/Internacional; revistas reutiliza TipoRevista.
+  Ciudad/País reutiliza los campos actuales sin duplicar información.
+- Formularios, listados, detalles e historiales conservan false/null y envían
+  diferencias reales. Migración reversible, validación estricta y snapshots
+  inmutables, sin clasificar históricos automáticamente.
+- Exportación por grupo alineada con las secciones 7.1, 7.2 y 8.1 de la memoria,
+  reutilizando los clasificadores institucionales y conservando sin clasificar.
+- Aceptado visual y funcionalmente el 07/11/2026: 274 pruebas frontend,
+  43 backend, TypeScript y build de producción aprobados.
+
+### ISS-99: fixture de recuperacion administrativa por UCT
+
+- La prueba crea una pertenencia real y aplica el aislamiento ORM: ADMIN puede
+  solicitar el enlace para su UCT; usuarios ajenos conservan 404, GESTOR 403 y
+  peticiones sin autenticacion 401. Sin cambios en autenticacion productiva.
+- Aceptado el 07/11/2026. Regresion dirigida y suite completa Linux aprobadas.
+
+### ISS-99: correccion de pruebas y seed de Memoria
+
+- La seed de validacion asigna la UCT obligatoria a las distinciones y verifica
+  su pertenencia. Las pruebas Excel usan Fecha de presentacion y fechas nativas
+  con formato dd/mm/yyyy; la prueba CLI cierra SQLite antes de limpiar temporales.
+- Aceptado el 07/11/2026. Suite completa Linux: 777 pruebas, sin fallos,
+  con 40 omisiones por PostgreSQL dedicado. Sin cambios de API ni UI.
+
+### ISS-100: reapertura y descarga desde el listado de memorias
+
+- La fila principal permite reabrir memorias activas cerradas para ADMIN/GESTOR.
+- Cierre y reapertura explican la inmutabilidad de las versiones cerradas y la
+  creación de una nueva versión, con opciones Continuar y Volver.
+- El panel de versiones sustituye la reapertura por descarga Excel para cada
+  versión cerrada, incluidas las históricas, con progreso y bloqueo de duplicados.
+- Aceptado visual y funcionalmente el 07/11/2026: 271 pruebas frontend,
+  TypeScript, build y 38 pruebas backend de memorias y exportaciones aprobados.
+  Sin cambios de API.
+
+### ISS-97: estabilidad y recursos del entorno de desarrollo
+
+- Backend y Vite disponen de 2 CPU por defecto en el override de desarrollo;
+  Vite dispone de 1 GiB de memoria. Los límites son configurables por entorno.
+- Flask evita recargas por edición de pruebas, herramientas y migraciones,
+  conservando la recarga del código de aplicación.
+- Los errores históricos por columnas inexistentes se clasificaron y no se
+  reprodujeron en los endpoints vigentes. No se modificó el esquema de datos.
+- Aceptado por el usuario el 07/11/2026: 25 pruebas backend y 72 GET posteriores
+  aprobados. Las medianas HTTP locales mejoraron; no se midió el renderizado
+  del navegador. Interfaz y API disponibles para validación.
+
+### ISS-98: integridad y formato de la memoria Excel
+
+- La plantilla aporta estructura y presentación; el contenido proviene de los
+  snapshots y del contexto de la versión cerrada. Se retiran ejemplos y notas
+  heredadas y se señalan los datos institucionales ausentes.
+- Se corrigen bordes, filas de apoyo y tesinas, espaciado, textos extensos,
+  combinaciones, fechas nativas y formatos monetarios. Se separan libros y revistas
+  sin duplicaciones; los registros ambiguos quedan sin clasificar.
+- El archivo incorpora Detalle académico con los 16 conjuntos completos,
+  autoridades y vigencias, datos complementarios y movimientos financieros.
+  Los importes sin equivalencia ARS o clasificación contable se conservan con
+  advertencias y no se agregan silenciosamente al resumen.
+- Aceptado por el usuario el 07/11/2026. Pruebas de formato, autores, enlaces,
+  finanzas e inmutabilidad histórica aprobadas; conciliación de 245 registros,
+  ingresos ARS 9.600.000 y egresos ARS 2.400.000. Sin migraciones ni cambios HTTP.
+
+### ISS-47: filtros desplegables coherentes en los homes
+
+- Se unifican 18 homes con TableFilterSelect: estado, clase de Personal y
+  período de Informes. Se conservan opciones, consultas, permisos y paginación.
+- Todos/Todas elimina el criterio y la persistencia de ISS-50 se mantiene.
+  Catálogos conserva las opciones deshabilitadas cuando no informa estado.
+- Aceptado visual y funcionalmente el 06/11/2026; 269 pruebas frontend,
+  TypeScript y build de producción aprobados. Sin cambios de API.
+
+### ISS-45: retorno y breadcrumb de Catálogos
+
+- Volver restaura la pantalla desde la que se abrió Gestionar Catálogos,
+  con query, hash y contexto. Sin origen válido vuelve a Inicio.
+- El breadcrumb incorpora las pantallas de origen y permite regresar con
+  su contexto; reingresar o recargar Catálogos conserva el origen inicial.
+- Se mantienen filtros, borradores, roles y contratos HTTP. Aceptado visual
+  y funcionalmente el 06/11/2026: 264 pruebas frontend, TypeScript y build
+  aprobados; 19 pruebas enfocadas de navegación confirmadas antes del commit.
+
+### ISS-42: filas desplegables del menú
+
+- Texto, flecha y espacio libre de cada fila expanden o contraen el submenú,
+  tanto en escritorio como en móvil y en niveles anidados.
+- Un botón nativo expone el estado expandido y admite Enter y Espacio;
+  se conservan los enlaces directos, el foco y los permisos existentes.
+- Aceptado visual y funcionalmente el 06/11/2026. Validación integrada:
+  264 pruebas frontend, TypeScript y build aprobados. Sin cambios de API.
+
+### ISS-30: distinciones sin proyecto
+
+- Alta y edicion permiten omitir o quitar el proyecto, conservando la UCT propia,
+  el acceso al detalle, los permisos y la auditoria de asociaciones.
+- Migracion a6c8e0f2b4d6 agrega pertenencia UCT e indice y recupera registros
+  desvinculados desde su historial sin asignaciones arbitrarias.
+- Aceptado por el usuario el 06/11/2026: 252 pruebas frontend, tipos y build
+  correctos; 51 pruebas backend de Distinciones, auditoria y aislamiento aprobadas.
+- Textos extensos en tablas y descripciones usadas como titulos de detalle se
+  revisaran transversalmente en ISS-96.
+
+### ISS-53: usuario recordado y recuperacion de contrasena por correo
+
+- Login recuerda exclusivamente el nombre de usuario en el equipo despues de
+  autenticar; lo conserva al cerrar sesion y permite borrarlo al desmarcar la
+  opcion. No guarda passwords ni cambia la duracion de sesion.
+- Se incorporan solicitud publica, enlace de un solo uso, restablecimiento y
+  envio asistido por ADMIN al correo registrado. Confirmar revoca los refresh
+  anteriores y vuelve a login con mensaje de exito, sin autenticar automaticamente.
+- Backend normaliza correos y agrega solicitudes/outbox cifrada mediante la
+  migracion e5a7c9d1f3b6; worker SMTP con TLS, reintentos, mantenimiento y
+  healthcheck. Mailpit solo en desarrollo; produccion requiere configurar SMTP,
+  URL HTTPS y secretos independientes compartidos por API y worker.
+- Aceptado por el usuario el 06/11/2026. Validacion: 762 pruebas backend (36
+  omisiones por entorno), 31 enfocadas SQLite/PostgreSQL y dos adicionales de
+  rate limits/TLS; 257 frontend, typecheck y build correctos. Migracion reversible,
+  concurrencia y smoke con Mailpit comprobados; temporales de prueba eliminados.
+
+### ISS-50: recuperar filtros al reingresar
+
+- Los 18 homes con controles locales recuperan texto, filtros, pagina y orden
+  por usuario y contexto. Catalogos separa sus endpoints; Informes, sus tipos.
+- Se conserva el contexto de Memoria y se consultan resultados actuales.
+  El montaje, debounce y carga inicial no borran la pagina recuperada.
+- El reingreso de otra cuenta descarta el destino anterior; Busqueda conserva
+  la pagina de su URL al cargar UCT o renovar el token.
+- Aceptado por el usuario el 06/11/2026. Validacion: suite frontend completa,
+  46 pruebas backend de autenticacion, TypeScript y build de produccion
+  aprobados. Sin cambios de endpoints, permisos o migraciones.
+
+### Sesiones cortas para validación en desarrollo
+
+- `REFRESH_TOKEN_EXPIRATION_MINUTES` admite desde 2 minutos en entornos local,
+  development, docker y testing para comprobar avisos y vencimientos.
+- Producción, staging y demás entornos conservan el mínimo de 60 minutos;
+  no cambian el valor predeterminado, los endpoints ni la seguridad de cookies.
+- Aprobado el 05/11/2026. Validación del 06/11/2026: 20 pruebas backend de
+  configuración de seguridad y expiración de tokens correctas.
+
+### ISS-46: monto cero en Transferencias
+
+- Transferencias admite monto cero en alta y edición para convenios sin
+  inversión, conservando moneda ARS/USD, precarga, auditoría y snapshots.
+- El formulario distingue vacío de cero; frontend y API rechazan negativos
+  y valores no finitos, y la API rechaza también booleanos. Sin migraciones.
+- Aceptado el 05/11/2026; validación conjunta con Docencia y Equipamiento:
+  59 pruebas backend, 242 frontend, TypeScript y build aprobados.
+
+### ISS-46: monto cero en Equipamiento
+
+- Equipamiento admite monto invertido cero en alta y edición, conservando ARS
+  o USD, precarga, borradores, auditoría y fotos de memorias. Se siguen
+  rechazando vacíos, negativos, booleanos y números no finitos en la API.
+- Movimientos conserva sus reglas de monto positivo. Sin migración de montos.
+- Aceptado el 05/11/2026; validación conjunta con Docencia y Transferencias:
+  59 pruebas backend, 242 frontend, TypeScript y build aprobados.
+
+### ISS-44: actividades de docencia en curso
+
+- Docencia admite fecha de fin vacía en alta y edición; listado y detalle
+  muestran `En curso`. Los períodos finalizados conservan sus fechas y se
+  rechazan finales anteriores al inicio.
+- La entidad y sus snapshots admiten fin nulo mediante la migración
+  `c3e5a7b9d1f2`. No se inventan fechas ni se modifican fotos anteriores;
+  el downgrade se bloquea si existen actividades o versiones sin fin.
+- Se conservan permisos, historial, filtros y navegación. Aceptado el
+  05/11/2026; validación conjunta con ISS-46: 59 pruebas backend, 242 frontend,
+  TypeScript y build de producción aprobados.
+
+### ISS-43: funciones compatibles con la clase Personal
+
+- El selector de Personal excluye funciones de Docente, Investigador y Becario
+  según la compatibilidad informada por el backend. Las funciones de apoyo y
+  las opciones propias del catálogo siguen disponibles.
+- La API aplica la misma regla en altas, ediciones y reclasificaciones. Los
+  registros heredados incompatibles requieren elegir una función válida al
+  guardar; no se corrigen datos ni fotos históricas automáticamente.
+- El catálogo impide renombrar una función asignada a Personal con una
+  denominación incompatible. Se conservan permisos, auditoría y navegación.
+- Aceptación del usuario: 05/11/2026. Validación técnica: 42 pruebas backend,
+  242 frontend, TypeScript y build de producción aprobados. Sin migraciones.
+
+### ISS-41: resumen legible del historial de becas
+
+- El detalle y el listado de Personal interpretan eventos de becas actuales,
+  texto JSON simple/doble, detalles serializados y colecciones históricas.
+- Presentan fechas y montos legibles, incluido cero; muestran valores anteriores
+  y nuevos cuando están disponibles. Los formatos inesperados reciben un resumen
+  seguro sin imprimir JSON crudo ni estructuras internas.
+- Se conserva la auditoría original, los contratos HTTP, permisos y paginación
+  del historial de tres elementos. No se requieren migraciones.
+- Aceptación del usuario: 05/11/2026. Validación técnica: 239 pruebas frontend,
+  12 backend, TypeScript y build de producción aprobados.
+
+### ISS-40: becas precargadas y detalle del becario
+
+- El detalle backend del becario devuelve sus asignaciones de beca con fechas
+  y monto, excluyendo bajas lógicas y conservando períodos vencidos vinculados.
+  El formulario precarga las relaciones y mantiene el envío de diferencias.
+- El detalle separa datos personales y becas en tarjetas responsive de alturas
+  independientes; cada asignación muestra estado, período, monto en pesos y
+  acceso al detalle. Historial y auditoría ocupan el ancho completo.
+- Volver y el breadcrumb restauran el becario y su contexto al abrir una beca,
+  incluso después de editarla. El acceso directo conserva el retorno a Becas.
+- El historial global incorpora History en todos sus consumidores. La auditoría
+  de Personal incorpora ShieldCheck; las auditorías de otros módulos mantienen
+  su composición actual.
+- Aceptación del usuario y solicitud de commits: 05/11/2026. Validación técnica:
+  27 pruebas backend, 234 frontend, TypeScript y build de producción aprobados.
+
+### ISS-33: validacion preventiva en formularios
+
+- Personal valida nombres, DNI, CUIL y horas durante la interaccion y muestra
+  todos los errores al guardar; revalida la coincidencia DNI/CUIL y el limite
+  conjunto de nombres cuando cambian sus dependencias.
+- Produccion incorpora el mismo criterio en sus siete formularios y en el alta
+  inline de autores; Proyectos y Participaciones revalidan codigo, datos,
+  periodos, relaciones y coordinador, y la prorroga valida su justificacion.
+- Becas, Equipamiento y Movimientos validan sus campos antes del envio; el
+  error local de cotizacion faltante se retira cuando llega la respuesta valida.
+- UCT, directivos y Visitas validan sus campos durante la carga; Memorias e
+  Informes revalidan periodos, contenido y selecciones vinculadas.
+- Transferencias, adoptantes y Catalogos muestran errores preventivos de nombre,
+  formato y demas reglas vigentes. Las relaciones siguen guardandose juntas.
+- Acceso, registro, contrasenas, perfil y Usuarios muestran feedback por campo;
+  cambiar una clave revalida su confirmacion y se conserva la proteccion de roles.
+- Una utilidad pura compartida conserva errores ajenos y actualiza dependencias
+  sin escrituras de dominio. Se mantienen contratos y validaciones backend,
+  permisos, borradores, navegacion, auditoria y mensajes de exito.
+- Aceptacion visual y funcional del usuario: 05/11/2026. Validacion tecnica:
+  226 pruebas frontend, 163 backend de la extension y 62 previas de Personal,
+  TypeScript y build de produccion aprobados.
+
+
+### Moneda original en Equipamiento y Transferencias
+
+- Alta y edición permiten guardar el importe original en ARS o USD, sin
+  conversión, con código de moneda en listado y detalle y filtro por moneda.
+- Los registros existentes y sus versiones se identifican como ARS conservando
+  sus importes. Las nuevas versiones de Memorias capturan la moneda; Excel la
+  muestra y los totales de transferencias se separan por moneda.
+- La moneda se audita. Equipos vinculados a movimientos conservan su moneda;
+  el vínculo automático sigue limitado a ARS, con validación y bloqueo de fila.
+- ISS-46 amplía la validación a monto no negativo en ambos módulos.
+
+### Horas de auditoría e historial en formato de 24 horas
+
+- Las marcas de tiempo del formateador compartido se muestran en horario
+  argentino, con segundos y sin ambigüedad entre mañana y tarde, aunque el
+  equipo utilice otra zona horaria. Medianoche se presenta como 00:00:00.
+- Se conservan los instantes almacenados, el contrato UTC heredado y las fechas
+  civiles. La corrección alcanza Auditoría, Historial y fechas de versiones de
+  Memorias que ya consumen el formateador.
+
+### Tipos de personal sin opciones duplicadas
+
+- Depuración auditada de opciones agregadas, conservando Técnico, Administrativo,
+  De Apoyo y Profesional como opciones activas de la configuración revisada.
+- Se preservan registros, asignaciones y fotos históricas. La edición informa
+  cuando el tipo anterior está retirado y permite elegir uno vigente.
+- Altas y ediciones de catálogo rechazan duplicados por tildes, mayúsculas,
+  espacios y puntuación. Las cargas de prueba evitan recrear variantes agregadas.
+
+### Etiquetas de catálogos y ortografía de la interfaz
+
+- Denominaciones consistentes en formularios, selectores, detalles, historiales,
+  gráficos y encabezados de memorias para Personal, Docencia y Propiedad.
+- Corregidas tildes y signos de apertura en etiquetas, ayudas, confirmaciones y
+  mensajes de Inicio, Catálogos, Usuarios, Visitas, Personal, Producción,
+  Proyectos, Memorias y Búsqueda, conservando los contratos y permisos.
+
+### Corrección de clase por alta errónea y consulta histórica de Personal
+
+- Edición permite corregir Personal, Becario o Investigador con validaciones de
+  destino, confirmación, borradores independientes y retorno al detalle efectivo.
+- Se conservan identidad, DNI/CUIL, datos comunes, horas y auditoría en una
+  transacción. Los vínculos con becas, proyectos, autorías y antecedentes,
+  incluidos los dados de baja, mantienen el bloqueo y se preservan.
+- El alcance es corregir un alta errónea advertida en el momento. Las
+  transiciones de carrera o categoría posteriores quedan sin definir; no se
+  establece un plazo automático para habilitar la corrección.
+- Las fotos de Personal en memorias se vinculan a la identidad estable y
+  conservan su contenido y Excel. Las secciones de versión muestran sus datos
+  históricos; la próxima versión cerrada captura la clase corregida.
+
+### ISS-34, ISS-35, ISS-36: nombres, fechas e historial de Personal
+
+- Personal, Becario e Investigador requieren Nombre y Apellido independientes
+  en sus formularios y altas API; la edición precarga ambos y conserva el envío
+  de diferencias. Memorias nuevas y Excel componen `Nombre, APELLIDO`.
+- Migración controlada de 112 registros ficticios, con nombres de personas,
+  preservación de IDs y relaciones y auditoría de valores originales. El plan
+  rechaza correspondencias desconocidas antes de escribir; no modifica versiones
+  congeladas de memoria ni revierte automáticamente la normalización de datos.
+- Fecha de alta entre 01/01/2010 y hoy inclusive, validada en frontend y backend.
+- Historial de home y detalle con etiquetas de catálogo anteriores/nuevas,
+  soporte de catálogos inactivos y referencias ausentes, conservando tres eventos
+  por página. El detalle evita cinco consultas auxiliares a catálogos.
+- 75 pruebas backend, 208 frontend, TypeScript y build de producción aprobados;
+  aceptación visual y funcional y solicitud de commit el 04/11/2026.
+
+### ISS-39: reactivacion de personal e identidad conservada
+
+- Personal, Becario e Investigador pueden reactivarse desde Inactivos con
+  confirmacion y permisos ADMIN/GESTOR, conservando identidad y relaciones.
+- La baja admite motivo opcional y registra estado/motivo en el historial;
+  la reactivacion registra auditoria y reabre el periodo de horas.
+- Un DNI inactivo duplicado orienta hacia su reactivacion; el activo sigue
+  rechazandose. Corregidos el bloqueo PostgreSQL sobre relaciones opcionales
+  y la codificacion de los mensajes de confirmacion y exito.
+- 39 pruebas de Personal correctas, validacion PostgreSQL con rollback,
+  TypeScript y build correctos; aceptacion funcional el 04/11/2026.
+
+
+### ISS-52: conservar acceso a Memorias para ADMIN
+
+- El menú ADMIN muestra Inicio, Administración, Memorias y Búsqueda en
+  escritorio y móvil, independientemente del estado del período.
+- Se mantiene el acceso al listado, alta y reapertura existentes al cerrar
+  la única memoria. Los demás módulos y permisos conservan su comportamiento.
+- Regresión automatizada del Sidebar para ADMIN, GESTOR y LECTURA, con
+  destinos exactos de ADMIN y sin consultas al estado de las memorias.
+- Aceptación funcional del usuario recibida el 04/11/2026 y alcance limitado
+  expresamente a navegación. Sin cambios de contratos o lógica backend.
+
 ### ISS-94: rendimiento de listados y cierre de memorias
 
 - Docencia, Transferencias y Biblioteca recuperan nueve filas por pagina

@@ -1,5 +1,158 @@
 # Modulo frontend de personal
 
+## Filtros desplegables (ISS-47)
+
+PersonalHome: clase y estado.
+Los filtros del listado utilizan `TableFilterSelect`, con nombre accesible y
+selección mediante teclado. Todos/Todas elimina la restricción del criterio.
+La adaptación del selector conserva valores, setters y opciones de consulta;
+se mantienen services, permisos, nueve filas por página, contexto de Memoria
+y persistencia de filtros de ISS-50. No se modifican campos de formularios.
+
+Aceptado visual y funcionalmente el 06/11/2026. Validación integrada:
+269 pruebas frontend, TypeScript y build de producción aprobados.
+`tests/homeFilterSelect.test.ts` comprueba selección y limpieza en las cuatro
+pantallas principales y ausencia de chips de filtrado en los homes.
+
+## Resumen seguro del historial de becas (ISS-41)
+
+`utils/personalHistory.ts:formatPersonalHistoryEntry` resume los eventos del
+campo `becas` tanto en `PersonalDetalle` como en el historial de `PersonalHome`.
+Reconoce vinculación, actualización y desvinculación con `accion`/`detalle`,
+incluidos valores almacenados como texto JSON con hasta dos niveles de
+serialización y detalles serializados. También resume objetos y colecciones
+históricas; muestra valores anteriores y nuevos cuando ambos están disponibles.
+
+La presentación solo usa nombre o referencia de beca, fechas civiles válidas y
+monto numérico en ARS. Conserva el cero y distingue monto nulo y fin abierto.
+Una entrada inesperada muestra `Se registró un cambio en las becas asignadas.`
+en lugar de JSON, valores arbitrarios o `[object Object]`. El parser no modifica
+los registros ni completa datos ausentes con valores actuales.
+
+Se mantienen tarjeta compartida, fechas y usuarios del historial, permisos,
+navegación y paginación de tres elementos. No cambian services, hooks, contratos
+HTTP ni validaciones del formulario. `tests/personalHistory.test.ts` cubre
+formatos actuales e históricos, datos inesperados y la tarjeta real mediante
+SSR con ambas páginas de resultados. Aceptación del usuario: 05/11/2026.
+Validación: 239 pruebas frontend, 12 backend, TypeScript y build aprobados.
+
+## Becarios: detalle y precarga de becas (ISS-40)
+
+`PersonalDetalle` conserva encabezado, permisos, navegación y contexto de memoria.
+Para becarios, `components/BecarioDatosSection.tsx` presenta dos tarjetas con
+alturas independientes: datos personales y becas asignadas. La grilla usa una
+columna flexible y otra de 330 px, con separación de 24 px; una consulta de
+contenedor las apila cuando el ancho disponible es menor a 1000 px. Los campos
+usan dos columnas desde 480 px disponibles y una en espacios menores.
+
+Los datos muestran nombre, apellido, DNI, CUIL, alta y tipo de formación. Las
+horas se separan mediante un borde y conservan el desplegable de su historial.
+Las asignaciones muestran nombre, período, estado, monto percibido y enlace
+`/becas/<id>`, sin descripción extensa. El monto usa formato monetario ARS,
+conserva el cero e informa `Sin registrar` si es nulo o está ausente.
+El estado usa fechas civiles locales: próxima antes del
+inicio, activa desde el inicio hasta el fin inclusive, finalizada después del
+fin; sin fecha de fin continúa activa. Un inicio ausente se informa sin asumir
+vigencia. El estado vacío conserva la tarjeta y el texto
+`Este becario no tiene becas asignadas`.
+
+El enlace a la beca transporta `becarioReturnTo` con el detalle de origen,
+query, hash y contexto de navegación, sin repetir mensajes de éxito anteriores.
+Volver desde la beca restaura ese detalle y su contexto de memoria o búsqueda.
+El retorno también se conserva al editar la beca, cancelar, guardar sin cambios
+o limpiar el mensaje de éxito. El acceso directo a una beca vuelve a `/becas`.
+El breadcrumb compartido usa ese origen para mostrar
+`Inicio > Personal > Becario > Beca` y agrega `Editar` cuando corresponde;
+sus enlaces restauran el estado de cada destino.
+
+Historial y auditoría quedan fuera de la grilla y ocupan todo el ancho, en ese
+orden, seguidos de Volver. Se conserva el formato de ambas tarjetas y el
+historial compartido sigue siendo desplegable y pagina tres elementos. El icono
+History se agrega al componente global `HistorialCambiosCard`, autorizado por
+el usuario para sus consumidores. Auditoría se compone en `PersonalDetalle` y
+agrega ShieldCheck para las clases de Personal; no existe una tarjeta global de
+auditoría. User, GraduationCap y CalendarDays completan la sección del becario.
+Todos los iconos son decorativos y usan `aria-hidden="true"`.
+
+El detalle consume `GET /personal/becario/<id>`, incluida su colección `becas`.
+`PersonalCompleto.tipo_formacion` tipa el nombre que devuelve el backend y sirve
+de respaldo cuando no hay un catálogo anidado en `relaciones`. La misma colección
+precarga el formulario existente; el guardado sigue enviando solo diferencias,
+sin PUT si no hubo cambios ni escrituras de relaciones al editar filas locales.
+Editar requiere registro activo y `canEditRecords()`. La carga conserva el
+skeleton; errores de consulta e historial tienen aviso accesible y reintento.
+
+Validación técnica: `becarioDetalle.test.ts` comprueba contenido, estados,
+vacío, enlaces, orden, permisos, carga, error y paginación con SSR y mocks de
+consultas. `becarioEdicionBecas.test.ts` cubre hidratación y diferencias del
+formulario real. El usuario aprobó el aspecto y, tras los ajustes de retorno,
+monto y breadcrumb, solicitó ejecutar los commits de la etapa el 05/11/2026.
+Validación final: 234 pruebas frontend, TypeScript y build de producción
+aprobados; 27 pruebas backend del flujo aprobadas. La tarea ISS-40 queda cerrada.
+
+## Validacion preventiva de formularios (ISS-33)
+
+`FormPTAAProfesional`, `FormBecario` y `FormInvestigador` validan Nombre,
+Apellido, DNI, CUIL y horas al escribir y al salir del campo. Nombre y apellido
+admiten 60 caracteres cada uno y 120 en conjunto; DNI admite 7 u 8 digitos y
+CUIL exige formato, coincidencia con DNI y digito verificador. Horas exige
+enteros entre 1 y 168. Cambiar Nombre revalida el limite conjunto y cambiar DNI
+revalida CUIL. `updatePersonalErrors` conserva los errores ajenos al cambio.
+El submit muestra conjuntamente todos los errores vigentes y enfoca el primero.
+`tests/personalGuardarFeedback.test.ts` cubre los tres formularios reales.
+
+Se conservan API, permisos, borradores y navegacion. Etapa aceptada por el usuario
+el 05/11/2026; las comprobaciones no disparan escrituras de dominio.
+
+## Nombre, apellido, fechas e historial (ISS-34, ISS-35, ISS-36)
+
+Los formularios de Personal, Becario e Investigador muestran exclusivamente
+`Nombre` y `Apellido`, ambos obligatorios, mediante el componente del módulo
+`NombrePersonalFields`. Cada campo admite letras Unicode y espacios, hasta
+60 caracteres, con 120 en conjunto incluido el separador. No existe una variante
+de formulario para nombres históricos: el dataset ficticio de desarrollo fue
+normalizado mediante una migración controlada y auditada de 112 registros.
+
+`personalServices`, `becarioServices` e `investigadorServices` incluyen los dos
+campos en sus contratos; `personalCompletoServices` los recibe para precargar la
+edición. Los borradores guardan ambos por separado. La edición envía únicamente
+diferencias y omite el PUT si no hubo cambios; alta vuelve al home y edición al
+detalle con `successMessage`. Los errores de API de nombre y apellido se asocian
+a los controles visibles mediante el manejo existente y `personalFieldErrors`.
+
+`utils/personalValidation.ts` reúne las validaciones de nombre y fecha de alta.
+La fecha admite desde 01/01/2010 hasta hoy inclusive: Calendar recibe `maxDate`
+y el envío vuelve a comprobar el rango. La API aplica el mismo límite.
+
+`PersonalHome` y `PersonalDetalle` usan `formatPersonalHistoryEntry`, que muestra
+las etiquetas de catálogo resueltas por el backend para el valor anterior y el
+nuevo. Las referencias ausentes muestran `Referencia no disponible`; el detalle
+ya no necesita cinco consultas auxiliares a catálogos para presentar el historial.
+Se conservan nueve registros por home, tres eventos por página de historial,
+los hooks existentes, permisos y feedback de guardado.
+
+Verificación: 208 pruebas frontend, TypeScript y build de producción aprobados.
+La suite de guardado ejercita los tres formularios; `personalNombresFechas.test.ts`
+verifica nombres compuestos, campos obligatorios, límites de fecha y etiquetas.
+Aceptación visual y funcional del usuario el 04/11/2026.
+
+## Baja y reactivacion (ISS-39)
+
+`PersonalHome` permite localizar registros mediante Inactivos o Todos y muestra
+Reactivar solo para integrantes inactivos y usuarios con permiso de edicion.
+La confirmacion conserva identidad y relaciones; `reactivarPersonal` consume
+`PUT /personal/:rol/:id/restore`. El exito actualiza listado, detalle e historial
+y muestra el aviso correspondiente. Los errores permanecen visibles en el dialogo.
+
+La confirmacion de baja ofrece un motivo opcional con etiqueta, placeholder y
+limite de 500 caracteres. `eliminarPersonal` envia el motivo junto al DELETE;
+el historial existente muestra el motivo y los cambios de estado, con tres
+eventos por pagina. Los filtros y el home mantienen nueve registros por pagina.
+El error de DNI inactivo en alta orienta hacia Personal > Inactivos.
+
+Validacion: TypeScript y build de produccion correctos; usuario confirma motivo
+en historial y reactivacion visible en Activos el 04/11/2026.
+
 ## Error de becas en Becario (ISS-74)
 
 La casilla «Vincular beca existente» referencia el error global de becas mientras está
@@ -59,8 +212,8 @@ becas se formatean como informacion legible y no exponen el JSON de auditoria.
 
 `Agregar nuevo` navega a `/personal/nuevo` y conserva la clase seleccionada en
 la URL. El alta permite elegir Personal, Becario o Investigador mediante opciones
-visibles. En edicion la clase es informativa e inmutable. El catalogo antes
-rotulado `Tipo de personal` se presenta como `Funcion del personal`.
+visibles. En edición puede corregirse la clase de un alta errónea, según las
+reglas de reclasificación. El catálogo se presenta como `Tipo de Personal`.
 
 Categoria UTN y Programa de Incentivos son opcionales para investigadores. Los
 selectores ofrecen valores explicitos sin relacion y el payload envia `null`
@@ -99,7 +252,7 @@ y enfocan el primer campo inválido. Los nombres locales de los controles se
 vinculan con las claves API, sin cambiar el payload del service ni los permisos.
 Los errores sin campo o con campos desconocidos conservan el aviso general;
 los errores inesperados muestran un mensaje publico seguro o un fallback accionable, sin identificadores internos.
-Se conservan las reglas y el momento de validación existentes. Véase el contrato
+Se conservan las reglas de validacion; ISS-33 incorpora feedback preventivo. Véase el contrato
 transversal en `../README.md`.
 
 ISS-19: los errores de nombre, fecha de alta y catálogos del backend se asocian a los controles existentes mediante `applyFieldErrors`. Los formularios conservan el borrador y el aviso general cuando la respuesta no identifica un campo visible.
@@ -109,8 +262,8 @@ ISS-19: los errores de nombre, fecha de alta y catálogos del backend se asocian
 Seguimiento ISS-08: ingresar 2008 en una fecha de alta no cambia el valor
 confirmado; Calendar explica el límite 01/01/2010 junto al campo y lo resalta.
 
-Las altas al grupo y los períodos de sus relaciones admiten fechas desde el
-01/01/2010. Esta regla describe actividad institucional y no debe extenderse a
+Las altas al grupo admiten fechas desde el 01/01/2010 hasta hoy; los períodos
+de sus relaciones conservan sus reglas propias. Esta regla describe actividad institucional y no debe extenderse a
 fechas biográficas o de identidad.
 
 ## Vistas
@@ -284,3 +437,81 @@ combinada del servidor de nueve filas, sus filtros, permisos e historial.
 
 La validacion de la etapa incluyo 648 pruebas backend, 197 frontend,
 TypeScript y build de produccion, con aceptacion funcional del usuario.
+
+## Corrección de clase por alta errónea
+
+El selector de clase está disponible en edición para corregir una clase
+seleccionada por error al dar de alta al integrante. Este flujo no define el
+paso posterior de Becario a Investigador u otra categoría durante su trayectoria.
+No se implementa un plazo automático: la finalidad aprobada es corregir el alta,
+y la API determina si las dependencias permiten hacerlo.
+
+`PersonalForm` confirma el cambio de clase, descarta cambios sin guardar y
+precarga los campos comunes del registro guardado. Los formularios
+`FormPTAAProfesional`, `FormBecario` y `FormInvestigador` solicitan los campos del
+destino y conservan sus validaciones. El cambio se persiste al pulsar Actualizar,
+mediante `services/reclasificacionService.ts`, con `clase_destino` y diferencias
+reales. No se usa el endpoint de alta ni se crean duplicados inactivos.
+
+El service tipa la clase y el callback de reclasificación. Los formularios
+reutilizan sus hooks existentes y borradores por combinación origen/destino,
+sin compartirlos con altas o con otro integrante de igual ID numérico. Durante
+el guardado se bloquea el selector. El éxito limpia el borrador, invalida las
+consultas relacionadas y navega al detalle del `rol`/`id` devuelto con
+`successMessage`. Los errores de API permanecen visibles y conservan el formulario.
+
+Los permisos siguen siendo ADMIN/GESTOR y requieren un integrante activo y UCT
+válida. Becas, proyectos, autorías y antecedentes existentes, incluso históricos
+o con baja lógica, pueden impedir la corrección. No deben eliminarse para forzar
+el cambio. Las versiones anteriores de memoria conservan sus fotos; las nuevas
+toman la clase corregida al cerrarse. El contrato histórico se documenta también
+en el módulo Memorias.
+
+`personalGuardarFeedback.test.ts` cubre guardado, navegación y errores;
+`personalSnapshot.test.ts` cubre consulta histórica.
+
+## Nombres de catálogos y opciones vigentes
+
+Los formularios, detalles e historiales usan Tipo de Personal, Nivel de Formación,
+Tipo de Dedicación, Categoría UTN y Programa de Incentivos, en correspondencia
+con Gestionar Catálogos. Los selectores y las validaciones usan esos mismos
+conceptos. Las claves API y los IDs de los campos permanecen iguales.
+
+Tipo de Personal consume las opciones activas del servidor sin IDs ni listas
+fijas en el formulario. La configuración depurada conserva Técnico,
+Administrativo, De Apoyo y Profesional. Si una ficha existente referencia una
+opción retirada, conserva su valor como no disponible e informa que debe elegir
+uno vigente para guardar. No se reasigna automáticamente su categoría.
+
+## Funciones compatibles con la clase Personal (ISS-43)
+
+`GET /api/v1/tipo-personal/` informa `compatible_con_personal` para cada opción.
+`tiposServices.ts` tipa esa metadata y `FormPTAAProfesional` excluye las opciones
+marcadas como incompatibles tanto del selector como de la validación al guardar.
+La decisión pertenece al backend; el formulario no replica nombres ni IDs de
+clases reservadas. Se conservan las funciones de apoyo y las opciones propias
+del catálogo, como Especialista de laboratorio.
+
+El flujo mantiene `useTiposPersonal`, carga, error con reintento y estado vacío.
+Una asignación heredada incompatible aparece como no disponible y requiere
+seleccionar una función vigente. Un borrador con un ID incompatible no puede
+guardarse. Al cambiar de clase, `PersonalForm` reinicia los campos exclusivos
+y usa el formulario del destino; la reclasificación a Personal aplica el mismo
+selector y las mismas validaciones que su alta y edición.
+
+Los permisos ADMIN/GESTOR, el envío de diferencias y la navegación de éxito no
+cambian. Los rechazos de API se asocian a `tipo_personal_id` y se muestran junto
+al selector. `tests/personalCatalogForm.test.ts` verifica el formulario real,
+el filtrado, las funciones personalizadas y el bloqueo de un ID incompatible.
+Aceptación funcional del usuario: 05/11/2026.
+
+
+## Recuperacion del contexto de consulta (ISS-50)
+
+PersonalHome conserva texto, clase, estado, orden y pagina. La URL con tipo mantiene un ambito propio. El texto aplicado se inicializa con el recuperado para evitar que el debounce borre la pagina.
+
+Los homes con estado local usan `shared/hooks/useHomeState.ts`; Busqueda conserva
+su contrato de URL. La persistencia validada se limita a la pestana y al usuario,
+sin guardar filas ni acciones pendientes. Se mantienen services, permisos,
+validaciones y paginacion vigentes. Contrato y pruebas en `../shared/README.md`.
+Aceptado funcionalmente por el usuario el 06/11/2026.

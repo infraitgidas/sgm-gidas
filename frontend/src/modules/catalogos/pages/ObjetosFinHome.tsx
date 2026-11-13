@@ -182,8 +182,8 @@ export default function ObjetosLanding() {
 
       <ConfirmDialog
         open={showConfirm}
-        title="Eliminar items"
-        message="Estas seguro de eliminar los siguientes elementos?"
+        title="Eliminar ítems"
+        message="¿Estás seguro de eliminar los siguientes elementos?"
         items={confirmItemsText}
         onCancel={cancelSelection}
         onConfirm={confirmDelete}

@@ -19,6 +19,8 @@ import {
 } from "@/modules/memorias/services/memoriasService";
 import { formatFecha, formatFechaHora } from "@/utils/dateTime";
 
+import { CERRAR_MEMORIA_MESSAGE, REABRIR_MEMORIA_MESSAGE } from "@/modules/memorias/utils/confirmacionesMemoria";
+
 export default function MemoriaDetalle() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -361,8 +363,8 @@ export default function MemoriaDetalle() {
 
       <ConfirmDialog
         open={!!estadoPendiente}
-        title="Cambiar estado de memoria"
-        message={`Cambiar la memoria al estado "${estadoPendiente || ""}"?`}
+        title={estadoPendiente === "cerrada" ? "Cerrar memoria" : "Cambiar estado de memoria"}
+        message={estadoPendiente === "cerrada" ? CERRAR_MEMORIA_MESSAGE : `Cambiar la memoria al estado "${estadoPendiente || ""}"?`}
         items={[`Versión actual: ${versionActual.numero_version}`]}
         onCancel={() => setEstadoPendiente(null)}
         onConfirm={() =>
@@ -370,18 +372,20 @@ export default function MemoriaDetalle() {
             ? actualizarEstado(estadoPendiente)
             : Promise.resolve(undefined)
         }
-        confirmText={isChangingState ? "Actualizando..." : "Confirmar"}
+        confirmText={isChangingState ? "Actualizando..." : estadoPendiente === "cerrada" ? "Continuar" : "Confirmar"}
+        cancelText={estadoPendiente === "cerrada" ? "Volver" : "Cancelar"}
        loadingText="Actualizando..."
      />
 
       <ConfirmDialog
         open={showReopenConfirm}
         title="Reabrir memoria"
-        message="Se creará una nueva versión abierta a partir de la actual. ¿Desea continuar?"
+        message={REABRIR_MEMORIA_MESSAGE}
         items={[`Memoria ${memoria.id}`]}
         onCancel={() => setShowReopenConfirm(false)}
         onConfirm={() => reabrir()}
-        confirmText={isReopening ? "Reabriendo..." : "Confirmar"}
+        confirmText={isReopening ? "Reabriendo..." : "Continuar"}
+        cancelText="Volver"
        loadingText="Reabriendo..."
      />
 

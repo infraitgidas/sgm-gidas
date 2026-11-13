@@ -1,3 +1,5 @@
+import { referatoLabel, alcanceLabel } from "@/modules/produccion/utils/clasificacionTrabajo";
+import { useHomeState, useHomeFilterEffect } from "@/modules/shared/hooks/useHomeState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,7 +12,6 @@ import SuccessToast from "@/components/SuccessToast";
 import Table, {
   TableActionButton,
   TableActions,
-  TableFilterChip,
   TableRowActionButton,
   TableSearch,
   TableToolbar,
@@ -58,11 +59,11 @@ export default function TrabajosReunionLanding() {
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [pendingDelete, setPendingDelete] = useState<TrabajoReunion | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useHomeState("searchQuery", "");
+  const [page, setPage] = useHomeState("page", 1);
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useHomeState("filters", {
     estado: "",
     tipo: "",
     procedencia: "",
@@ -112,7 +113,7 @@ export default function TrabajosReunionLanding() {
     return scopedList.filter((trabajo) => {
       const tipo = formatTrabajoReunionContractValue(trabajo.tipo_reunion);
       const procedencia = formatTrabajoReunionContractValue(trabajo.procedencia);
-      const searchable = [trabajo.titulo_trabajo, trabajo.nombre_reunion, procedencia, tipo, ...trabajo.autores.map(autorEtiqueta)];
+      const searchable = [referatoLabel(trabajo.referato), alcanceLabel(trabajo.alcance), trabajo.titulo_trabajo, trabajo.nombre_reunion, procedencia, tipo, ...trabajo.autores.map(autorEtiqueta)];
       const matchesSearch = !query || searchable.some((value) => value.toLocaleLowerCase("es").includes(query));
       const matchesTipo = !filters.tipo || String(trabajo.tipo_reunion?.id ?? "") === filters.tipo;
       const matchesProcedencia = !filters.procedencia || toTitleCase(procedencia) === filters.procedencia;
@@ -136,14 +137,14 @@ export default function TrabajosReunionLanding() {
   });
   const tipoNames = useMemo(() => Object.fromEntries(tipos.map((tipo) => [tipo.id, tipo.nombre])), [tipos]);
 
-  useEffect(() => {
+  useHomeFilterEffect(() => {
     setPage(1);
     setExpandedRow(null);
   }, [filters, searchQuery]);
 
   useEffect(() => {
-    if (page > Math.max(totalPages, 1)) setPage(Math.max(totalPages, 1));
-  }, [page, totalPages]);
+    if (!trabajos.isLoading && !trabajos.isError && page > Math.max(totalPages, 1)) setPage(Math.max(totalPages, 1));
+  }, [page, totalPages, trabajos.isLoading, trabajos.isError]);
 
   useEffect(() => {
     if (!location.state?.successMessage) return;
@@ -195,6 +196,8 @@ export default function TrabajosReunionLanding() {
   const columns: TableColumn<TrabajoReunion>[] = [
     { id: "titulo", header: "Trabajo", render: (trabajo) => <div><span className="block font-medium text-slate-900">{formatTrabajoReunionContractValue(trabajo.titulo_trabajo) || "—"}</span><span className="mt-0.5 block text-xs text-slate-500">{trabajo.autores.length ? trabajo.autores.map(autorEtiqueta).join(", ") : "Sin autores informados"}</span></div> },
     { id: "reunion", header: "Reunión", priority: "secondary", render: (trabajo) => <div><span className="block text-slate-800">{toTitleCase(formatTrabajoReunionContractValue(trabajo.nombre_reunion)) || "—"}</span><span className="mt-0.5 block text-xs text-slate-500">{toTitleCase(formatTrabajoReunionContractValue(trabajo.procedencia)) || "Sin procedencia"}</span></div> },
+    { id: "referato", header: "Referato", priority: "tertiary", render: (trabajo) => referatoLabel(trabajo.referato) },
+    { id: "alcance", header: "Alcance", priority: "secondary", render: (trabajo) => alcanceLabel(trabajo.alcance) },
     { id: "tipo", header: "Tipo", priority: "tertiary", render: (trabajo) => toTitleCase(formatTrabajoReunionContractValue(trabajo.tipo_reunion)) || "—" },
     { id: "fecha", header: "Fecha de presentación", priority: "tertiary", render: (trabajo) => formatFecha(trabajo.fecha_presentacion) },
     { id: "estado", header: "Estado", render: (trabajo) => { const activo = !trabajo.deleted_at && trabajo.activo !== false; return <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${activo ? "text-emerald-700" : "text-rose-700"}`}><span aria-hidden="true" className={`h-2 w-2 rounded-full ${activo ? "bg-emerald-500" : "bg-rose-500"}`} />{activo ? "Activo" : "Inactivo"}</span>; } },
@@ -233,7 +236,13 @@ export default function TrabajosReunionLanding() {
           totalPages={totalPages}
           totalRecords={filteredList.length}
           onPageChange={(nextPage) => { setExpandedRow(null); setPage(nextPage); }}
-          toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center"><TableSearch label="Buscar trabajos en reuniones" placeholder="Buscar por trabajo, reunión o autor" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} /><div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de trabajos en reuniones"><span className="shrink-0 text-xs font-medium text-slate-500">Estado</span><TableFilterChip className="shrink-0" active={quickEstadoActual === "activos"} onClick={() => setFilter("estado", "")}>Activos</TableFilterChip><TableFilterChip className="shrink-0" active={quickEstadoActual === "todos"} onClick={() => setFilter("estado", "todos")}>Todos</TableFilterChip><TableFilterChip className="shrink-0" active={quickEstadoActual === "inactivos"} onClick={() => setFilter("estado", "inactivos")}>Inactivos</TableFilterChip><TableFilterSelect label="Filtrar por tipo de reunión" placeholder="Todos los tipos" value={filters.tipo || undefined} onValueChange={(value) => setFilter("tipo", value)} options={tipos.map((tipo) => ({ value: String(tipo.id), label: toTitleCase(tipo.nombre) }))} /><TableFilterSelect label="Filtrar por procedencia" placeholder="Todas las procedencias" value={filters.procedencia || undefined} onValueChange={(value) => setFilter("procedencia", value)} options={filterOptions.procedencias} /><TableFilterSelect label="Filtrar por autor" placeholder="Todos los autores" value={filters.autor || undefined} onValueChange={(value) => setFilter("autor", value)} options={filterOptions.autores} /><TableFilterSelect label="Filtrar por año" placeholder="Todos los años" value={filters.anio || undefined} onValueChange={(value) => setFilter("anio", value)} options={filterOptions.anios} /></div></div></TableToolbar>}
+          toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center"><TableSearch label="Buscar trabajos en reuniones" placeholder="Buscar por trabajo, reunión o autor" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} /><div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de trabajos en reuniones"><TableFilterSelect
+              label="Filtrar por estado"
+              placeholder="Todos"
+              value={quickEstadoActual === "todos" ? undefined : (quickEstadoActual || "activos")}
+              onValueChange={(value) => setFilter("estado", value === "activos" ? "" : value ?? "todos")}
+              options={[{ value: "activos", label: "Activos" }, { value: "inactivos", label: "Inactivos" }]}
+            /><TableFilterSelect label="Filtrar por tipo de reunión" placeholder="Todos los tipos" value={filters.tipo || undefined} onValueChange={(value) => setFilter("tipo", value)} options={tipos.map((tipo) => ({ value: String(tipo.id), label: toTitleCase(tipo.nombre) }))} /><TableFilterSelect label="Filtrar por procedencia" placeholder="Todas las procedencias" value={filters.procedencia || undefined} onValueChange={(value) => setFilter("procedencia", value)} options={filterOptions.procedencias} /><TableFilterSelect label="Filtrar por autor" placeholder="Todos los autores" value={filters.autor || undefined} onValueChange={(value) => setFilter("autor", value)} options={filterOptions.autores} /><TableFilterSelect label="Filtrar por año" placeholder="Todos los años" value={filters.anio || undefined} onValueChange={(value) => setFilter("anio", value)} options={filterOptions.anios} /></div></div></TableToolbar>}
         />
 
         <ConfirmDialog open={Boolean(pendingDelete)} title="Eliminar trabajo en reunión" message={`¿Está seguro de eliminar ${formatTrabajoReunionContractValue(pendingDelete?.titulo_trabajo) || "este trabajo"}?`} onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete} loadingText="Eliminando..." />

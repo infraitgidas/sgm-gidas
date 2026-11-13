@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import Field from "@/components/Field";
 import { applyFieldErrors, focusFieldErrors } from "@/lib/httpError";
 import { FormEvent, useState, useEffect } from "react";
@@ -17,7 +18,7 @@ export default function RegisterPage() {
   const [nombre, setNombre] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [esPrimero, setEsPrimero] = useState<boolean | null>(null);
@@ -43,16 +44,27 @@ export default function RegisterPage() {
     verificar();
   }, [esPrimerUsuario]);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (loading) return;
-    setError(null);
+  const validationValues = { nombre, email, password };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { nombre, email, password } = { ...validationValues, ...changes };
     const nextErrors: Record<string, string> = {};
     if (!nombre.trim()) nextErrors.nombre = "Ingrese su nombre de usuario.";
     if (!email.trim()) nextErrors.email = "Ingrese su correo electrónico.";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) nextErrors.email = "Ingrese un correo electrónico válido.";
     if (password.length < 6) nextErrors.password = "Ingrese una contraseña de al menos 6 caracteres.";
-    setFieldErrors(nextErrors);
+    return nextErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (loading) return;
+    setError(null);
+    const nextErrors = getValidationErrors();
+    setErrors(nextErrors);
     if (Object.keys(nextErrors).length) {
       focusFieldErrors(nextErrors);
       return;
@@ -67,7 +79,7 @@ export default function RegisterPage() {
         nav("/login", { replace: true });
       }, 2000);
     } catch (err: unknown) {
-      if (applyFieldErrors(err, setFieldErrors, ["nombre","email","password"])) return;
+      if (applyFieldErrors(err, setErrors, ["nombre","email","password"])) return;
       setError(getErrorMessage(err, "Lo sentimos, no pudimos crear la cuenta. Verifique los datos e intente nuevamente."));
     } finally {
       setLoading(false);
@@ -153,28 +165,28 @@ export default function RegisterPage() {
             </div>
 
             <form onSubmit={handleSubmit} noValidate className="space-y-4">
-              <Field label="Nombre de usuario" required name="nombre" error={fieldErrors.nombre}>
+              <Field label="Nombre de usuario" required name="nombre" error={errors.nombre}>
 
                 <input
                   className="input"
                   required
                   value={nombre}
-                  onChange={(e) => setNombre(e.target.value)}
+                  onChange={(e) => { setNombre(e.target.value); validateChangedField("nombre", { nombre: e.target.value }); }} onBlur={() => validateChangedField("nombre")}
                   placeholder="Ingresa tu nombre de usuario"
                 />
               </Field>
-              <Field label="Email" required name="email" error={fieldErrors.email}>
+              <Field label="Email" required name="email" error={errors.email}>
 
                 <input
                   className="input"
                   type="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { setEmail(e.target.value); validateChangedField("email", { email: e.target.value }); }} onBlur={() => validateChangedField("email")}
                   placeholder="ingresa tu email"
                 />
               </Field>
-              <Field label="Contraseña" required name="password" error={fieldErrors.password}>
+              <Field label="Contraseña" required name="password" error={errors.password}>
 
                 <input
                   className="input"
@@ -182,7 +194,7 @@ export default function RegisterPage() {
                   required
                   minLength={6}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => { setPassword(e.target.value); validateChangedField("password", { password: e.target.value }); }} onBlur={() => validateChangedField("password")}
                   placeholder="Ingresa tu contraseña"
                 />
                 <p className="text-xs text-slate-400 mt-1">Mínimo 6 caracteres</p>

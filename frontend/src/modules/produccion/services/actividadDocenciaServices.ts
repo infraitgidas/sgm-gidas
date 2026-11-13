@@ -14,7 +14,7 @@ export interface ActividadDocencia {
   curso: string;
   institucion: string;
   fecha_inicio: string;
-  fecha_fin: string;
+  fecha_fin: string | null;
   grado_academico: string;
   grado_academico_actual?: { id: number; nombre: string } | null;
   historial_grados?: Array<{
@@ -67,7 +67,7 @@ export interface ActividadDocenciaPayload {
   curso: string;
   institucion: string;
   fecha_inicio: string;
-  fecha_fin: string;
+  fecha_fin?: string | null;
   grado_academico_id: number;
   rol_actividad_id: number;
   investigador_id: number;

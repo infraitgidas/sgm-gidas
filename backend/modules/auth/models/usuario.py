@@ -19,6 +19,7 @@ class RolUsuario(db.Model):
 
 class Usuario(db.Model, AuditMixin):
     __tablename__ = 'usuario'
+    __table_args__ = (db.Index("uq_usuario_mail_normalized", db.func.lower(db.func.trim(db.column("mail"))), unique=True),)
 
     id = db.Column(db.Integer, primary_key=True)
     contrasena = db.Column(db.String(128), nullable=False)

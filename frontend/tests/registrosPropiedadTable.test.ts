@@ -17,7 +17,7 @@ test("Registros de propiedad usa la grilla visual comun", () => {
 
   assert.match(home, /<Table/);
   assert.match(home, /<TableSearch/);
-  assert.match(home, /<TableFilterChip/);
+  assert.match(home, /<TableFilterSelect/);
   assert.match(home, /<TableFilterSelect/);
   assert.match(home, /<TableRowActionButton\s+action="view"/);
   assert.match(home, /<TableRowActionButton\s+action="edit"/);

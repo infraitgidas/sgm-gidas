@@ -35,7 +35,7 @@ export function formatTransferenciaHistory(item: HistorialTransferenciaItem) {
   const title = labels[field] ?? field.replace(/_id$/, "").replace(/_/g, " ").replace(/^./, letter => letter.toLocaleUpperCase("es"));
   const formatValue = (value: unknown) => {
     if (empty(value)) return "Sin dato";
-    if (field === "monto") return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(Number(value));
+    if (field === "monto") return new Intl.NumberFormat("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value));
     if (field.startsWith("fecha_")) { const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value)); if (match) return `${match[3]}/${match[2]}/${match[1]}`; }
     if (field.endsWith("_id") && typeof value === "number") return "Dato actualizado";
     return readable(value);

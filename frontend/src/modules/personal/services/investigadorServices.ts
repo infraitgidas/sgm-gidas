@@ -1,6 +1,8 @@
 import { http } from "@/lib/http";
 
 export interface InvestigadorPayload {
+  nombre?: string | null;
+  apellido?: string | null;
   nombre_apellido: string;
   dni: string;
   cuil: string;

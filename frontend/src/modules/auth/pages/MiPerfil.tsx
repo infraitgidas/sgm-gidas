@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -40,7 +41,7 @@ export default function MiPerfil() {
   const [nombreUsuario, setNombreUsuario] = useState("");
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [guardado, setGuardado] = useState(false);
 
   useEffect(() => {
@@ -74,7 +75,7 @@ export default function MiPerfil() {
       setTimeout(() => setGuardado(false), 2000);
     },
     onError: (err) => {
-      if (applyFieldErrors(err, setFieldErrors, ["nombreUsuario", "email"])) return;
+      if (applyFieldErrors(err, setErrors, ["nombreUsuario", "email"])) return;
       setError(getErrorMessage(err, "Lo sentimos, no pudimos guardar los cambios. Verifique los datos e intente nuevamente."));
     },
   });
@@ -87,14 +88,9 @@ export default function MiPerfil() {
     setError(null);
   }
 
-  function guardarCambios() {
-    setError(null);
-
-    if (!user) {
-      setError("La sesión ya no está disponible. Inicie sesión nuevamente.");
-      return;
-    }
-
+  const validationValues = { nombreUsuario, email };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { nombreUsuario, email } = { ...validationValues, ...changes };
     const normalizedName = nombreUsuario.trim();
     const normalizedEmail = email.trim();
     const validationErrors: Record<string, string> = {};
@@ -108,7 +104,25 @@ export default function MiPerfil() {
     } else if (!isValidEmail(normalizedEmail)) {
       validationErrors.email = "Ingrese un email válido.";
     }
-    setFieldErrors(validationErrors);
+    return validationErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  function guardarCambios() {
+    setError(null);
+
+    if (!user) {
+      setError("La sesión ya no está disponible. Inicie sesión nuevamente.");
+      return;
+    }
+
+    const normalizedName = nombreUsuario.trim();
+    const normalizedEmail = email.trim();
+    const validationErrors = getValidationErrors();
+    setErrors(validationErrors);
     const firstInvalidField = validationErrors.nombreUsuario
       ? "perfil-nombre-usuario"
       : validationErrors.email
@@ -174,17 +188,20 @@ export default function MiPerfil() {
             {!editando && <p className="text-sm text-slate-500 mb-1">Nombre de usuario</p>}
 
             {editando ? (
-              <Field required label="Nombre de usuario" name="nombreUsuario" error={fieldErrors.nombreUsuario}>
+              <Field required label="Nombre de usuario" name="nombreUsuario" error={errors.nombreUsuario}>
               <input
                 id="perfil-nombre-usuario"
                 className="input"
                 value={nombreUsuario}
-                aria-invalid={Boolean(fieldErrors.nombreUsuario)}
-                aria-describedby={fieldErrors.nombreUsuario ? "perfil-nombre-error" : undefined}
-                onChange={(e) => { setNombreUsuario(e.target.value); setFieldErrors(previous => ({ ...previous, nombreUsuario: "" })); }}
+                aria-invalid={Boolean(errors.nombreUsuario)}
+                aria-describedby={errors.nombreUsuario ? "perfil-nombre-error" : undefined}
+                onChange={(e) => {
+                  setNombreUsuario(e.target.value);
+                  validateChangedField("nombreUsuario", { nombreUsuario: e.target.value });
+                }} onBlur={() => validateChangedField("nombreUsuario")}
                 placeholder="Nombre de usuario"
               />
-              {fieldErrors.nombreUsuario && <p id="perfil-nombre-error" role="alert" className="text-xs text-rose-600 mt-1.5">{fieldErrors.nombreUsuario}</p>}
+              {errors.nombreUsuario && <p id="perfil-nombre-error" role="alert" className="text-xs text-rose-600 mt-1.5">{errors.nombreUsuario}</p>}
               </Field>
             ) : (
               <p className="font-medium text-slate-900">{user.nombre_usuario}</p>
@@ -212,18 +229,21 @@ export default function MiPerfil() {
             {!editando && <p className="text-sm text-slate-500 mb-1">Email</p>}
 
             {editando ? (
-              <Field required label="Correo electrónico" name="email" error={fieldErrors.email}>
+              <Field required label="Correo electrónico" name="email" error={errors.email}>
               <input
                 id="perfil-email"
                 className="input"
                 type="email"
                 value={email}
-                aria-invalid={Boolean(fieldErrors.email)}
-                aria-describedby={fieldErrors.email ? "perfil-email-error" : undefined}
-                onChange={(e) => { setEmail(e.target.value); setFieldErrors(previous => ({ ...previous, email: "" })); }}
+                aria-invalid={Boolean(errors.email)}
+                aria-describedby={errors.email ? "perfil-email-error" : undefined}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  validateChangedField("email", { email: e.target.value });
+                }} onBlur={() => validateChangedField("email")}
                 placeholder="Email"
               />
-              {fieldErrors.email && <p id="perfil-email-error" role="alert" className="text-xs text-rose-600 mt-1.5">{fieldErrors.email}</p>}
+              {errors.email && <p id="perfil-email-error" role="alert" className="text-xs text-rose-600 mt-1.5">{errors.email}</p>}
               </Field>
             ) : (
               <p className="font-medium text-slate-900">{user.mail}</p>

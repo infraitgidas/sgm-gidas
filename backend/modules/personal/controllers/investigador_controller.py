@@ -130,7 +130,8 @@ class InvestigadorController:
     @staticmethod
     def restaurar(req: Request, id: int) -> Response:
         try:
-            investigador = restaurar_investigador(id)
+            from modules.personal.services.personal_service import restaurar_personal
+            investigador = restaurar_personal(id, "investigador", g.current_user_id)
 
             return jsonify(investigador.serialize()), 200
 

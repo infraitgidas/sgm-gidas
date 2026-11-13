@@ -75,9 +75,12 @@ class MovimientoFinancieroService:
     def _equipamiento_disponible(equipamiento_id: int, grupo_id: int, movimiento_id: int | None = None):
         equipo = db.session.get(Equipamiento, MovimientoFinancieroService._id_positivo(
             equipamiento_id, "equipamiento_id"
-        ))
+        ), with_for_update={"of": Equipamiento}, populate_existing=True)
         if not equipo or equipo.deleted_at is not None or equipo.grupo_utn_id != grupo_id:
             raise NotFoundError("El equipamiento no está disponible para este grupo.")
+        if equipo.moneda != "ARS":
+            raise ValidationError("El vínculo de equipamiento requiere un importe en ARS. Registre el egreso USD sin vínculo automático.",
+                                  details={"fields": {"equipamiento_id": "Seleccione un equipamiento en ARS."}})
         vinculado = db.session.scalar(select(MovimientoFinanciero.id).where(
             MovimientoFinanciero.equipamiento_id == equipo.id,
             MovimientoFinanciero.id != movimiento_id if movimiento_id is not None else True,
@@ -173,6 +176,7 @@ class MovimientoFinancieroService:
         query = select(Equipamiento).where(
             Equipamiento.grupo_utn_id == grupo_id,
             Equipamiento.deleted_at.is_(None),
+            Equipamiento.moneda == "ARS",
             ~usado,
         ).order_by(Equipamiento.denominacion.asc(), Equipamiento.id.asc())
         total = db.session.scalar(select(func.count()).select_from(query.order_by(None).subquery())) if page is not None else None

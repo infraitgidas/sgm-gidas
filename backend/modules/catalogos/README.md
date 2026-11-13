@@ -1,5 +1,25 @@
 # Modulo backend de catalogos
 
+## Navegación de retorno (ISS-45)
+
+El frontend conserva el origen de ingreso a Gestionar Catálogos y lo restaura
+desde Volver o el breadcrumb. `catalogosReturnTo` es estado del router del
+cliente: no forma parte de payloads ni se persiste en modelos o auditoría.
+Este ajuste no agrega endpoints, relaciones, estados o errores de API.
+Las consultas y mutaciones mantienen sus services, validaciones, permisos
+por rol e historial existentes. Aceptado el 06/11/2026.
+
+## Contrato consumido por la validacion preventiva (ISS-33)
+
+Las reglas de nombres, normalizacion, longitud, duplicados, permisos y baja logica siguen comprobadas por cada service al guardar.
+
+El frontend reutiliza sus comprobaciones durante la interaccion y muestra
+conjuntamente los errores al guardar. Los errores de campo de la API mantienen
+`error.details.fields`; los no asociados a un control conservan feedback general.
+La etapa no cambia endpoints, payloads, modelos, permisos ni eventos auditados.
+Escribir o corregir un campo no genera una mutacion de dominio; la autoridad
+definitiva sigue siendo el backend. Aceptado por el usuario el 05/11/2026.
+
 Gestiona categorias UTN y fuentes de financiamiento con auditoria y baja logica.
 La pantalla de Catalogos tambien consume servicios de catalogo de `personal`,
 `grupo`, `proyectos`, `produccion`, `recursos` y `transferencia`.

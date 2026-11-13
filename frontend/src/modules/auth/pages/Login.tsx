@@ -1,14 +1,20 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import Field from "@/components/Field";
-import { applyFieldErrors, getErrorMessage } from "@/lib/httpError";
+import { applyFieldErrors, focusFieldErrors, getErrorMessage } from "@/lib/httpError";
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AlertCircle, Eye, EyeOff, LoaderCircle, LogIn } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useSystemSetup } from "@/modules/auth/hooks/useSystemSetup";
 import RouteBreadcrumbs from "@/modules/shared/components/RouteBreadcrumbs";
+import { forgetRememberedUser, readRememberedUser, rememberUser } from "@/modules/auth/utils/rememberedUser";
 import {
   consumeSessionEnded,
-  consumeSessionPath,
+  clearSessionReturn,
+  readSessionReturn,
+  readSessionOwner,
+  resolveSessionReturn,
+  sessionNavigationState,
   isSafeInternalPath,
 } from "@/modules/auth/utils/sessionNavigation";
 
@@ -17,37 +23,66 @@ export default function LoginPage() {
   const { data: needsInitialAdmin, isFetching: setupFetching } = useSystemSetup();
   const nav = useNavigate();
   const location = useLocation() as {
-    state?: { from?: { pathname?: string; search?: string; hash?: string } };
+    state?: { from?: { pathname?: string; search?: string; hash?: string; state?: unknown }; successMessage?: string };
   };
   const [from] = useState(() => {
+    const saved = readSessionReturn();
     const statePath = location.state?.from
       ? `${location.state.from.pathname ?? ""}${location.state.from.search ?? ""}${location.state.from.hash ?? ""}`
       : "";
-    if (statePath && isSafeInternalPath(statePath)) return statePath;
-    return consumeSessionPath() ?? "/inicio";
+    if (statePath && isSafeInternalPath(statePath)) return {
+      path: statePath, userId: saved?.userId ?? readSessionOwner(),
+      state: sessionNavigationState(location.state?.from?.state) ?? (saved?.path === statePath ? saved.state : undefined),
+    };
+    return saved ?? { path: "/inicio" };
   });
 
-  const [usuario, setUsuario] = useState("");
+  const [rememberedUser] = useState(readRememberedUser);
+  const [usuario, setUsuario] = useState(rememberedUser);
+  const [remember, setRemember] = useState(Boolean(rememberedUser));
+  const [successMessage] = useState(location.state?.successMessage ?? "");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (location.state?.successMessage) nav("/login", { replace: true, state: { ...location.state, successMessage: undefined } });
+  }, [location.state, nav]);
+
+  useEffect(() => {
     if (!sessionLoading && user) {
-      nav(user.primer_login ? "/cambiar-password" : from, { replace: true });
+      const destination = resolveSessionReturn(from, user.id);
+      clearSessionReturn();
+      nav(user.primer_login ? "/cambiar-password" : destination.path, { replace: true, state: destination.state });
     } else if (!sessionLoading) {
       setSessionEnded(consumeSessionEnded());
     }
   }, [from, nav, sessionLoading, user]);
 
+  const validationValues = { usuario, password };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { usuario, password } = { ...validationValues, ...changes };
+    const nextErrors: Record<string, string> = {};
+    if (!usuario.trim()) nextErrors.usuario = "Complete su nombre de usuario.";
+    if (!password.trim()) nextErrors.password = "Complete su contrase\u00f1a.";
+    return nextErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
 
-    if (!usuario.trim() || !password.trim()) {
+    const nextErrors = getValidationErrors();
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      focusFieldErrors(nextErrors);
       setError("Complete usuario y contraseña para ingresar al sistema.");
       return;
     }
@@ -55,9 +90,13 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const auth = await login(usuario, password);
-      nav(auth.user.primer_login ? "/cambiar-password" : from, { replace: true });
+      if (remember) rememberUser(auth.user.nombre_usuario);
+      else forgetRememberedUser();
+      const destination = resolveSessionReturn(from, auth.user.id);
+      clearSessionReturn();
+      nav(auth.user.primer_login ? "/cambiar-password" : destination.path, { replace: true, state: destination.state });
     } catch (err: unknown) {
-      if (applyFieldErrors(err, setFieldErrors, ["usuario","password"])) return;
+      if (applyFieldErrors(err, setErrors, ["usuario","password"])) return;
       setError(
         getErrorMessage(err, "Lo sentimos, no pudimos iniciar sesión. Verifique los datos e intente nuevamente.")
       );
@@ -83,35 +122,38 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleSubmit} noValidate className="space-y-5">
+            {successMessage && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{successMessage}</p>}
             {sessionEnded && (
               <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 Su sesión terminó. Inicie sesión nuevamente para continuar.
               </p>
             )}
-            <Field label="Nombre de usuario" required name="usuario" error={fieldErrors.usuario}>
+            <Field label="Nombre de usuario" required name="usuario" error={errors.usuario}>
 
               <input
                 id="usuario"
+                name="username"
                 className="w-full rounded-lg border border-slate-300 px-4 py-2.5 outline-none transition focus:border-transparent focus:ring-2 focus:ring-slate-900"
                 type="text"
                 required
                 value={usuario}
-                onChange={(event) => setUsuario(event.target.value)}
+                onChange={(event) => { setUsuario(event.target.value); validateChangedField("usuario", { usuario: event.target.value }); }} onBlur={() => validateChangedField("usuario")}
                 placeholder="Ej: juanperez"
                 autoComplete="username"
               />
             </Field>
 
-            <Field label="Contraseña" required name="password" error={fieldErrors.password}>
+            <Field label="Contraseña" required name="password" error={errors.password}>
 
               <div className="relative">
                 <input
                   id="password"
+                  name="password"
                   className="w-full rounded-lg border border-slate-300 px-4 py-2.5 pr-11 outline-none transition focus:border-transparent focus:ring-2 focus:ring-slate-900"
                   type={showPassword ? "text" : "password"}
                   required
                   value={password}
-                  onChange={(event) => setPassword(event.target.value)}
+                  onChange={(event) => { setPassword(event.target.value); validateChangedField("password", { password: event.target.value }); }} onBlur={() => validateChangedField("password")}
                   placeholder="••••••••"
                   autoComplete="current-password"
                 />
@@ -131,6 +173,13 @@ export default function LoginPage() {
                 </button>
               </div>
             </Field>
+
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={remember} disabled={loading || sessionLoading} aria-describedby="recordarme-help"
+                onChange={event => { setRemember(event.target.checked); if (!event.target.checked) forgetRememberedUser(); }} className="h-4 w-4 rounded border-slate-300" />
+              Recordar mi usuario
+            </label>
+            <p id="recordarme-help" className="text-xs text-slate-500">Conserva el nombre de usuario en este equipo incluso al cerrar sesión. Desmarque la opción para olvidarlo. No guarda la contraseña ni prolonga la sesión.</p>
 
             {error && (
               <div role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -154,6 +203,8 @@ export default function LoginPage() {
               )}
             </button>
           </form>
+
+          <Link to="/recuperar-password" className="mt-5 block text-center text-sm font-medium text-slate-600 hover:text-slate-950">¿Olvidaste tu contraseña?</Link>
 
           {needsInitialAdmin === true && !setupFetching && (
             <p className="mt-7 text-center text-sm text-slate-600">

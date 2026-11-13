@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -10,6 +11,7 @@ import {
   type UsuarioRol,
 } from "@/modules/auth/services/usuariosService";
 import { useAuth } from "@/context/AuthContext";
+import { useAdminPasswordReset } from "@/modules/auth/hooks/usePasswordReset";
 import { getErrorMessage } from "@/lib/httpError";
 import Button from "@/components/Button";
 import type { Rol } from "@/modules/auth/services/authService";
@@ -23,6 +25,7 @@ import {
   UserCog,
   BookOpen,
   Loader2,
+  Mail,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -80,6 +83,10 @@ export default function UsuariosHome() {
   const editDialogRef = useRef<HTMLDialogElement>(null);
   const deleteDialogRef = useRef<HTMLDialogElement>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [resetNotice, setResetNotice] = useState("");
+  const [resetError, setResetError] = useState("");
+  const resetMutation = useAdminPasswordReset();
+  const resetSending = useRef(false);
   const [usuarioAEditar, setUsuarioAEditar] = useState<Usuario | null>(null);
   const [editForm, setEditForm] = useState({
     nombre_usuario: "",
@@ -117,19 +124,10 @@ export default function UsuariosHome() {
     };
   }, [usuarioAEliminar]);
 
-  if (!isAdmin()) {
-    return (
-      <div className="text-center py-12">
-        <AlertCircle className="w-16 h-16 text-slate-400 mx-auto mb-4" />
-        <h2 className="text-xl font-semibold mb-2">Acceso Denegado</h2>
-        <p className="text-slate-500">No tienes permisos para gestionar usuarios.</p>
-      </div>
-    );
-  }
-
   const { data: usuarios, isLoading, error } = useQuery({
     queryKey: ["usuarios"],
     queryFn: getUsuarios,
+    enabled: isAdmin(),
   });
 
   const eliminarMutation = useMutation({
@@ -162,6 +160,16 @@ export default function UsuariosHome() {
     },
   });
 
+  if (!isAdmin()) {
+    return (
+      <div className="text-center py-12">
+        <AlertCircle className="w-16 h-16 text-slate-400 mx-auto mb-4" />
+        <h2 className="text-xl font-semibold mb-2">Acceso Denegado</h2>
+        <p className="text-slate-500">No tienes permisos para gestionar usuarios.</p>
+      </div>
+    );
+  }
+
   function handleEliminar(usuario: Usuario) {
     setUsuarioAEliminar(usuario);
     setDeleteError(null);
@@ -190,10 +198,11 @@ export default function UsuariosHome() {
     editarMutation.reset();
   }
 
-  function validarEdicion() {
+  const getEditValidationErrors = (changes: Partial<typeof editForm> = {}) => {
+    const currentForm = { ...editForm, ...changes };
     const errors: typeof editErrors = {};
-    const nombreUsuario = editForm.nombre_usuario.trim();
-    const mail = editForm.mail.trim();
+    const nombreUsuario = currentForm.nombre_usuario.trim();
+    const mail = currentForm.mail.trim();
 
     if (!nombreUsuario) {
       errors.nombre_usuario = "El nombre de usuario es obligatorio";
@@ -206,21 +215,30 @@ export default function UsuariosHome() {
     if (!mail) {
       errors.mail = "El email es obligatorio";
     } else if (!isValidEmail(mail)) {
-      errors.mail = "Ingrese un email valido";
+      errors.mail = "Ingrese un email válido";
     }
 
-    if (!["ADMIN", "GESTOR", "LECTURA"].includes(editForm.rol)) {
-      errors.rol = "Debe seleccionar un rol valido";
+    if (!["ADMIN", "GESTOR", "LECTURA"].includes(currentForm.rol)) {
+      errors.rol = "Debe seleccionar un rol válido";
     }
 
     if (
       usuarioAEditar &&
       usuarioAEditar.id === user?.id &&
-      !isSameRol(usuarioAEditar.rol, editForm.rol)
+      !isSameRol(usuarioAEditar.rol, currentForm.rol)
     ) {
       errors.rol = "No puede cambiar el rol de su propia cuenta";
     }
 
+    return errors;
+  };
+
+  const validateEditField = (field: string, changes: Partial<typeof editForm> = {}) => {
+    setEditErrors((previous) => updateLiveValidationErrors(previous, getEditValidationErrors(), getEditValidationErrors(changes), field));
+  };
+
+  function validarEdicion() {
+    const errors = getEditValidationErrors();
     setEditErrors(errors);
     const firstInvalidField = errors.nombre_usuario
       ? "editar-usuario-nombre"
@@ -278,6 +296,18 @@ export default function UsuariosHome() {
   const gestores = usuarios?.filter((u) => u.rol === "GESTOR").length || 0;
   const lectores = usuarios?.filter((u) => u.rol === "LECTURA").length || 0;
 
+  async function enviarRecuperacion(usuario: Usuario) {
+    if (resetSending.current) return;
+    resetSending.current = true;
+    setResetNotice(""); setResetError("");
+    try {
+      const response = await resetMutation.mutateAsync(usuario.id);
+      setResetNotice(response.data.message);
+    } catch (error) {
+      setResetError(getErrorMessage(error, "Lo sentimos, no pudimos solicitar la recuperación. Intente nuevamente."));
+    } finally { resetSending.current = false; }
+  }
+
   return (
     <section className="w-full">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -303,6 +333,8 @@ export default function UsuariosHome() {
 
       </div>
 
+      {resetNotice && <p role="status" className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{resetNotice}</p>}
+      {resetError && <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{resetError}</p>}
       <div className="mt-6 grid gap-3 md:grid-cols-3">
         <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
           <div className="flex items-center gap-3">
@@ -446,6 +478,15 @@ export default function UsuariosHome() {
 
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-end gap-1">
+                          <button type="button" disabled={!usuarioItem.activo || resetMutation.isPending}
+                            onClick={() => enviarRecuperacion(usuarioItem)}
+                            aria-label={`Enviar recuperación de contraseña a ${usuarioItem.nombre_usuario}`}
+                            title="Enviar enlace de recuperación al correo del usuario"
+                            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40">
+                            {resetMutation.isPending && resetMutation.variables === usuarioItem.id
+                              ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                              : <Mail aria-hidden="true" className="h-4 w-4" />}
+                          </button>
                           <button
                             onClick={() => handleEditar(usuarioItem)}
                             className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
@@ -502,19 +543,7 @@ export default function UsuariosHome() {
                   aria-describedby={editErrors.nombre_usuario ? "editar-usuario-nombre-error" : undefined}
                   className={`input ${editErrors.nombre_usuario ? "border-rose-300" : ""}`}
                   value={editForm.nombre_usuario}
-                  onChange={(event) => {
-                    setEditForm((prev) => ({
-                      ...prev,
-                      nombre_usuario: event.target.value,
-                    }));
-                    if (editErrors.nombre_usuario) {
-                      setEditErrors((prev) => ({
-                        ...prev,
-                        nombre_usuario: undefined,
-                        general: undefined,
-                      }));
-                    }
-                  }}
+                  onChange={(event) => { const next = { ...editForm, nombre_usuario: event.target.value }; setEditForm(next); validateEditField("nombre_usuario", next); }} onBlur={() => validateEditField("nombre_usuario")}
                   disabled={editarMutation.isPending}
                 />
                 {editErrors.nombre_usuario && (
@@ -533,19 +562,7 @@ export default function UsuariosHome() {
                   aria-describedby={editErrors.mail ? "editar-usuario-email-error" : undefined}
                   className={`input ${editErrors.mail ? "border-rose-300" : ""}`}
                   value={editForm.mail}
-                  onChange={(event) => {
-                    setEditForm((prev) => ({
-                      ...prev,
-                      mail: event.target.value,
-                    }));
-                    if (editErrors.mail) {
-                      setEditErrors((prev) => ({
-                        ...prev,
-                        mail: undefined,
-                        general: undefined,
-                      }));
-                    }
-                  }}
+                  onChange={(event) => { const next = { ...editForm, mail: event.target.value }; setEditForm(next); validateEditField("mail", next); }} onBlur={() => validateEditField("mail")}
                   disabled={editarMutation.isPending}
                 />
                 {editErrors.mail && (
@@ -574,19 +591,7 @@ export default function UsuariosHome() {
                     aria-describedby={editErrors.rol ? "editar-usuario-rol-error" : undefined}
                     className={`input ${editErrors.rol ? "border-rose-300" : ""}`}
                     value={editForm.rol}
-                    onChange={(event) => {
-                      setEditForm((prev) => ({
-                        ...prev,
-                        rol: event.target.value as Rol,
-                      }));
-                      if (editErrors.rol) {
-                        setEditErrors((prev) => ({
-                          ...prev,
-                          rol: undefined,
-                          general: undefined,
-                        }));
-                      }
-                    }}
+                    onChange={(event) => { const next = { ...editForm, rol: event.target.value as Rol }; setEditForm(next); validateEditField("rol", next); }} onBlur={() => validateEditField("rol")}
                     disabled={editarMutation.isPending}
                   >
                     <option value="ADMIN">Administrador</option>

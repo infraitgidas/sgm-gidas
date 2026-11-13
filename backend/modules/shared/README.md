@@ -1,5 +1,29 @@
 # Borradores de formularios
 
+## Filtros del cliente (ISS-47)
+
+La unificación de controles desplegables en los homes es de presentación
+frontend. No cambia endpoints, payloads, modelos, auditoría, permisos ni
+consultas backend. Cada pantalla convierte Todos/Todas y las opciones de
+estado a los valores que ya consume su service. El servidor conserva las
+validaciones, el alcance por UCT y la autorización definitiva.
+Aceptado visual y funcionalmente el 06/11/2026.
+
+## Interacción del menú (ISS-42)
+
+La ampliación del control desplegable a toda la fila pertenece a `Sidebar`
+en frontend. No agrega endpoints, payloads, modelos, historial ni escrituras
+backend. Las opciones conservan su filtrado por rol y cada endpoint mantiene
+la autorización definitiva del servidor. Aceptado el 06/11/2026.
+
+## Validacion preventiva del cliente (ISS-33)
+
+La utilidad pura `frontend/src/lib/liveValidation.ts` actualiza errores locales
+sin solicitar validaciones nuevas ni escribir entidades. El contrato existente
+`error.details.fields` identifica los errores de campo al guardar; los errores
+generales mantienen su mensaje publico seguro. La validacion y los permisos del
+backend siguen siendo definitivos. No hay endpoints, modelos ni eventos nuevos.
+
 ## Paginacion compartida (ISS-89)
 
 `controllers/pagination.py` valida `page`, `per_page`, `activos` y `orden`, y
@@ -100,3 +124,15 @@ conservar opciones de otras paginas. Los errores son `VALIDATION_ERROR`
 (400); siguen disponibles las respuestas anteriores sin `view=table`.
 Las regresiones de aislamiento, lotes y tablas estan en
 `tests/test_tenant_scope.py`.
+
+
+## Contrato de recuperacion de listados (ISS-50)
+
+La persistencia de controles de los homes es responsabilidad del frontend y
+no incorpora endpoints ni tablas. Tras el reingreso, los clientes vuelven a
+consultar los listados con los filtros y paginacion recuperados. La API conserva
+la validacion de parametros, permisos de la cuenta autenticada y filtrado de
+datos vigentes; el contexto del navegador no concede acceso ni restaura filas
+de respuestas anteriores. El contrato de login/refresh y las cookies no cambian.
+Aceptacion funcional: 06/11/2026; regresion backend de autenticacion: 46 pruebas
+aprobadas. No se requieren migraciones ni nuevas variables de entorno.

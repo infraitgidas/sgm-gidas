@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { applyFieldErrors } from "@/lib/httpError";
 import { hasLetter } from "../../../lib/textValidation";
@@ -82,15 +83,9 @@ export default function RegistrosPropiedadForm() {
     onRestore: setData,
   });
 
-  const clearError = (field: string) => {
-    setErrors((prev) => {
-      const copy = { ...prev };
-      delete copy[field];
-      return copy;
-    });
-  };
-
-  const validate = () => {
+  const validationValues = { data };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { data } = { ...validationValues, ...changes };
     const newErrors: Record<string, string> = {};
 
     if (!data.nombre_articulo.trim()) {
@@ -109,9 +104,18 @@ export default function RegistrosPropiedadForm() {
     }
 
     if (!data.tipo_registro_id) {
-      newErrors.tipo_registro_id = "Debe seleccionar un tipo de registro";
+      newErrors.tipo_registro_id = "Debe seleccionar un tipo de registro de propiedad";
     }
 
+    return newErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  const validate = () => {
+    const newErrors = getValidationErrors();
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -243,7 +247,10 @@ export default function RegistrosPropiedadForm() {
                   ...data,
                   nombre_articulo: e.target.value,
                 });
-                if (e.target.value.trim()) clearError("nombre_articulo");
+                validateChangedField("nombre_articulo", { data: {
+                    ...data,
+                    nombre_articulo: e.target.value,
+                  } });
               }}
               onBlur={() =>
                 setData({
@@ -271,9 +278,10 @@ export default function RegistrosPropiedadForm() {
                   ...data,
                   organismo_registrante: e.target.value,
                 });
-                if (e.target.value.trim()) {
-                  clearError("organismo_registrante");
-                }
+                validateChangedField("organismo_registrante", { data: {
+                    ...data,
+                    organismo_registrante: e.target.value,
+                  } });
               }}
               onBlur={() =>
                 setData({
@@ -300,14 +308,17 @@ export default function RegistrosPropiedadForm() {
                 ...data,
                 fecha_registro: toCivilDateString(dt) ?? "",
               });
-              if (dt) clearError("fecha_registro");
+              validateChangedField("fecha_registro", { data: {
+                  ...data,
+                  fecha_registro: toCivilDateString(dt) ?? "",
+                } });
             }}
             helperText="DD/MM/AAAA"
             className={inputClass("fecha_registro")}
           />
         </Field>
 
-        <Field required label="Tipo de registro" name="tipo_registro_id" error={errors.tipo_registro_id}>
+        <Field required label="Tipo de Registro de Propiedad" name="tipo_registro_id" error={errors.tipo_registro_id}>
           <>
             <select
               className={`${inputClass("tipo_registro_id")} ${
@@ -319,11 +330,14 @@ export default function RegistrosPropiedadForm() {
                   ...data,
                   tipo_registro_id: e.target.value,
                 });
-                if (e.target.value) clearError("tipo_registro_id");
-              }}
+                validateChangedField("tipo_registro_id", { data: {
+                    ...data,
+                    tipo_registro_id: e.target.value,
+                  } });
+              }} onBlur={() => validateChangedField("tipo_registro_id")}
             >
               <option value="" disabled>
-                Seleccionar tipo
+                Seleccionar tipo de registro de propiedad
               </option>
 
               {tipos.map((tipo) => (

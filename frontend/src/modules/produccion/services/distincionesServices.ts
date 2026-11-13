@@ -34,7 +34,7 @@ export interface HistorialDistincionItem {
 export interface DistincionPayload {
   fecha: string;
   descripcion: string;
-  proyecto_investigacion_id?: number;
+  proyecto_investigacion_id?: number | null;
 }
 
 type GetDistincionesOptions = {

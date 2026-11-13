@@ -34,7 +34,13 @@ export default function SessionExpiryDialog({
   }, [open]);
 
   if (!open) return null;
-  const minutes = Math.max(1, Math.ceil(remainingSeconds / 60));
+  const timeRemaining = remainingSeconds < 60
+    ? `${remainingSeconds} segundos`
+    : remainingSeconds < 3600
+      ? `${Math.ceil(remainingSeconds / 60)} minutos`
+      : remainingSeconds < 86400
+        ? `${Math.ceil(remainingSeconds / 3600)} horas`
+        : `${Math.ceil(remainingSeconds / 86400)} días`;
 
   return (
       <dialog
@@ -48,11 +54,12 @@ export default function SessionExpiryDialog({
       >
         <Clock3 className="mb-4 h-8 w-8 text-amber-600" aria-hidden="true" />
         <h2 id="session-warning-title" className="text-xl font-semibold text-slate-900">
-          Su sesión está por vencer
+          {error ? "No pudimos renovar su sesión" : "Su sesión está por vencer"}
         </h2>
         <p id="session-warning-description" className="mt-2 text-sm text-slate-600">
-          Quedan aproximadamente {minutes} {minutes === 1 ? "minuto" : "minutos"}.
-          Puede continuar sin perder el trabajo que está completando.
+          {error
+            ? "Verifique la conexión y vuelva a intentar antes del vencimiento."
+            : `Quedan aproximadamente ${timeRemaining}. Puede renovar la sesión para continuar trabajando.`}
         </p>
         {error && <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>}
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">

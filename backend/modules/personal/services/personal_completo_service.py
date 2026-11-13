@@ -4,6 +4,7 @@ from extension import db
 from modules.grupo.models.grupo import GrupoInvestigacionUtn
 from modules.personal.models.personal import Becario, Investigador, Personal, TipoDedicacion, TipoFormacion
 from modules.personal.models.tipo_personal import TipoPersonal
+from modules.recursos.models.becas import Beca, Beca_Becario
 from modules.shared.exceptions import NotFoundError, ValidationError
 
 
@@ -127,4 +128,28 @@ def obtener_personal_por_tipo(tipo, id):
     registro = db.session.get(model, id)
     if not registro:
         raise NotFoundError("Personal no encontrado")
-    return {**registro.serialize(), "rol": "personal" if model is Personal else tipo_normalizado}
+    data = {**registro.serialize(), "rol": "personal" if model is Personal else tipo_normalizado}
+    if model is Becario:
+        vinculaciones = (
+            db.session.query(Beca_Becario, Beca)
+            .join(Beca, Beca.id == Beca_Becario.id_beca)
+            .filter(
+                Beca_Becario.id_becario == registro.id,
+                Beca_Becario.deleted_at.is_(None),
+                Beca.deleted_at.is_(None),
+            )
+            .order_by(Beca_Becario.id.asc())
+            .all()
+        )
+        data["becas"] = [
+            {
+                "id": beca.id,
+                "nombre_beca": beca.nombre_beca,
+                "descripcion": beca.descripcion,
+                "fecha_inicio": vinculo.fecha_inicio.isoformat(),
+                "fecha_fin": vinculo.fecha_fin.isoformat() if vinculo.fecha_fin else None,
+                "monto_percibido": vinculo.monto_percibido,
+            }
+            for vinculo, beca in vinculaciones
+        ]
+    return data

@@ -14,9 +14,10 @@ type Params = {
   timing: SessionTiming | null;
   onRefresh: () => Promise<boolean>;
   onExpire: () => void;
+  getLatestTiming?: () => SessionTiming | null;
 };
 
-export function useSessionLifecycle({ timing, onRefresh, onExpire }: Params) {
+export function useSessionLifecycle({ timing, onRefresh, onExpire, getLatestTiming }: Params) {
   const [warningOpen, setWarningOpen] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [extending, setExtending] = useState(false);
@@ -24,6 +25,8 @@ export function useSessionLifecycle({ timing, onRefresh, onExpire }: Params) {
   const lastActivityCheck = useRef(0);
   const refreshRef = useRef(onRefresh);
   const expireRef = useRef(onExpire);
+  const latestTimingRef = useRef(getLatestTiming);
+  latestTimingRef.current = getLatestTiming;
 
   refreshRef.current = onRefresh;
   expireRef.current = onExpire;
@@ -55,24 +58,20 @@ export function useSessionLifecycle({ timing, onRefresh, onExpire }: Params) {
     setExtensionError("");
     if (!timing) return;
 
-    const warningDelay = millisecondsUntil(timing.sessionExpiresAt) -
-      timing.warningSeconds * 1000;
-    const expiryDelay = millisecondsUntil(timing.sessionExpiresAt);
-
-    if (shouldWarnSession(timing)) setWarningOpen(true);
-    const warningTimer = window.setTimeout(
-      () => setWarningOpen(true),
-      Math.max(0, warningDelay)
-    );
-    const expiryTimer = window.setTimeout(
-      () => expireRef.current(),
-      Math.max(0, expiryDelay)
-    );
-
-    return () => {
-      window.clearTimeout(warningTimer);
-      window.clearTimeout(expiryTimer);
+    // Recheck the clock in bounded intervals: browser timers overflow after ~24 days
+    // and background tabs may resume after another tab has renewed the cookie.
+    const check = () => {
+      const latest = latestTimingRef.current?.() ?? timing;
+      if (millisecondsUntil(latest.sessionExpiresAt) <= 0) {
+        expireRef.current();
+        return;
+      }
+      if (latest !== timing) setWarningOpen(shouldWarnSession(latest));
+      else if (shouldWarnSession(latest)) setWarningOpen(true);
     };
+    check();
+    const timer = window.setInterval(check, 1_000);
+    return () => window.clearInterval(timer);
   }, [timing]);
 
   useEffect(() => {

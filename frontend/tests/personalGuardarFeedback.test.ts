@@ -36,9 +36,9 @@ test("formularios Personal, Investigador y Becario enfocan errores y muestran gu
     export default function Component() {}`);
   try {
     for (const config of [
-      {name: "FormPTAAProfesional", values: ["Persona", "12345678", "20-12345678-6", 20, 1, new Date(2026, 0, 1), true, {}, false], initialData: {id: 1, nombre_apellido: "Persona", dni: "12345678", cuil: "20-12345678-6", horas_semanales: 20, tipo_personal_id: 1, fecha_alta_grupo: "2026-01-01", activo: true}},
-      {name: "FormInvestigador", values: ["Persona", "12345678", "20-12345678-6", 20, 1, 1, 1, new Date(2026, 0, 1), true, {}, false], initialData: {id: 1, nombre_apellido: "Persona", dni: "12345678", cuil: "20-12345678-6", horas_semanales: 20, tipo_dedicacion_id: 1, categoria_utn_id: 1, programa_incentivos_id: 1, fecha_alta_grupo: "2026-01-01", activo: true}},
-      {name: "FormBecario", values: ["Persona", "12345678", "20-12345678-6", 20, 1, new Date(2026, 0, 1), true, {}, false, [], false], initialData: {id: 1, nombre_apellido: "Persona", dni: "12345678", cuil: "20-12345678-6", horas_semanales: 20, tipo_formacion_id: 1, fecha_alta_grupo: "2026-01-01", activo: true, becas: []}},
+      {name: "FormPTAAProfesional", values: ["Persona", "Apellido", "12345678", "20-12345678-6", 20, 1, new Date(2026, 0, 1), true, {}, false], initialData: {id: 1, nombre: "Persona", apellido: "Apellido", nombre_apellido: "Persona Apellido", dni: "12345678", cuil: "20-12345678-6", horas_semanales: 20, tipo_personal_id: 1, fecha_alta_grupo: "2026-01-01", activo: true}},
+      {name: "FormInvestigador", values: ["Persona", "Apellido", "12345678", "20-12345678-6", 20, 1, 1, 1, new Date(2026, 0, 1), true, {}, false], initialData: {id: 1, nombre: "Persona", apellido: "Apellido", nombre_apellido: "Persona Apellido", dni: "12345678", cuil: "20-12345678-6", horas_semanales: 20, tipo_dedicacion_id: 1, categoria_utn_id: 1, programa_incentivos_id: 1, fecha_alta_grupo: "2026-01-01", activo: true}},
+      {name: "FormBecario", values: ["Persona", "Apellido", "12345678", "20-12345678-6", 20, 1, new Date(2026, 0, 1), true, {}, false, [], false], initialData: {id: 1, nombre: "Persona", apellido: "Apellido", nombre_apellido: "Persona Apellido", dni: "12345678", cuil: "20-12345678-6", horas_semanales: 20, tipo_formacion_id: 1, fecha_alta_grupo: "2026-01-01", activo: true, becas: []}},
     ]) {
       const queryClient = new QueryClient({defaultOptions: {queries: {staleTime: 60_000, retry: false}}});
       const key = ["personal", undefined, "true"];
@@ -61,7 +61,7 @@ test("formularios Personal, Investigador y Becario enfocan errores y muestran gu
       });
       try {
         const {default: Form} = await import(url(js));
-        const render = (initialData?: Record<string, unknown>) => {h.cursor = 0; return Form({initialData, onCancel() {h.cancels++;}, onError: (error: unknown) => h.errors.push(error)});};
+        const render = (initialData?: Record<string, unknown>, onReclassify?: (payload: Record<string, unknown>) => Promise<unknown>) => {h.cursor = 0; return Form({initialData, onReclassify, onCancel() {h.cancels++;}, onError: (error: unknown) => h.errors.push(error)});};
         h.values = [...config.values];
         const unchangedBack = walk(render(config.initialData)).find(n => n.props.onClick && n.children.includes("Volver"));
         unchangedBack.props.onClick();
@@ -92,6 +92,42 @@ test("formularios Personal, Investigador y Becario enfocan errores y muestran gu
         await render().props.onSubmit({preventDefault() {}});
         assert.equal(h.calls.length, 0, config.name);
         assert.match(h.errors[0].message, /Complete o corrija/);
+        const errorsIndex = config.name === "FormInvestigador" ? 10 : 8;
+        assert.ok(["nombre", "apellido", "dni", "cuil", "horas"].every(key => h.values[errorsIndex][key]),
+          `${config.name}: todos los errores aparecen juntos al guardar`);
+        const names = () => walk(render()).find(n => n.props.onNombreChange);
+        const identity = () => walk(render()).find(n => n.props.onDniChange);
+        const hours = () => walk(render()).find(n => n.props["aria-label"] === "Horas semanales");
+        names().props.onNombreChange("Ana1");
+        assert.ok(h.values[errorsIndex].nombre, "no borra errores si el nombre sigue inválido");
+        names().props.onNombreChange("Ana");
+        assert.equal(h.values[errorsIndex].nombre, undefined);
+        assert.ok(h.values[errorsIndex].apellido, "conserva los otros errores");
+        names().props.onApellidoChange("A".repeat(60));
+        names().props.onNombreChange("B".repeat(60));
+        assert.match(h.values[errorsIndex].apellido, /120/, "valida el límite conjunto durante la escritura");
+        names().props.onNombreChange("Ana");
+        assert.equal(h.values[errorsIndex].apellido, undefined);
+        identity().props.onDniChange("abc");
+        assert.ok(h.values[errorsIndex].dni);
+        identity().props.onDniChange("12345678");
+        identity().props.onCuilChange("20-12345678-6");
+        assert.equal(h.values[errorsIndex].dni, undefined);
+        assert.equal(h.values[errorsIndex].cuil, undefined);
+        identity().props.onDniChange("12345679");
+        assert.match(h.values[errorsIndex].cuil, /coincidir/, "cambiar DNI revalida CUIL");
+        identity().props.onDniChange("12345678");
+        assert.equal(h.values[errorsIndex].cuil, undefined);
+        hours().props.onChange({target: {value: "169"}});
+        assert.ok(h.values[errorsIndex].horas);
+        hours().props.onChange({target: {value: "168"}});
+        assert.equal(h.values[errorsIndex].horas, undefined);
+        hours().props.onChange({target: {value: "1.5"}});
+        assert.ok(h.values[errorsIndex].horas);
+        h.values[4] = "";
+        hours().props.onBlur();
+        assert.ok(h.values[errorsIndex].horas);
+        assert.equal(h.calls.length, 0, "la validación preventiva no llama al backend");
         h.values = [...config.values];
         const pending = render().props.onSubmit({preventDefault() {}});
         const busy = walk(render()).find(n => n.props.type === "submit");
@@ -103,12 +139,30 @@ test("formularios Personal, Investigador y Becario enfocan errores y muestran gu
         h.resolve(); await pending;
         assert.equal(h.navigations[0][0], "/personal");
         assert.equal(walk(render()).find(n => n.props.type === "submit").props.disabled, false);
+
+        h.values = [...config.values];
+        const previousCalls = h.calls.length;
+        const previousNavigations = h.navigations.length;
+        let reclassificationPayload: Record<string, unknown> | undefined;
+        await render(config.initialData, async payload => {
+          reclassificationPayload = payload;
+          return {id: 99, rol: "becario"};
+        }).props.onSubmit({preventDefault() {}});
+        assert.equal(h.calls.length, previousCalls, "reclasificar no llama al alta ni al PUT de la clase anterior");
+        assert.equal(reclassificationPayload?.dni, "12345678");
+        assert.equal(h.navigations[previousNavigations][0], "/personal/becario/99");
+        assert.equal(h.navigations[previousNavigations][1].state.successMessage, "¡Actualizado con éxito!");
+
+        h.values = [...config.values];
+        await render(config.initialData, async () => {throw new Error("El integrante tiene vínculos");}).props.onSubmit({preventDefault() {}});
+        assert.equal(h.navigations.length, previousNavigations + 1, "una reclasificación rechazada conserva el formulario");
+        assert.match(h.errors.at(-1).message, /vínculos/);
         assert.deepEqual(queryClient.getQueryData(key), h.serverRecords, `${config.name}: refresca el listado activo pese a staleTime`);
 
         const failure = render().props.onSubmit({preventDefault() {}});
         h.reject(new Error("Servidor no disponible")); await failure;
-        assert.equal(h.navigations.length, 1, "no navega después del error");
-        assert.equal(h.errors.length, 2);
+        assert.equal(h.navigations.length, previousNavigations + 1, "no navega después del error");
+        assert.equal(h.errors.length, 3);
         assert.equal(walk(render()).find(n => n.props.type === "submit").props.disabled, false);
       } finally {
         unsubscribe(); queryClient.clear();

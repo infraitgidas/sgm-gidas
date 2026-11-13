@@ -1,8 +1,11 @@
 """Importa modelos modulares para registrar metadata de SQLAlchemy."""
 
+
 from modules.auth.models.persona import Persona  # noqa: F401
 from modules.auth.models.login_attempt import LoginAttempt  # noqa: F401
 from modules.auth.models.refresh_token_session import RefreshTokenSession  # noqa: F401
+from modules.auth.models.password_reset_request import PasswordResetRequest  # noqa: F401
+from modules.notifications.models.email_outbox import EmailOutbox  # noqa: F401
 from modules.auth.models.usuario import RolUsuario, Usuario  # noqa: F401
 from modules.auth.models.usuario_grupo_utn import UsuarioGrupoUtn  # noqa: F401
 from modules.catalogos.models.categoria_utn import CategoriaUtn  # noqa: F401

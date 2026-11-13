@@ -130,7 +130,7 @@ def _seed_catalogs():
     tipo_formacion, _ = _get_or_create(TipoFormacion, nombre="Beca doctoral")
     tipo_personal, _ = _get_or_create(
         TipoPersonal,
-        nombre="Técnico administrativo y de apoyo",
+        nombre="Técnico",
     )
     tipo_profesional, _ = _get_or_create(TipoPersonal, nombre="Profesional")
     tipo_proyecto, _ = _get_or_create(TipoProyecto, nombre="I+D")

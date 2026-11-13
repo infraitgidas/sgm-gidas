@@ -40,6 +40,21 @@ class FormDraftServiceTestCase(unittest.TestCase):
             FormDraftService.get(1, "proyectos", "new")
         self.assertEqual(FormDraft.query.count(), 2)
 
+    def test_catalogos_recupera_alta_y_edicion_sin_crear_registros(self):
+        for mode, record_id in (("create", None), ("edit", 7)):
+            data = {"endpoint": "/tipo-personal/", "mode": mode, "editId": record_id,
+                    "name": "Nombre pendiente", "description": "Detalle", "fkId": ""}
+            FormDraftService.save(1, "catalogos", "new", data)
+            restored = FormDraftService.get(1, "catalogos", "new")
+            self.assertEqual(restored["data"], data)
+            self.assertEqual(restored["path"], "/catalogos")
+            self.assertEqual(restored["display_name"], "Nombre pendiente")
+            with self.assertRaises(NotFoundError):
+                FormDraftService.get(2, "catalogos", "new")
+        FormDraftService.delete(1, "catalogos", "new")
+        with self.assertRaises(NotFoundError):
+            FormDraftService.get(1, "catalogos", "new")
+
     def test_rechaza_secretos_y_payload_excesivo_sin_persistir(self):
         for data in ({"password": "secreto"}, {"nested": [{"accessToken": "secreto"}]}, {"texto": "a" * 65537}):
             with self.subTest(data=list(data)):

@@ -1,3 +1,4 @@
+import { referatoLabel } from "@/modules/produccion/utils/clasificacionTrabajo";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { enlaceSeguro } from "@/modules/produccion/utils/trabajoEnlace";
 import { autorEtiqueta } from "@/modules/produccion/services/trabajoAutoresServices";
@@ -113,6 +114,7 @@ export default function TrabajoRevistaDetalle() {
 
         <article className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
           <div className="space-y-3 text-sm text-slate-500 md:text-base">
+            <p><span className="font-semibold text-slate-800">Referato:</span>{" "}{referatoLabel(data.referato)}</p>
             <p>
               <span className="font-semibold text-slate-800">Revista:</span>{" "}
               {toTitleCase(data.nombre_revista) || "-"}

@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useState,
+  useRef,
   ReactNode,
 } from "react";
 import {
@@ -19,10 +20,11 @@ import {
   type Rol,
   type AuthResponse,
 } from "@/modules/auth/services/authService";
-import { clearAccessToken } from "@/lib/http";
+import { clearAccessToken, type RefreshSessionResponse } from "@/lib/http";
 import SessionExpiryDialog from "@/modules/auth/components/SessionExpiryDialog";
 import { useSessionLifecycle } from "@/modules/auth/hooks/useSessionLifecycle";
 import { clearSessionNotice, markSessionActive, markSessionEnded, rememberSessionPath } from "@/modules/auth/utils/sessionNavigation";
+import { writeSharedTiming, readNewerTiming, clearSharedTiming } from "@/modules/auth/utils/sharedSessionTiming";
 import type { SessionTiming } from "@/modules/auth/utils/sessionTiming";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -63,12 +65,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [restoreError, setRestoreError] = useState(false);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
   const [sessionTiming, setSessionTiming] = useState<SessionTiming | null>(null);
+
+  const currentUserId = useRef<number | undefined>(undefined);
+  currentUserId.current = user?.id;
 
   const clearSession = useCallback((rememberPath = false) => {
     if (rememberPath) {
       rememberSessionPath(
-        `${window.location.pathname}${window.location.search}${window.location.hash}`
+        `${window.location.pathname}${window.location.search}${window.location.hash}`,
+        sessionStorage,
+        window.history.state?.usr,
+        currentUserId.current,
       );
     }
     clearAccessToken();
@@ -79,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   const expireSession = useCallback(() => {
+    if (currentUserId.current) clearSharedTiming(currentUserId.current);
     markSessionEnded();
     clearSession(true);
   }, [clearSession]);
@@ -89,7 +100,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(auth.user);
     setToken(auth.token);
     setSessionTiming(auth.sessionTiming);
-    markSessionActive();
+    writeSharedTiming(auth.user.id, auth.sessionTiming);
+    markSessionActive(sessionStorage, auth.user.id);
     return true;
   }, []);
 
@@ -97,6 +109,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     timing: user ? sessionTiming : null,
     onRefresh: renewSession,
     onExpire: expireSession,
+    getLatestTiming: () => {
+      if (!user || !sessionTiming) return sessionTiming;
+      const latest = readNewerTiming(user.id, sessionTiming);
+      if (latest !== sessionTiming) setSessionTiming(latest);
+      return latest;
+    },
   });
 
   useEffect(() => {
@@ -104,16 +122,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function initializeSession() {
       setLoading(true);
+      setRestoreError(false);
       try {
         const stored = await restoreSession();
         if (!active) return;
         setUser(stored?.user ?? null);
         setToken(stored?.token ?? null);
         setSessionTiming(stored?.sessionTiming ?? null);
-        if (stored) markSessionActive();
+        if (stored) markSessionActive(sessionStorage, stored.user.id);
         else markSessionEnded();
       } catch {
         if (!active) return;
+        setRestoreError(true);
         clearAccessToken();
         setUser(null);
         setToken(null);
@@ -127,6 +147,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       active = false;
+    };
+  }, [restoreAttempt]);
+
+  useEffect(() => {
+    const channel = typeof BroadcastChannel !== "undefined"
+      ? new BroadcastChannel("gidas_session_timing") : null;
+    const acceptTiming = (data: SessionTiming) => {
+      if (Number.isFinite(Date.parse(data?.sessionExpiresAt)) &&
+          Number.isFinite(Date.parse(data?.accessExpiresAt)) &&
+          Number.isFinite(data?.warningSeconds)) {
+        setSessionTiming(data);
+      }
+    };
+    if (channel) channel.onmessage = event => {
+      if (event.data?.userId === currentUserId.current) acceptTiming(event.data.timing);
+    };
+    const handleRenewed = (event: Event) => {
+      const data = (event as CustomEvent<RefreshSessionResponse<User>>).detail;
+      const timing = {
+        accessExpiresAt: data.access_expires_at,
+        sessionExpiresAt: data.session_expires_at,
+        warningSeconds: data.session_warning_seconds,
+      };
+      const userId = data.user?.id ?? data.usuario?.id;
+      if (userId) writeSharedTiming(userId, timing);
+      acceptTiming(timing);
+      channel?.postMessage({ userId, timing });
+    };
+    window.addEventListener("gidas:session-renewed", handleRenewed);
+    return () => {
+      window.removeEventListener("gidas:session-renewed", handleRenewed);
+      channel?.close();
     };
   }, []);
 
@@ -153,7 +205,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(auth.user);
     setToken(auth.token);
     setSessionTiming(auth.sessionTiming);
-    markSessionActive();
+    writeSharedTiming(auth.user.id, auth.sessionTiming);
+    markSessionActive(sessionStorage, auth.user.id);
     return auth;
   }
 
@@ -176,10 +229,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(auth.user);
     setToken(auth.token);
     setSessionTiming(auth.sessionTiming);
-    markSessionActive();
+    writeSharedTiming(auth.user.id, auth.sessionTiming);
+    markSessionActive(sessionStorage, auth.user.id);
   }
 
   async function logout() {
+    if (user) clearSharedTiming(user.id);
     clearSessionNotice();
     queryClient.clear();
     setUser(null);
@@ -256,7 +311,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={value}>
-      {children}
+      {restoreError ? (
+        <div role="alert" className="mx-auto my-16 max-w-md rounded-xl border bg-white p-6 text-slate-800">
+          <p>Lo sentimos, no pudimos recuperar su sesión. Verifique la conexión e intente nuevamente.</p>
+          <button type="button" className="mt-4 rounded bg-blue-700 px-4 py-2 text-white focus-visible:outline" onClick={() => setRestoreAttempt(value => value + 1)}>
+            Reintentar
+          </button>
+        </div>
+      ) : children}
       <SessionExpiryDialog
         open={sessionLifecycle.warningOpen}
         remainingSeconds={sessionLifecycle.remainingSeconds}

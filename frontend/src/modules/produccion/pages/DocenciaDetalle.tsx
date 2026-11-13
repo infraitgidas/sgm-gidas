@@ -172,13 +172,13 @@ export default function ActividadDocenciaDetalle() {
 
           <p>
             <span className="font-semibold text-slate-800">
-              Fecha de finalizacion:
+              Fecha de finalización:
             </span>{" "}
-            {formatFecha(data.fecha_fin)}
+            {data.fecha_fin ? formatFecha(data.fecha_fin) : "En curso"}
           </p>
 
           <p>
-            <span className="font-semibold text-slate-800">Grado academico:</span>{" "}
+            <span className="font-semibold text-slate-800">Grado Académico:</span>{" "}
             {toTitleCase(gradoActualNombre) || "-"}
           </p>
 
@@ -189,7 +189,7 @@ export default function ActividadDocenciaDetalle() {
 
           <p>
             <span className="font-semibold text-slate-800">
-              Rol en la actividad:
+              Rol de Actividad:
             </span>{" "}
             {toTitleCase(rolActividadNombre) || "-"}
           </p>

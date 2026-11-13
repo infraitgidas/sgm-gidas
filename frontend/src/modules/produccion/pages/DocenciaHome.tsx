@@ -1,3 +1,4 @@
+import { useHomeState, useHomeFilterEffect } from "@/modules/shared/hooks/useHomeState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -9,7 +10,6 @@ import SuccessToast from "@/components/SuccessToast";
 import Table, {
   TableActionButton,
   TableActions,
-  TableFilterChip,
   TableRowActionButton,
   TableSearch,
   TableToolbar,
@@ -41,8 +41,8 @@ const historyLabels: Record<string, string> = {
   institucion: "Institución",
   fecha_inicio: "Fecha de inicio",
   fecha_fin: "Fecha de finalización",
-  grado_academico_id: "Grado académico",
-  rol_actividad_id: "Rol en la actividad",
+  grado_academico_id: "Grado Académico",
+  rol_actividad_id: "Rol de Actividad",
 };
 
 function getInvestigadorNombre(item: ActividadDocencia) {
@@ -71,12 +71,12 @@ export default function DocenciaLanding() {
   const queryClient = useQueryClient();
   const { canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
 
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
-  const [activeFilter, setActiveFilter] = useState<"true" | "false" | "all">("true");
-  const [filters, setFilters] = useState<DocenciaFilters>({});
-  const [sort, setSort] = useState<DocenciaSort>("fecha_inicio");
-  const [direction, setDirection] = useState<TableSortDirection>("desc");
+  const [page, setPage] = useHomeState("page", 1);
+  const [search, setSearch] = useHomeState("search", "");
+  const [activeFilter, setActiveFilter] = useHomeState<"true" | "false" | "all">("activeFilter", "true", { allowed: ["true","false","all"] });
+  const [filters, setFilters] = useHomeState<DocenciaFilters>("filters", {}, { shape: { curso: "", institucion: "", investigador: "", grado: "", rol: "" } });
+  const [sort, setSort] = useHomeState<DocenciaSort>("sort", "fecha_inicio", { allowed: ["curso","investigador","institucion","rol","grado","fecha_inicio","fecha_fin","estado"] });
+  const [direction, setDirection] = useHomeState<TableSortDirection>("direction", "desc", { allowed: ["asc", "desc"] });
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [pendingDelete, setPendingDelete] = useState<ActividadDocencia | null>(null);
@@ -108,7 +108,7 @@ export default function DocenciaLanding() {
     staleTime: 5 * 60_000,
   });
 
-  useEffect(() => { setPage(1); setExpandedRow(null); }, [activeFilter, direction, filters, memoriaFilter, search, sort]);
+  useHomeFilterEffect(() => { setPage(1); setExpandedRow(null); }, [activeFilter, direction, filters, memoriaFilter, search, sort]);
   useEffect(() => {
     if (totalPages > 0 && page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
@@ -143,6 +143,7 @@ export default function DocenciaLanding() {
     { id: "rol", header: "Rol", sortable: true, priority: "secondary", render: (item) => toTitleCase(item.rol_actividad) || "—" },
     { id: "grado", header: "Grado", sortable: true, priority: "tertiary", render: (item) => toTitleCase(item.grado_academico) || "—" },
     { id: "fecha_inicio", header: "Inicio", sortable: true, priority: "tertiary", render: (item) => formatFecha(item.fecha_inicio) },
+    { id: "fecha_fin", header: "Fin", sortable: true, priority: "tertiary", render: (item) => item.fecha_fin ? formatFecha(item.fecha_fin) : "En curso" },
     { id: "estado", header: "Estado", sortable: true, render: (item) => {
       const active = !item.deleted_at;
       return <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${active ? "text-emerald-700" : "text-rose-700"}`}><span aria-hidden="true" className={`h-2 w-2 rounded-full ${active ? "bg-emerald-500" : "bg-rose-500"}`} />{active ? "Activa" : "Inactiva"}</span>;
@@ -195,10 +196,13 @@ export default function DocenciaLanding() {
       toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
         <TableSearch label="Buscar actividades en docencia" placeholder="Buscar por curso, institución o investigador" value={search} onChange={(event) => setSearch(event.target.value)} />
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de actividades en docencia">
-          <span className="shrink-0 text-xs font-medium text-slate-500">Estado</span>
-          <TableFilterChip className="shrink-0" active={activeFilter === "true"} onClick={() => setActiveFilter("true")}>Activas</TableFilterChip>
-          <TableFilterChip className="shrink-0" active={activeFilter === "all"} onClick={() => setActiveFilter("all")}>Todas</TableFilterChip>
-          <TableFilterChip className="shrink-0" active={activeFilter === "false"} onClick={() => setActiveFilter("false")}>Inactivas</TableFilterChip>
+          <TableFilterSelect
+            label="Filtrar por estado"
+            placeholder="Todas"
+            value={activeFilter === "all" ? undefined : activeFilter}
+            onValueChange={(value) => setActiveFilter((value ?? "all") as typeof activeFilter)}
+            options={[{ value: "true", label: "Activas" }, { value: "false", label: "Inactivas" }]}
+          />
           <TableFilterSelect label="Filtrar por curso" placeholder="Todos los cursos" value={filters.curso} onValueChange={(value) => setFilter("curso", value)} options={filterOptions.cursos} />
           <TableFilterSelect label="Filtrar por institución" placeholder="Todas las instituciones" value={filters.institucion} onValueChange={(value) => setFilter("institucion", value)} options={filterOptions.instituciones} />
           <TableFilterSelect label="Filtrar por investigador" placeholder="Todos los investigadores" value={filters.investigador} onValueChange={(value) => setFilter("investigador", value)} options={filterOptions.investigadores} />

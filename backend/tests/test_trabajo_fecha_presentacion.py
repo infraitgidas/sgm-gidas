@@ -95,8 +95,12 @@ class FechaPresentacionTest(unittest.TestCase):
                 archivo = ExportService.generar_excel_memoria(memoria.id, version.id)
             libro = load_workbook(BytesIO(archivo.getvalue()))
             valores = [celda.value for hoja in libro for fila in hoja for celda in fila if celda.value is not None]
-            self.assertIn("Fecha inicio", valores)  # Encabezado institucional fijo
-            self.assertIn(snapshots[0].fecha_presentacion.strftime("%d/%m/%Y"), valores)
+            self.assertIn("Fecha de presentación", valores)
+            presentacion = libro["Detalle académico"]
+            fila_fecha = next(fila for fila in presentacion if fila[0].value == "Presentación")
+            celda_fecha = fila_fecha[1]
+            self.assertEqual(celda_fecha.value.date(), snapshots[0].fecha_presentacion)
+            self.assertEqual(celda_fecha.number_format, "dd/mm/yyyy")
 
 
 class MigracionFechaTest(unittest.TestCase):

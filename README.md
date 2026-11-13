@@ -124,6 +124,14 @@ Infraestructura:
 
 ---
 
+## Recuperación de contraseña en producción
+
+La recuperación de contraseña por correo está implementada en `auth` y el
+módulo backend `notifications`. El despliegue incluye `email-worker`; requiere
+SMTP institucional, secretos independientes y una URL HTTPS autorizada. La guía
+de [recuperación en producción](docs/despliegue_produccion.md#recuperación-de-contraseña-en-producción)
+distingue componentes incluidos, configuración del laboratorio y prueba de entrega.
+
 ## Estructura del repositorio
 
 ```text
@@ -166,8 +174,8 @@ Carpetas clave:
 
 Los modulos actuales existen tanto en backend como en frontend:
 
-- `auth`: login, registro, perfil, usuarios, roles, cambio de contrasena y
-  refresh tokens.
+- `auth`: login, registro, perfil, usuarios, roles, cambio de contrasena,
+  recuperación por correo con enlace de un solo uso y refresh tokens.
 - `catalogos`: categorias UTN, fuentes de financiamiento y catalogos de apoyo.
 - `dashboard`: consultas agregadas para la vista principal.
 - `grupo`: UCT, directivos, cargos, programas, planificaciones y visitas.

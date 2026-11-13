@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { applyFieldErrors } from "@/lib/httpError";
 import { hasLetter } from "../../../lib/textValidation";
@@ -25,6 +26,7 @@ import { toCivilDateString } from "@/utils/dateTime";
 import { useAuth } from "@/context/AuthContext";
 import { useFormDraft } from "@/modules/shared/hooks/useFormDraft";
 import DraftRecoveryNotice from "@/modules/shared/components/DraftRecoveryNotice";
+import { isMoneda, type Moneda } from "@/utils/money";
 
 export default function TransferenciasForm() {
   const navigate = useNavigate();
@@ -41,6 +43,7 @@ export default function TransferenciasForm() {
     demandante: "",
     descripcionActividad: "",
     monto: "",
+    moneda: "ARS" as Moneda,
     fechaInicio: "",
     fechaFin: "",
     tipoContratoId: "",
@@ -71,6 +74,7 @@ export default function TransferenciasForm() {
       demandante: transferencia.demandante ?? "",
       descripcionActividad: transferencia.descripcionActividad ?? "",
       monto: transferencia.monto?.toString() ?? "",
+      moneda: transferencia.moneda ?? "ARS",
       fechaInicio: transferencia.fechaInicio ?? "",
       fechaFin: transferencia.fechaFin ?? "",
       tipoContratoId: transferencia.tipoContratoId?.toString() ?? "",
@@ -85,20 +89,15 @@ export default function TransferenciasForm() {
     value: { data, adoptantes },
     ready: !isEdit || (!isLoading && Boolean(transferencia)),
     autosave: false,
-    hasContent: (draft) => Object.values(draft.data).some(Boolean) || draft.adoptantes.length > 0,
-    onRestore: (draft) => { setData(draft.data); setAdoptantes(draft.adoptantes); },
+    hasContent: (draft) => Object.entries(draft.data).some(([key, value]) => key === "moneda" ? value === "USD" : Boolean(value)) || draft.adoptantes.length > 0,
+    onRestore: (draft) => { setData({ ...draft.data, moneda: draft.data.moneda ?? "ARS" }); setAdoptantes(draft.adoptantes); },
   });
 
-  const clearError = (field: string) => {
-    setErrors((prev) => {
-      const copy = { ...prev };
-      delete copy[field];
-      return copy;
-    });
-  };
-
-  const validate = () => {
+  const validationValues = { data };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { data } = { ...validationValues, ...changes };
     const newErrors: Record<string, string> = {};
+    if (!isMoneda(data.moneda)) newErrors.moneda = "Seleccione ARS o USD";
 
     if (!data.denominacion.trim() || data.denominacion.trim().length < 3) {
       newErrors.denominacion = "Debe ingresar una denominación válida";
@@ -118,8 +117,8 @@ export default function TransferenciasForm() {
     }
 
     const monto = Number(data.monto);
-    if (!Number.isFinite(monto) || monto <= 0) {
-      newErrors.monto = "El monto debe ser mayor a 0";
+    if (!data.monto.trim() || !Number.isFinite(monto) || monto < 0) {
+      newErrors.monto = "Ingrese un monto mayor o igual a 0";
     }
 
     if (!data.fechaInicio) {
@@ -134,6 +133,15 @@ export default function TransferenciasForm() {
       newErrors.tipoContratoId = "Debe seleccionar tipo de contrato";
     }
 
+    return newErrors;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  const validate = () => {
+    const newErrors = getValidationErrors();
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -149,6 +157,7 @@ export default function TransferenciasForm() {
         demandante: data.demandante.trim(),
         descripcionActividad: data.descripcionActividad.trim(),
         monto: Number(data.monto),
+        moneda: data.moneda,
         fechaInicio: data.fechaInicio,
         fechaFin: data.fechaFin || undefined,
         tipoContratoId: Number(data.tipoContratoId),
@@ -169,6 +178,7 @@ export default function TransferenciasForm() {
         demandante: transferencia?.demandante ?? "",
         descripcionActividad: transferencia?.descripcionActividad ?? "",
         monto: transferencia?.monto ?? 0,
+        moneda: transferencia?.moneda ?? "ARS",
         fechaInicio: transferencia?.fechaInicio ?? "",
         fechaFin: transferencia?.fechaFin ?? undefined,
         tipoContratoId: transferencia?.tipoContratoId ?? 0,
@@ -227,7 +237,7 @@ export default function TransferenciasForm() {
       });
     },
     onError: (error) => {
-      if (applyFieldErrors(error, setErrors, ["denominacion","demandante","descripcionActividad","monto","fechaInicio","fechaFin","tipoContratoId","adoptantes"])) return;
+      if (applyFieldErrors(error, setErrors, ["denominacion","demandante","descripcionActividad","monto","moneda","fechaInicio","fechaFin","tipoContratoId","adoptantes"])) return;
       setErrorMessage(
         getErrorMessage(
           error,
@@ -285,8 +295,8 @@ export default function TransferenciasForm() {
               placeholder="Ej: Convenio de asistencia técnica"
               onChange={(e) => {
                 setData((prev) => ({ ...prev, denominacion: e.target.value }));
-                if (e.target.value.trim()) clearError("denominacion");
-              }}
+                validateChangedField("denominacion", { data: { ...data, denominacion: e.target.value } });
+              }} onBlur={() => validateChangedField("denominacion")}
             />
             {errors.denominacion && (
               <p className="mt-1 text-sm text-red-500">{errors.denominacion}</p>
@@ -302,8 +312,8 @@ export default function TransferenciasForm() {
               placeholder="Ej: Municipalidad de Resistencia"
               onChange={(e) => {
                 setData((prev) => ({ ...prev, demandante: e.target.value }));
-                if (e.target.value.trim()) clearError("demandante");
-              }}
+                validateChangedField("demandante", { data: { ...data, demandante: e.target.value } });
+              }} onBlur={() => validateChangedField("demandante")}
             />
             {errors.demandante && (
               <p className="mt-1 text-sm text-red-500">{errors.demandante}</p>
@@ -323,8 +333,11 @@ export default function TransferenciasForm() {
                   ...prev,
                   descripcionActividad: e.target.value,
                 }));
-                if (e.target.value.trim()) clearError("descripcionActividad");
-              }}
+                validateChangedField("descripcionActividad", { data: {
+                    ...data,
+                    descripcionActividad: e.target.value,
+                  } });
+              }} onBlur={() => validateChangedField("descripcionActividad")}
             />
             {errors.descripcionActividad && (
               <p className="mt-1 text-sm text-red-500">{errors.descripcionActividad}</p>
@@ -343,11 +356,26 @@ export default function TransferenciasForm() {
               placeholder="Ej: 250000"
               onChange={(e) => {
                 setData((prev) => ({ ...prev, monto: e.target.value }));
-                if (e.target.value) clearError("monto");
-              }}
+                validateChangedField("monto", { data: { ...data, monto: e.target.value } });
+              }} onBlur={() => validateChangedField("monto")}
             />
             {errors.monto && <p className="mt-1 text-sm text-red-500">{errors.monto}</p>}
           </>
+        </Field>
+
+        <Field required label="Moneda" name="moneda" error={errors.moneda}>
+          <select className={inputClass("moneda")} value={data.moneda}
+            onChange={(event) => {
+              const moneda = event.target.value;
+              if (isMoneda(moneda)) {
+                setData((previous) => ({ ...previous, moneda }));
+                validateChangedField("moneda", { data: { ...data, moneda } });
+              }
+            }} onBlur={() => validateChangedField("moneda")}>
+            <option value="ARS">ARS — Pesos argentinos</option>
+            <option value="USD">USD — Dólares estadounidenses</option>
+          </select>
+          <p className="mt-1 text-xs text-slate-500">El monto se guarda en la moneda elegida, sin conversión.</p>
         </Field>
 
         <Field required label="Fecha de inicio" name="fechaInicio" error={errors.fechaInicio}>
@@ -358,7 +386,10 @@ export default function TransferenciasForm() {
                 ...prev,
                 fechaInicio: toCivilDateString(dt) ?? "",
               }));
-              if (dt) clearError("fechaInicio");
+              validateChangedField("fechaInicio", { data: {
+                  ...data,
+                  fechaInicio: toCivilDateString(dt) ?? "",
+                } });
             }}
             helperText="DD/MM/AAAA"
             className={inputClass("fechaInicio")}
@@ -373,7 +404,10 @@ export default function TransferenciasForm() {
                 ...prev,
                 fechaFin: toCivilDateString(dt) ?? "",
               }));
-              clearError("fechaFin");
+              validateChangedField("fechaFin", { data: {
+                  ...data,
+                  fechaFin: toCivilDateString(dt) ?? "",
+                } });
             }}
             helperText="Opcional"
             className={inputClass("fechaFin")}
@@ -389,8 +423,8 @@ export default function TransferenciasForm() {
               value={data.tipoContratoId}
               onChange={(e) => {
                 setData((prev) => ({ ...prev, tipoContratoId: e.target.value }));
-                if (e.target.value) clearError("tipoContratoId");
-              }}
+                validateChangedField("tipoContratoId", { data: { ...data, tipoContratoId: e.target.value } });
+              }} onBlur={() => validateChangedField("tipoContratoId")}
             >
               <option value="" disabled>
                 Seleccionar tipo de contrato
@@ -410,7 +444,7 @@ export default function TransferenciasForm() {
         <div data-error-field="adoptantes">
           <AdoptantesField selected={adoptantes} disabled={isPending} onChange={(next) => {
             setAdoptantes(next);
-            setErrors((previous) => ({ ...previous, adoptantes: "" }));
+            validateChangedField("adoptantes");
           }} />
           {errors.adoptantes && <p role="alert" className="mt-1 text-sm text-red-600">{errors.adoptantes}</p>}
         </div>

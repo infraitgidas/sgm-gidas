@@ -1,3 +1,4 @@
+import { useHomeState, useHomeFilterEffect } from "@/modules/shared/hooks/useHomeState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -6,7 +7,7 @@ import Button from "@/components/Button";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import MemoriaFilterBanner from "@/components/MemoriaFilterBanner";
 import SuccessToast from "@/components/SuccessToast";
-import Table, { TableActionButton, TableActions, TableFilterChip, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
+import Table, { TableActionButton, TableActions, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
 import type { TableColumn } from "@/components/Table";
 import TableFilterSelect from "@/components/TableFilterSelect";
 import { useAuth } from "@/context/AuthContext";
@@ -28,12 +29,12 @@ export default function DocumentacionHome() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [pendingDelete, setPendingDelete] = useState<Documentacion | null>(null);
-  const [search, setSearch] = useState("");
-  const [estado, setEstado] = useState<"true" | "false" | "all">("true");
-  const [autor, setAutor] = useState("");
-  const [anio, setAnio] = useState("");
-  const [direction, setDirection] = useState<"asc" | "desc">("asc");
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useHomeState("search", "");
+  const [estado, setEstado] = useHomeState<"true" | "false" | "all">("estado", "true", { allowed: ["true","false","all"] });
+  const [autor, setAutor] = useHomeState("autor", "");
+  const [anio, setAnio] = useHomeState("anio", "");
+  const [direction, setDirection] = useHomeState<"asc" | "desc">("direction", "asc", { allowed: ["asc","desc"] });
+  const [page, setPage] = useHomeState("page", 1);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
 
@@ -53,7 +54,7 @@ export default function DocumentacionHome() {
   const expandedItem = expanded === null ? undefined : scoped.find((item) => item.id === expanded);
   const history = useQuery({ queryKey: ["documentacion-historial", expandedItem?.id], queryFn: () => getHistorialDocumentacionById(expandedItem!.id), enabled: Boolean(expandedItem), staleTime: 5 * 60_000 });
 
-  useEffect(() => { setPage(1); setExpanded(null); }, [search, estado, autor, anio, direction, memoriaFilter]);
+  useHomeFilterEffect(() => { setPage(1); setExpanded(null); }, [search, estado, autor, anio, direction, memoriaFilter]);
   useEffect(() => { if (result.data && page > Math.max(totalPages, 1)) setPage(Math.max(totalPages, 1)); }, [page, totalPages, result.data]);
   useEffect(() => {
     if (!location.state?.successMessage) return;
@@ -99,7 +100,13 @@ export default function DocumentacionHome() {
     <section className="min-h-[calc(100vh-120px)] w-full px-4 py-4">
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><div><h2 className="text-2xl font-semibold md:text-3xl">Documentación y Biblioteca</h2><p className="mt-1 text-sm text-slate-500">Consulte documentos, autores, editoriales y estados.</p></div>{canCreateRecords() && <Button size="sm" onClick={() => navigate("/documentacion/nuevo")}>Agregar nuevo</Button>}</div>
       {memoriaFilter && <div className="mb-4"><MemoriaFilterBanner filter={memoriaFilter} /></div>}
-      <Table caption="Listado de documentación y biblioteca" columns={columns} rows={visible} getRowId={(item) => item.id} density="compact" loading={documents.isLoading} refreshing={documents.isFetching && !documents.isLoading} error={documents.isError && documents.list.length === 0} onRetry={() => documents.refetch()} emptyMessage="No hay documentos que coincidan con los filtros." onRowClick={(item) => navigate(`/documentacion/${item.id}`, { state: buildMemoriaDetailState(location) })} getRowTitle={(item) => `Ver detalle de ${item.titulo}`} sortKey="titulo" sortDirection={direction} onSortChange={(_, next) => setDirection(next)} expandedRowId={expanded} renderExpanded={renderHistory} onToggleRow={(item) => { setExpanded((current) => current === item.id ? null : item.id); setHistoryPage(1); }} getExpandLabel={(item, open) => `${open ? "Ocultar" : "Mostrar"} historial de ${item.titulo}`} page={page} totalPages={totalPages} totalRecords={result.data?.meta.total ?? 0} onPageChange={(next) => { setExpanded(null); setPage(next); }} toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center"><TableSearch label="Buscar documentación" placeholder="Buscar por título, autor, editorial o año" value={search} onChange={(event) => setSearch(event.target.value)} /><div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de documentación"><span className="shrink-0 text-xs font-medium text-slate-500">Estado</span><TableFilterChip className="shrink-0" active={estado === "true"} onClick={() => setEstado("true")}>Activos</TableFilterChip><TableFilterChip className="shrink-0" active={estado === "all"} onClick={() => setEstado("all")}>Todos</TableFilterChip><TableFilterChip className="shrink-0" active={estado === "false"} onClick={() => setEstado("false")}>Inactivos</TableFilterChip><TableFilterSelect label="Filtrar por autor" placeholder="Todos los autores" value={autor || undefined} onValueChange={(value) => setAutor(value ?? "")} options={options.autores} /><TableFilterSelect label="Filtrar por año" placeholder="Todos los años" value={anio || undefined} onValueChange={(value) => setAnio(value ?? "")} options={options.anios} /></div></div></TableToolbar>} />
+      <Table caption="Listado de documentación y biblioteca" columns={columns} rows={visible} getRowId={(item) => item.id} density="compact" loading={documents.isLoading} refreshing={documents.isFetching && !documents.isLoading} error={documents.isError && documents.list.length === 0} onRetry={() => documents.refetch()} emptyMessage="No hay documentos que coincidan con los filtros." onRowClick={(item) => navigate(`/documentacion/${item.id}`, { state: buildMemoriaDetailState(location) })} getRowTitle={(item) => `Ver detalle de ${item.titulo}`} sortKey="titulo" sortDirection={direction} onSortChange={(_, next) => setDirection(next)} expandedRowId={expanded} renderExpanded={renderHistory} onToggleRow={(item) => { setExpanded((current) => current === item.id ? null : item.id); setHistoryPage(1); }} getExpandLabel={(item, open) => `${open ? "Ocultar" : "Mostrar"} historial de ${item.titulo}`} page={page} totalPages={totalPages} totalRecords={result.data?.meta.total ?? 0} onPageChange={(next) => { setExpanded(null); setPage(next); }} toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center"><TableSearch label="Buscar documentación" placeholder="Buscar por título, autor, editorial o año" value={search} onChange={(event) => setSearch(event.target.value)} /><div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de documentación"><TableFilterSelect
+              label="Filtrar por estado"
+              placeholder="Todos"
+              value={estado === "all" ? undefined : estado}
+              onValueChange={(value) => setEstado((value ?? "all") as typeof estado)}
+              options={[{ value: "true", label: "Activos" }, { value: "false", label: "Inactivos" }]}
+            /><TableFilterSelect label="Filtrar por autor" placeholder="Todos los autores" value={autor || undefined} onValueChange={(value) => setAutor(value ?? "")} options={options.autores} /><TableFilterSelect label="Filtrar por año" placeholder="Todos los años" value={anio || undefined} onValueChange={(value) => setAnio(value ?? "")} options={options.anios} /></div></div></TableToolbar>} />
       <ConfirmDialog open={Boolean(pendingDelete)} title="Eliminar documentación" message={`¿Está seguro de eliminar ${pendingDelete?.titulo || "este documento"}?`} onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete} loadingText="Eliminando..." />
     </section>
     <SuccessToast open={Boolean(success)} message={success} onClose={() => setSuccess("")} />

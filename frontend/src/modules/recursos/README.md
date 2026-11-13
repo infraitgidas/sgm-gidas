@@ -1,5 +1,89 @@
 # Recursos
 
+## Filtros desplegables (ISS-47)
+
+BecasHome, EquipamientoHome y ErogacionesHome: estado.
+Los filtros del listado utilizan `TableFilterSelect`, con nombre accesible y
+selección mediante teclado. Todos/Todas elimina la restricción del criterio.
+La adaptación del selector conserva valores, setters y opciones de consulta;
+se mantienen services, permisos, nueve filas por página, contexto de Memoria
+y persistencia de filtros de ISS-50. No se modifican campos de formularios.
+
+Aceptado visual y funcionalmente el 06/11/2026. Validación integrada:
+269 pruebas frontend, TypeScript y build de producción aprobados.
+`tests/homeFilterSelect.test.ts` comprueba selección y limpieza en las cuatro
+pantallas principales y ausencia de chips de filtrado en los homes.
+
+## Monto cero en Equipamiento (ISS-46)
+
+`EquipamientoForm` admite un monto invertido explícito igual a cero, mantiene
+el rechazo de negativos, vacíos y valores no finitos, y conserva la moneda
+ARS/USD elegida. El borrador reconoce cero como contenido. Los services,
+hooks, permisos, mensajes, navegación y envío de diferencias siguen vigentes;
+listado y detalle ya presentan cero con su formato monetario habitual.
+
+`tests/docenciaMontosOpcionales.test.ts` verifica el formulario real: cero y
+positivos válidos, vacío y negativos rechazados, moneda conservada y edición
+sin diferencias sin PUT. Aceptado funcionalmente el 05/11/2026; la validación
+conjunta completó 242 pruebas frontend, TypeScript y build de producción.
+
+## Retorno al becario desde becas (ISS-40)
+
+`BecasDetalle` y `BecasForm` preservan el estado `becarioReturnTo` generado por
+el enlace desde el detalle del becario. `utils/becaNavigation.ts` valida que el
+destino sea `/personal/becario/<id>` con ID positivo y conserva query, hash y
+estado del origen. Volver restaura el detalle y su contexto previo; sin origen
+válido vuelve al home `/becas`. No se modifica el router ni se depende de que
+exista una entrada previa en el historial del navegador.
+
+El estado se propaga al formulario, al guardar, al volver sin guardar y al
+guardar sin cambios; limpiar `successMessage` en el detalle no elimina el
+origen. El alta mantiene su regreso al home. Permisos, endpoints y payloads
+permanecen iguales. `frontend/tests/becarioDetalle.test.ts` ejecuta los
+componentes con SSR y prueba enlace, retorno, contexto, acceso directo,
+edición y limpieza del éxito. La validación visual corresponde al usuario.
+Etapa aceptada el 05/11/2026 con solicitud expresa de ejecutar los commits;
+validación técnica final: 234 pruebas frontend, TypeScript y build aprobados.
+
+## Validacion preventiva de formularios (ISS-33)
+
+`BecasForm`, `EquipamientoForm` y `ErogacionesForm` reutilizan las mismas
+reglas en la interaccion y al guardar. Los controles nativos validan tambien al
+perder foco. Se conservan nombre y fecha de becas, denominacion, descripcion,
+fecha y monto de equipos, y tipo, monto, moneda, fuente y categoria de movimientos.
+Los cambios de tipo o equipamiento revalidan los campos dependientes.
+Cuando llega la cotizacion solicitada por el flujo existente se retira solamente
+el error local de cotizacion faltante; otros errores del servidor se conservan.
+
+La actualizacion de errores usa `src/lib/liveValidation.ts`, que revalida el
+campo editado y las reglas cuyo resultado cambia por dependencia, preservando
+los demas errores. No agrega hooks compartidos ni modifica componentes globales.
+Las validaciones no disparan escrituras de dominio. Se conservan services,
+contratos, permisos, borradores, navegacion y feedback de exito.
+La etapa fue aceptada visual y funcionalmente por el usuario el 05/11/2026;
+la regresion transversal esta en `tests/liveValidation.test.ts`.
+
+## Moneda de Equipamiento
+
+`EquipamientoForm` permite elegir ARS o USD junto al monto invertido. El alta
+inicia en ARS y la edición precarga la moneda guardada; el monto se conserva en
+la moneda elegida, sin cotización ni conversión. La edición envía solo diferencias.
+Se mantienen la validación de monto no negativo, los permisos y la navegación:
+alta al home y edición al detalle con `successMessage`.
+
+`equipamientoServices.ts` tipa y transmite `moneda`; las respuestas heredadas
+sin ese campo se interpretan como ARS. Borradores anteriores recuperan ARS,
+pero el valor predeterminado no hace que un formulario vacío tenga contenido.
+`utils/money.ts` concentra el formato con código de moneda. Home y detalle
+distinguen ARS/USD; el home permite filtrar por moneda y sus rangos comparan
+importes originales. El historial de monto muestra el número sin atribuirle la
+moneda actual de la ficha; los cambios de moneda tienen su propio evento.
+
+El backend impide cambiar la moneda de un equipo con un movimiento vinculado,
+incluido uno histórico, y muestra el error junto al selector. El vínculo
+automático de Movimientos continúa disponible solo para equipos en ARS.
+`tests/moneda.test.ts` verifica formato, transporte HTTP, diferencias y borradores.
+
 ## Becas (ISS-93)
 
 La gestión de Becas está en Personal > Becas, fuera de Catálogos. `BecasHome`
@@ -40,7 +124,7 @@ y enfocan el primer campo inválido. Los nombres locales de los controles se
 vinculan con las claves API, sin cambiar el payload del service ni los permisos.
 Los errores sin campo o con campos desconocidos conservan el aviso general;
 los errores inesperados muestran un mensaje publico seguro o un fallback accionable, sin identificadores internos.
-Se conservan las reglas y el momento de validación existentes. Véase el contrato
+Se conservan las reglas de validacion; ISS-33 incorpora feedback preventivo. Véase el contrato
 transversal en `../README.md`.
 
 ## Fechas
@@ -86,7 +170,7 @@ tipos explicitos. Las llamadas HTTP se concentran en services dedicados.
 
 - Las altas vuelven al home con `successMessage`.
 - Las ediciones vuelven al detalle y envian solo diferencias reales.
-- Equipamiento valida denominacion, descripcion, monto positivo finito y una fecha
+- Equipamiento valida denominacion, descripcion, monto no negativo finito y una fecha
   de incorporacion entre el `01/01/2010` y la fecha actual, ambos limites
   inclusive. El formulario informa el rango y lo aplica al selector de fecha; la
   funcion pura `utils/equipamientoValidation.ts` conserva la misma regla para el
@@ -179,3 +263,14 @@ e historial. El backend precarga fuentes, becarios y clasificaciones para
 reducir consultas de listado y dashboard anual. No cambia el contrato
 financiero ni la paginacion de nueve filas de Becas. Las pruebas de la
 etapa y su aceptacion funcional quedaron registradas en el CHANGELOG.
+
+
+## Recuperacion del contexto de consulta (ISS-50)
+
+BecasHome y EquipamientoHome recuperan texto, filtros y pagina. ErogacionesHome recupera ademas orden y fuente/pagina del panel financiero. El debounce de Becas conserva la pagina inicial.
+
+Los homes con estado local usan `shared/hooks/useHomeState.ts`; Busqueda conserva
+su contrato de URL. La persistencia validada se limita a la pestana y al usuario,
+sin guardar filas ni acciones pendientes. Se mantienen services, permisos,
+validaciones y paginacion vigentes. Contrato y pruebas en `../shared/README.md`.
+Aceptado funcionalmente por el usuario el 06/11/2026.

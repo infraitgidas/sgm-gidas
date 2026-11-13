@@ -1,5 +1,56 @@
 # Produccion
 
+## Filtros desplegables (ISS-47)
+
+DocenciaHome, ArticulosDivulgacionHome, DistincionesHome, DocumentacionHome, RegistrosPropiedadHome, TrabajosReunionHome y TrabajosRevistasHome: estado.
+Los filtros del listado utilizan `TableFilterSelect`, con nombre accesible y
+selección mediante teclado. Todos/Todas elimina la restricción del criterio.
+La adaptación del selector conserva valores, setters y opciones de consulta;
+se mantienen services, permisos, nueve filas por página, contexto de Memoria
+y persistencia de filtros de ISS-50. No se modifican campos de formularios.
+
+Aceptado visual y funcionalmente el 06/11/2026. Validación integrada:
+269 pruebas frontend, TypeScript y build de producción aprobados.
+`tests/homeFilterSelect.test.ts` comprueba selección y limpieza en las cuatro
+pantallas principales y ausencia de chips de filtrado en los homes.
+
+## Docencia en curso (ISS-44)
+
+`DocenciaForm` permite dejar Fecha fin vacía y explica que representa una
+actividad en curso. `actividadDocenciaServices.ts` tipa el fin de lectura como
+`string | null` y el payload como opcional o nulo. Al quitar una fecha existente
+el formulario envía solo la diferencia `fecha_fin: null`; si no hay cambios,
+no realiza PUT. Un fin anterior al inicio sigue siendo inválido.
+
+`DocenciaHome` incorpora la columna Fin ordenable y presenta `En curso` para
+valores nulos; `DocenciaDetalle` usa la misma indicación. Se mantienen filtros,
+hooks, permisos, borradores, feedback y navegación. El estado activo/inactivo
+del registro conserva su significado de baja lógica.
+
+`tests/docenciaMontosOpcionales.test.ts` ejecuta el formulario real mediante
+un harness para alta sin fin, eliminación diferencial, guardado sin cambios y
+rechazo de períodos inválidos. La validación visual y funcional fue aceptada
+por el usuario el 05/11/2026; pasaron 242 pruebas frontend, TypeScript y build.
+
+## Validacion preventiva de formularios (ISS-33)
+
+Los siete formularios de Produccion reutilizan `getValidationErrors` para
+validar durante la interaccion y al guardar: ArticulosDivulgacion, Distinciones,
+Docencia, Documentacion, RegistrosPropiedad, TrabajosReunion y TrabajosRevistas.
+Los controles nativos tambien validan al perder foco; Calendar conserva sus
+mensajes propios de formato y rango. Se mantienen las reglas particulares de
+obligatorios, longitudes, nombres, enlaces, autores y fechas. Docencia revalida
+el fin al cambiar el inicio. `DocumentacionAutoresField` informa formato y
+duplicados del autor nuevo antes de prepararlo para el guardado consolidado.
+
+La actualizacion de errores usa `src/lib/liveValidation.ts`, que revalida el
+campo editado y las reglas cuyo resultado cambia por dependencia, preservando
+los demas errores. No agrega hooks compartidos ni modifica componentes globales.
+Las validaciones no disparan escrituras de dominio. Se conservan services,
+contratos, permisos, borradores, navegacion y feedback de exito.
+La etapa fue aceptada visual y funcionalmente por el usuario el 05/11/2026;
+la regresion transversal esta en `tests/liveValidation.test.ts`.
+
 ## ISS-82: autores bibliográficos e historial de Documentación
 
 El formulario de Documentación conserva la búsqueda, selección y creación de
@@ -59,7 +110,7 @@ y enfocan el primer campo inválido. Los nombres locales de los controles se
 vinculan con las claves API, sin cambiar el payload del service ni los permisos.
 Los errores sin campo o con campos desconocidos conservan el aviso general;
 los errores inesperados muestran un mensaje publico seguro o un fallback accionable, sin identificadores internos.
-Se conservan las reglas y el momento de validación existentes. Véase el contrato
+Se conservan las reglas de validacion; ISS-33 incorpora feedback preventivo. Véase el contrato
 transversal en `../README.md`.
 
 ## Fechas
@@ -468,3 +519,68 @@ completas y `useDocumentacion` siguen disponibles para otros consumidores.
 Las pruebas de transicion y contrato se encuentran en
 `tests/transferenciasTable.test.ts`; la grilla e historial de Docencia
 siguen cubiertos por `tests/docenciaTable.test.ts`.
+
+## Denominaciones visibles de catálogos
+
+Docencia utiliza Grado Académico y Rol de Actividad en formulario, detalle y
+listado; la selección y los mensajes mantienen las tildes. El detalle muestra
+Fecha de finalización. Registro de Propiedad utiliza Tipo de Registro de
+Propiedad en etiqueta, selector, detalle e historial, igual que Catálogos.
+Estas denominaciones no cambian las claves API, IDs ni validaciones de negocio.
+
+
+## Recuperacion del contexto de consulta (ISS-50)
+
+DocenciaHome, DocumentacionHome, ArticulosDivulgacionHome, DistincionesHome, RegistrosPropiedadHome, TrabajosReunionHome y TrabajosRevistasHome conservan sus controles de consulta, orden cuando existe y pagina por listado.
+
+Los homes con estado local usan `shared/hooks/useHomeState.ts`; Busqueda conserva
+su contrato de URL. La persistencia validada se limita a la pestana y al usuario,
+sin guardar filas ni acciones pendientes. Se mantienen services, permisos,
+validaciones y paginacion vigentes. Contrato y pruebas en `../shared/README.md`.
+Aceptado funcionalmente por el usuario el 06/11/2026.
+
+
+## ISS-30: proyecto opcional en Distinciones
+
+El formulario permite crear distinciones sin proyecto y agregar o quitar la
+asociacion al guardar una edicion. El service tipa
+`proyecto_investigacion_id?: number | null`: omitirlo conserva la relacion en
+edicion; enviar `null` la elimina. Se envian solo diferencias reales y se
+mantienen los destinos y mensajes de exito vigentes.
+
+El detalle muestra `Sin proyecto asociado`; el home admite registros sin
+proyecto. El historial muestra vinculaciones y desvinculaciones con etiquetas
+legibles y mantiene tres eventos por pagina. Se conservan permisos, validacion
+de fecha/descripcion y errores asociados al control de proyecto.
+
+Aceptado funcionalmente por el usuario el 06/11/2026. Validacion: 252 pruebas
+frontend, typecheck y build de produccion correctos; 51 pruebas backend de
+Distinciones, auditoria y aislamiento UCT aprobadas. La revision transversal de
+textos extensos en tablas y titulos de detalle queda en ISS-96.
+
+## ISS-25: referato y alcance de trabajos
+
+Los formularios de reuniones y revistas ofrecen Referato con Sí, No y Sin
+informar (`boolean | null`). Reuniones agrega Alcance Nacional, Internacional o
+Sin informar; revistas reutiliza `TipoRevista` y no incorpora otro alcance.
+`procedencia` se presenta como Ciudad para reuniones nacionales y País para
+internacionales; sin alcance conserva Procedencia. Al clasificar un registro
+histórico debe revisarse ese dato. Revistas conserva su campo `pais`.
+
+Los services `trabajosReunionServices.ts` y `trabajosRevistasServices.ts`
+normalizan los atributos sin perder false. En edición, omitirlos conserva el
+valor y null lo limpia. Los formularios consolidan borradores y envían únicamente
+diferencias; una edición sin cambios no llama al backend. Altas vuelven al home y
+ediciones al detalle con `successMessage`. Se mantienen permisos y errores por
+campo. No cambian los componentes ni hooks compartidos.
+
+Homes y detalles muestran la clasificación; los homes permiten buscarla por
+texto y mantienen nueve registros por página. `clasificacionTrabajo.ts`
+centraliza etiquetas y conversión del selector. Ambos presentadores de historial
+muestran Sí/No/Sin informar y Nacional/Internacional; la primera clasificación de
+un histórico se conserva como evento visible. El historial mantiene tres eventos
+por página. Autores y relaciones siguen consolidándose al guardar.
+
+Aceptado visual y funcionalmente por el usuario el 07/11/2026. Validación:
+274 pruebas frontend, TypeScript y build de producción aprobados; cobertura de
+guardado diferencial, false/null/omisión, geografía e historial.

@@ -57,6 +57,7 @@ export type TransferenciaPorTipoContrato = {
   tipo_contrato: string;
   total: number;
   monto_total: number;
+  monto_total_usd: number;
 };
 
 export type BecarioPorTipoFormacion = {

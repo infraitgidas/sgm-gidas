@@ -1,9 +1,11 @@
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useMemo } from "react";
 import Button from "@/components/Button";
 import SuccessToast from "@/components/SuccessToast";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { reclasificarPersonal, type ClasePersonal } from "@/modules/personal/services/reclasificacionService";
 import { getErrorMessage } from "@/lib/httpError";
 import { useUctGuard } from "@/modules/grupo/hooks/useUctGuard";
 
@@ -21,6 +23,9 @@ export default function PersonalForm() {
 
   const navigate = useNavigate();
   const location = useLocation();
+  const qc = useQueryClient();
+  const [pendingTipo, setPendingTipo] = useState<Tipo>("");
+  const [saving, setSaving] = useState(false);
 
   // Infer role from URL path when :rol param is absent
   // e.g. /becarios/5/editar -> "becario", /investigadores/5/editar -> "investigador"
@@ -41,6 +46,7 @@ export default function PersonalForm() {
   });
 
   const requestedTipo = new URLSearchParams(location.search).get("tipo");
+  const requestedReclassification = new URLSearchParams(location.search).get("reclasificar") === "true";
   const [tipo, setTipo] = useState<Tipo>(
     requestedTipo === "PERSONAL" || requestedTipo === "BECARIO" || requestedTipo === "INVESTIGADOR"
       ? requestedTipo : ""
@@ -77,10 +83,10 @@ export default function PersonalForm() {
   }, [location.state]);
 
   useEffect(() => {
-    if (!isEdit && (requestedTipo === "PERSONAL" || requestedTipo === "BECARIO" || requestedTipo === "INVESTIGADOR")) {
+    if ((!isEdit || requestedReclassification) && (requestedTipo === "PERSONAL" || requestedTipo === "BECARIO" || requestedTipo === "INVESTIGADOR")) {
       setTipo(requestedTipo);
     }
-  }, [isEdit, requestedTipo]);
+  }, [isEdit, requestedTipo, requestedReclassification]);
 
   useEffect(() => {
     const r = inferredRol;
@@ -88,14 +94,23 @@ export default function PersonalForm() {
 
     const rolMap: Record<string, Tipo> = {
       personal: "PERSONAL",
+      ptaa: "PERSONAL",
       profesional: "PERSONAL",
       becario: "BECARIO",
       investigador: "INVESTIGADOR",
     };
 
     const mapped = rolMap[r.toLowerCase()];
-    if (mapped) setTipo(mapped);
-  }, [inferredRol]);
+    if (mapped && !requestedReclassification) setTipo(mapped);
+  }, [inferredRol, requestedReclassification]);
+
+  const sourceTipo = inferredRol === "profesional" || inferredRol === "ptaa" ? "PERSONAL" : inferredRol?.toUpperCase();
+  const isReclassifying = isEdit && tipo !== sourceTipo;
+  const formData = useMemo(() => isReclassifying && initialData ? {
+    ...initialData, relaciones: undefined, becas: [], tipo_personal_id: undefined,
+    tipo_formacion_id: undefined, tipo_dedicacion_id: undefined,
+    categoria_utn_id: null, programa_incentivos_id: null,
+  } : initialData, [initialData, isReclassifying]);
 
   if (isLoading) return <LoadingSkeleton variant="form" label="Cargando…" />;
   if (isEdit && isError) {
@@ -107,8 +122,26 @@ export default function PersonalForm() {
   }
 
   const handleTipoChange = (value: Tipo) => {
+    if (value === tipo || saving) return;
+    if (isEdit) {
+      setPendingTipo(value);
+      return;
+    }
     setTipo(value);
     if (value) setErrorTipo(false);
+  };
+
+  const saveReclassification = async (payload: Record<string, unknown>) => {
+    if (!initialData || !inferredRol) throw new Error("Recargue el registro e intente nuevamente.");
+    const cambios = Object.fromEntries(Object.entries(payload).filter(([key, value]) =>
+      JSON.stringify(value) !== JSON.stringify(initialData[key as keyof typeof initialData])
+    ));
+    const origen = initialData.rol === "profesional" ? "personal" : initialData.rol;
+    const result = await reclasificarPersonal(origen, initialData.id, tipo.toLowerCase() as ClasePersonal, cambios);
+    await Promise.all(["personal", "becarios", "investigadores", "personal-edit", "personal-detalle", "personal-historial", "proyecto-candidatos", "search"].map(key =>
+      qc.invalidateQueries({ queryKey: [key] })
+    ));
+    return result;
   };
 
   return (
@@ -119,8 +152,7 @@ export default function PersonalForm() {
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 space-y-6">
 
-        {!isEdit ? (
-          <fieldset>
+          <fieldset disabled={saving || (isEdit && !initialData?.activo)}>
             <legend className="block text-sm font-medium mb-3">
               Clase de registro<span className="ml-1 text-rose-500" aria-hidden="true">*</span>
             </legend>
@@ -144,13 +176,9 @@ export default function PersonalForm() {
               </p>
             )}
           </fieldset>
-        ) : (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Clase de registro</span>
-            <p className="mt-1 font-medium text-slate-900">{tipo === "PERSONAL" ? "Personal de apoyo, técnico o administrativo" : tipo === "BECARIO" ? "Becario" : "Investigador"}</p>
-            <p className="mt-1 text-xs text-slate-500">La clase no puede cambiarse porque corresponde a un tipo de registro persistente distinto.</p>
-          </div>
-        )}
+        {isEdit && <p className="text-sm text-slate-600" role="status">{isReclassifying
+          ? "Complete los campos de la clase destino y pulse Actualizar. Se conservarán la identidad, el DNI y el historial. Los campos exclusivos de la clase anterior quedarán registrados en el historial."
+          : "Puede corregir la clase del integrante. Las versiones de memoria existentes conservarán sus datos. Los vínculos con becas, proyectos y antecedentes requieren revisión antes de reclasificar."}</p>}
 
         {!tipo && !isEdit && (
           <div className="border-t border-slate-200 pt-6 flex justify-start">
@@ -169,7 +197,9 @@ export default function PersonalForm() {
         {tipo === "PERSONAL" && (
           <FormPTAAProfesional
             key={`${tipo}-${id ?? "new"}`}
-            initialData={initialData}
+            initialData={formData}
+            onReclassify={isReclassifying ? saveReclassification : undefined}
+            onSavingChange={setSaving}
             onCancel={() => navigate(-1)}
             onError={handleFormError}
           />
@@ -178,7 +208,9 @@ export default function PersonalForm() {
         {tipo === "BECARIO" && (
           <FormBecario
             key={`${tipo}-${id ?? "new"}`}
-            initialData={initialData}
+            initialData={formData}
+            onReclassify={isReclassifying ? saveReclassification : undefined}
+            onSavingChange={setSaving}
             onCancel={() => navigate(-1)}
             onError={handleFormError}
           />
@@ -187,7 +219,9 @@ export default function PersonalForm() {
         {tipo === "INVESTIGADOR" && (
           <FormInvestigador
             key={`${tipo}-${id ?? "new"}`}
-            initialData={initialData}
+            initialData={formData}
+            onReclassify={isReclassifying ? saveReclassification : undefined}
+            onSavingChange={setSaving}
             onCancel={() => navigate(-1)}
             onError={handleFormError}
           />
@@ -196,6 +230,10 @@ export default function PersonalForm() {
 
       {/* UCT GUARD */}
       {uctGuard}
+      <ConfirmDialog open={Boolean(pendingTipo)} title="Cambiar clase de registro"
+        message="El formulario se reiniciará con los datos guardados. Los cambios sin guardar se descartarán. La reclasificación se aplicará al pulsar Actualizar. Las versiones de memoria existentes conservarán sus datos; las nuevas tomarán la clase corregida. Los vínculos operativos pueden impedir el cambio."
+        confirmText="Cambiar clase" onCancel={() => setPendingTipo("")}
+        onConfirm={() => { setTipo(pendingTipo); setPendingTipo(""); }} />
 
       {/* 🔥 SUCCESS TOAST */}
       <SuccessToast

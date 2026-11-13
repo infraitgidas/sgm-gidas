@@ -81,6 +81,10 @@ if [ "${ENTRYPOINT_MODE:-serve}" = "migrate" ]; then
   exit 0
 fi
 
+if [ "${ENTRYPOINT_MODE:-serve}" = "email-worker" ]; then
+  exec flask email-worker
+fi
+
 echo "Iniciando backend..."
 
 if [ "${APP_ENV}" = "production" ] || [ "${APP_ENV}" = "prod" ]; then

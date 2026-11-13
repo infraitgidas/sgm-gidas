@@ -1,3 +1,4 @@
+import { updateLiveValidationErrors } from "@/lib/liveValidation";
 import { getGruposUtn } from "@/modules/grupo/services/gruposUtnServices";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -31,14 +32,25 @@ export default function MemoriaPeriodoForm({ memoria, onCancel, onSaved }: {
       setError(getErrorMessage(error, "Lo sentimos, no pudimos actualizar el período de la memoria. Revise las fechas e intente nuevamente."));
     },
   });
-  return <form noValidate className="space-y-4" onSubmit={async (event) => {
-    event.preventDefault();
-    if (isPending) return;
+  const validationValues = { grupoId, inicio, fin };
+  const getValidationErrors = (changes: Partial<typeof validationValues> = {}) => {
+    const { grupoId, inicio, fin } = { ...validationValues, ...changes };
     const next: Record<string, string> = {};
     if (!grupoId) next.grupo_utn_id = "Debe seleccionar una UCT.";
     if (!inicio) next.periodo_inicio = "Debe ingresar el inicio del período.";
     if (!fin) next.periodo_fin = "Debe ingresar el fin del período.";
     if (inicio && fin && fin < inicio) next.periodo_fin = "El fin no puede ser anterior al inicio.";
+    return next;
+  };
+
+  const validateChangedField = (field: string, changes: Partial<typeof validationValues> = {}) => {
+    setErrors((previous) => updateLiveValidationErrors(previous, getValidationErrors(), getValidationErrors(changes), field));
+  };
+
+  return <form noValidate className="space-y-4" onSubmit={async (event) => {
+    event.preventDefault();
+    if (isPending) return;
+    const next = getValidationErrors();
     setErrors(next); setError("");
     if (Object.keys(next).length) { focusFieldErrors(next); return; }
     const payload: Partial<Pick<MemoriaPayload, "periodo_inicio" | "periodo_fin" | "grupo_utn_id">> = {};
@@ -51,19 +63,21 @@ export default function MemoriaPeriodoForm({ memoria, onCancel, onSaved }: {
     <p className="text-sm text-slate-500">Puede corregir el período hasta que exista una versión cerrada. Las fechas de apertura y cierre no cambian.</p>
     <fieldset disabled={isPending} className="space-y-4">
       {memoria.grupo_utn_id === null && <Field required label="UCT" name="grupo_utn_id" error={errors.grupo_utn_id}>
-        <select id="grupo_utn_id" value={grupoId} onChange={(event) => setGrupoId(event.target.value)} className="w-full rounded-lg border border-slate-200 p-3">
+        <select id="grupo_utn_id" value={grupoId} onChange={(event) => { setGrupoId(event.target.value); validateChangedField("grupo_utn_id", { grupoId: event.target.value }); }} onBlur={() => validateChangedField("grupo_utn_id")} className="w-full rounded-lg border border-slate-200 p-3">
           <option value="">Seleccione la UCT de esta memoria</option>
           {grupos.map((grupo) => <option key={grupo.id} value={grupo.id}>{grupo.nombre}</option>)}
         </select>
       </Field>}
       <Field required label="Inicio del período" name="periodo_inicio" error={errors.periodo_inicio}>
         <DatePicker value={inicio ? new Date(`${inicio}T00:00:00`) : null} onChange={(date) => {
-          setInicio(toCivilDateString(date) ?? ""); setErrors((prev) => ({ ...prev, periodo_inicio: "" }));
+          setInicio(toCivilDateString(date) ?? "");
+          validateChangedField("periodo_inicio", { inicio: toCivilDateString(date) ?? "" });
         }} helperText="DD/MM/AAAA" />
       </Field>
       <Field required label="Fin del período" name="periodo_fin" error={errors.periodo_fin}>
         <DatePicker value={fin ? new Date(`${fin}T00:00:00`) : null} onChange={(date) => {
-          setFin(toCivilDateString(date) ?? ""); setErrors((prev) => ({ ...prev, periodo_fin: "" }));
+          setFin(toCivilDateString(date) ?? "");
+          validateChangedField("periodo_fin", { fin: toCivilDateString(date) ?? "" });
         }} helperText="DD/MM/AAAA" />
       </Field>
     </fieldset>

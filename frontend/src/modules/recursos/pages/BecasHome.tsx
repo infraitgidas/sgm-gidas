@@ -1,10 +1,12 @@
+import TableFilterSelect from "@/components/TableFilterSelect";
+import { useHomeState, useHomeFilterEffect } from "@/modules/shared/hooks/useHomeState";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import Button from "@/components/Button";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import SuccessToast from "@/components/SuccessToast";
-import Table, { TableActions, TableFilterChip, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
+import Table, { TableActions, TableRowActionButton, TableSearch, TableToolbar } from "@/components/Table";
 import type { TableColumn } from "@/components/Table";
 import { useAuth } from "@/context/AuthContext";
 import { getErrorMessage } from "@/lib/httpError";
@@ -17,10 +19,10 @@ export default function BecasHome() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const { canCreateRecords, canEditRecords, canDeleteRecords } = useAuth();
-  const [page, setPage] = useState(1);
-  const [estado, setEstado] = useState<"true" | "false" | "all">("true");
-  const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
+  const [page, setPage] = useHomeState("page", 1);
+  const [estado, setEstado] = useHomeState<"true" | "false" | "all">("estado", "true", { allowed: ["true","false","all"] });
+  const [search, setSearch] = useHomeState("search", "");
+  const [query, setQuery] = useState(search.trim());
   const [pendingDelete, setPendingDelete] = useState<Beca | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -28,9 +30,11 @@ export default function BecasHome() {
   const rows = becas.data?.data ?? [];
 
   useEffect(() => {
-    const timer = window.setTimeout(() => { setQuery(search.trim()); setPage(1); }, 250);
+    const timer = window.setTimeout(() => { setQuery(search.trim()); }, 250);
     return () => window.clearTimeout(timer);
   }, [search]);
+
+  useHomeFilterEffect(() => { setPage(1); }, [query, estado]);
 
   useEffect(() => {
     if (becas.data && page > Math.max(1, becas.data.meta.total_pages)) setPage(Math.max(1, becas.data.meta.total_pages));
@@ -85,10 +89,13 @@ export default function BecasHome() {
         toolbar={<TableToolbar><div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center">
           <TableSearch label="Buscar becas" placeholder="Buscar por nombre o descripción" value={search} onChange={(event) => setSearch(event.target.value)} />
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1 whitespace-nowrap [scrollbar-color:rgb(203_213_225)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent" aria-label="Filtros de becas">
-            <span className="shrink-0 text-xs font-medium text-slate-500">Estado</span>
-            <TableFilterChip className="shrink-0" active={estado === "true"} onClick={() => { setEstado("true"); setPage(1); }}>Activas</TableFilterChip>
-            <TableFilterChip className="shrink-0" active={estado === "all"} onClick={() => { setEstado("all"); setPage(1); }}>Todas</TableFilterChip>
-            <TableFilterChip className="shrink-0" active={estado === "false"} onClick={() => { setEstado("false"); setPage(1); }}>Inactivas</TableFilterChip>
+            <TableFilterSelect
+              label="Filtrar por estado"
+              placeholder="Todas"
+              value={estado === "all" ? undefined : estado}
+              onValueChange={(value) => { setEstado((value ?? "all") as typeof estado); setPage(1); }}
+              options={[{ value: "true", label: "Activas" }, { value: "false", label: "Inactivas" }]}
+            />
           </div>
         </div></TableToolbar>}
       />

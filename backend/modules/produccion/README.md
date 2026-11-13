@@ -1,5 +1,42 @@
 # Producción
 
+## Docencia en curso sin fecha de fin (ISS-44)
+
+Las altas y ediciones de Actividades en Docencia admiten `fecha_fin` ausente,
+`null` o vacía para representar una actividad en curso. La fecha de inicio
+sigue siendo obligatoria, no futura y dentro del rango institucional. Si se
+informa un fin, debe ser válido e igual o posterior al inicio. Omitir el campo
+en una edición conserva el valor anterior; enviar `null` permite reabrirla.
+
+`ActividadDocenciaService` aplica estas reglas en los endpoints existentes de
+`/api/v1/actividades-docencia`, mantiene los errores por campo y registra los
+cambios de fin en el historial. El listado de tabla admite ordenar por
+`fecha_fin`. Los permisos y el estado de baja lógica no cambian: estar en curso
+no equivale al estado activo/inactivo del registro.
+
+`ActividadDocencia` y `ActividadDocenciaMemoriaVersion` admiten fin nulo. La
+migración `c3e5a7b9d1f2`, posterior a `f6b8d0e2a4c6`, modifica ambas columnas
+sin alterar fechas existentes. El downgrade se rechaza mientras haya alguna
+actividad o foto sin fin, evitando completar datos inventados. Las fotos de
+memorias conservan su fin abierto aunque luego se cierre la actividad original.
+
+`tests/test_docencia_sin_fin.py` cubre alta, consultas, edición, cierre,
+reapertura, historial, fechas inválidas, snapshots y upgrade/downgrade. La
+migración fue aplicada en desarrollo con el servicio migrador. Aceptación
+funcional del usuario: 05/11/2026; validación conjunta con ISS-46: 59 pruebas
+backend, 242 frontend, TypeScript y build de producción aprobados.
+
+## Contrato consumido por la validacion preventiva (ISS-33)
+
+Obligatorios, autores, enlaces, nombres y periodos conservan sus validaciones de dominio y controles relacionales al persistir.
+
+El frontend reutiliza sus comprobaciones durante la interaccion y muestra
+conjuntamente los errores al guardar. Los errores de campo de la API mantienen
+`error.details.fields`; los no asociados a un control conservan feedback general.
+La etapa no cambia endpoints, payloads, modelos, permisos ni eventos auditados.
+Escribir o corregir un campo no genera una mutacion de dominio; la autoridad
+definitiva sigue siendo el backend. Aceptado por el usuario el 05/11/2026.
+
 ## ISS-82: autores de documentación bibliográfica
 
 `Autor` pertenece a una UCT, incorpora auditoría y usa baja lógica. La revisión
@@ -335,3 +372,72 @@ no visibles. Se mantienen permisos ADMIN/GESTOR/LECTURA de lectura y los
 contratos de mutaciones, auditoria e historial existentes.
 Las regresiones estan en `tests/test_tenant_scope.py` y se complementan
 con `tests/test_produccion_list_sql_pagination.py`.
+
+## Mensajes públicos de Grado Académico
+
+Los errores de consulta, duplicación, edición y baja muestran Grado Académico
+con tildes. Conservan los códigos de error, estados HTTP y reglas de validación;
+las claves del contrato API permanecen iguales.
+
+
+## ISS-30: Distinciones con pertenencia propia a UCT
+
+Las rutas existentes de `/api/v1/produccion/distinciones/` conservan sus roles:
+ADMIN/GESTOR para mutaciones y ADMIN/GESTOR/LECTURA para consultas.
+POST admite proyecto omitido o `proyecto_investigacion_id: null`.
+PUT conserva el proyecto si se omite el campo y permite desvincularlo con null;
+los IDs enviados deben corresponder a proyectos disponibles en la UCT.
+Fecha y descripcion siguen siendo obligatorias; se mantienen las validaciones,
+el control de duplicados y la baja logica. GET de detalle serializa `proyecto`
+como objeto o null. El historial registra cambios reales de asociacion.
+
+`DistincionRecibida.grupo_utn_id` es obligatorio, con FK e indice propios. La
+politica ORM vigente asigna la UCT del contexto al crear y conserva el aislamiento
+al desvincular un proyecto; la pertenencia no se toma del payload. Esto evita
+ObjectDeletedError despues del commit y 404 posteriores en registros sin proyecto.
+
+La migracion `a6c8e0f2b4d6` depende de `e5a7c9d1f3b6`: recupera pertenencia desde
+proyecto, auditoria de desvinculacion o pertenencia unica del creador. Si no puede
+resolverla, aborta sin adjudicar una UCT arbitraria. Aplicar con el usuario de
+migraciones antes de servir el nuevo modelo. No agrega variables de entorno.
+Las memorias mantienen su seleccion existente por proyecto/UCT.
+
+Aceptado por el usuario el 06/11/2026. Validacion: 51 pruebas backend aprobadas,
+incluida persistencia con desvinculacion, consulta en nueva sesion, historial,
+revinculacion, alta sin proyecto y denegacion desde otra UCT. La migracion local
+recupero el acceso al registro afectado sin revertir su desvinculacion.
+
+## ISS-25: clasificación de trabajos para la memoria
+
+`TrabajoReunionCientifica` y `TrabajosRevistasReferato`, junto con sus modelos
+de snapshot, incorporan `referato` booleano nullable. Solo reuniones incorpora
+`alcance` nullable con valores `nacional` o `internacional`, restringidos también
+en base de datos. Revistas conserva `tipo_revista_id` (Nacional/Internacional) y
+`pais`; reuniones conserva `procedencia` para Ciudad/País. No se crean catálogos
+ni campos geográficos duplicados.
+
+POST/PUT de `/api/v1/trabajos-reunion-cientifica` y
+`/api/v1/trabajos-revistas` aceptan `referato: true | false | null`; reuniones
+acepta además `alcance: "nacional" | "internacional" | null`. Ejemplo parcial
+de edición: `{"referato": false}`; para limpiar, `{"referato": null}`. Omitir un
+atributo en PUT conserva su valor y en POST deja el dato sin informar. GET de
+listado/detalle y snapshots devuelve estos atributos. Las rutas de actualización
+conservan su identificador final `/<id>`.
+
+`clasificacion_trabajo.py` valida tipos estrictos: rechaza strings booleanos,
+números y alcances desconocidos con 400 y `error.details.fields`. Se mantienen
+autenticación, aislamiento UCT, consultas ADMIN/GESTOR/LECTURA, escrituras
+ADMIN/GESTOR y baja lógica. Los services auditan diferencias reales, incluidos
+cambios desde/hacia null; las actualizaciones idénticas no duplican eventos.
+El cierre de memoria copia los valores en snapshots inmutables y no completa
+versiones anteriores desde las fichas actuales.
+
+La migración reversible `e8c2a4f6b0d1`, descendiente de `a6c8e0f2b4d6`, añade
+columnas nullable y restricciones sin clasificar históricos. Aplicarla con el
+usuario de migraciones antes de servir los nuevos modelos; no requiere variables
+de entorno, cambios de Docker ni semillas de clasificación. Su downgrade retira
+los atributos nuevos y conserva las filas. Las uniones con ramas locales
+pendientes deben versionarse junto con esas ramas, no con este ajuste aislado.
+
+Aceptado por el usuario el 07/11/2026. Regresión backend: 43 pruebas aprobadas
+de API, validación, auditoría, permisos, snapshots, migración y exportaciones.

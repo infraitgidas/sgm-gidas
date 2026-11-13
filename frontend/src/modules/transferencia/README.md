@@ -1,5 +1,65 @@
 # Transferencia frontend
 
+## Filtros desplegables (ISS-47)
+
+TransferenciasHome: estado.
+Los filtros del listado utilizan `TableFilterSelect`, con nombre accesible y
+selección mediante teclado. Todos/Todas elimina la restricción del criterio.
+La adaptación del selector conserva valores, setters y opciones de consulta;
+se mantienen services, permisos, nueve filas por página, contexto de Memoria
+y persistencia de filtros de ISS-50. No se modifican campos de formularios.
+
+Aceptado visual y funcionalmente el 06/11/2026. Validación integrada:
+269 pruebas frontend, TypeScript y build de producción aprobados.
+`tests/homeFilterSelect.test.ts` comprueba selección y limpieza en las cuatro
+pantallas principales y ausencia de chips de filtrado en los homes.
+
+## Transferencias con monto cero (ISS-46)
+
+`TransferenciasForm` admite el monto explícito cero y distingue un campo vacío
+de ese valor antes de convertirlo a número. Mantiene el rechazo de negativos
+y valores no finitos. La moneda ARS/USD, la precarga de cero, los borradores,
+services, hooks, permisos, relaciones y navegación conservan sus contratos.
+Las ediciones envían solo diferencias y no realizan PUT si no hay cambios.
+Listado y detalle ya muestran cero con el formato monetario vigente.
+
+`tests/docenciaMontosOpcionales.test.ts` ejecuta el formulario real para cero,
+positivos, negativos, vacío, conservación de moneda y edición sin cambios.
+Aceptación funcional del usuario: 05/11/2026; 242 pruebas frontend, TypeScript
+y build de producción aprobados.
+
+## Validacion preventiva de formularios (ISS-33)
+
+`TransferenciasForm` reutiliza sus reglas de denominacion, demandante,
+descripcion, monto, moneda, contrato y fechas al escribir, al salir de los
+controles nativos y al guardar. Cambiar el inicio revalida el fin.
+`AdoptantesField` informa formato y duplicados durante la carga del nombre y
+al perder foco. Preparar adoptantes no crea registros ni vinculos; el guardado
+de la transferencia sigue consolidando las altas y bajas existentes.
+
+La actualizacion de errores usa `src/lib/liveValidation.ts`, que revalida el
+campo editado y las reglas cuyo resultado cambia por dependencia, preservando
+los demas errores. No agrega hooks compartidos ni modifica componentes globales.
+Las validaciones no disparan escrituras de dominio. Se conservan services,
+contratos, permisos, borradores, navegacion y feedback de exito.
+La etapa fue aceptada visual y funcionalmente por el usuario el 05/11/2026;
+la regresion transversal esta en `tests/liveValidation.test.ts`.
+
+## Moneda del monto
+
+`TransferenciasForm` permite elegir ARS o USD, con ARS inicial, precarga en
+edición y envío de diferencias reales. No convierte el importe ni solicita
+cotización; se mantienen validación de monto no negativo, permisos y navegación.
+Los errores de moneda se muestran junto al campo. Borradores anteriores sin
+moneda recuperan ARS; ese valor predeterminado no crea borradores vacíos.
+
+`transferenciasServices.ts` tipa y transmite `moneda`, usando ARS para respuestas
+heredadas. `TransferenciasHome` presenta monto y código de moneda y envía
+`filter_moneda` al listado SQL. Detalle utiliza el mismo formato. Los importes
+del historial se presentan sin adjudicarles la moneda actual; los cambios de
+moneda se muestran como eventos propios. Los permisos y las relaciones con
+adoptantes se conservan. `tests/moneda.test.ts` cubre servicios y borradores.
+
 ## Historial de adoptantes (ISS-83)
 
 `TransferenciasDetalle` conserva el historial de la transferencia para cambios
@@ -40,7 +100,7 @@ y enfocan el primer campo inválido. Los nombres locales de los controles se
 vinculan con las claves API, sin cambiar el payload del service ni los permisos.
 Los errores sin campo o con campos desconocidos conservan el aviso general;
 los errores inesperados muestran un mensaje publico seguro o un fallback accionable, sin identificadores internos.
-Se conservan las reglas y el momento de validación existentes. Véase el contrato
+Se conservan las reglas de validacion; ISS-33 incorpora feedback preventivo. Véase el contrato
 transversal en `../README.md`.
 
 ## Fechas
@@ -190,3 +250,14 @@ el prefijo `transferencias`, incluyendo las consultas nuevas.
 `getTransferencias` y `useTransferencias` conservan sus consumidores
 de formularios y detalle. Las regresiones del contrato y cambios de pagina
 estan en `tests/transferenciasTable.test.ts`.
+
+
+## Recuperacion del contexto de consulta (ISS-50)
+
+TransferenciasHome conserva texto, filtros de estado/tipo/grupo/anio/moneda, direccion y pagina. El contexto de Memoria permanece separado del listado general.
+
+Los homes con estado local usan `shared/hooks/useHomeState.ts`; Busqueda conserva
+su contrato de URL. La persistencia validada se limita a la pestana y al usuario,
+sin guardar filas ni acciones pendientes. Se mantienen services, permisos,
+validaciones y paginacion vigentes. Contrato y pruebas en `../shared/README.md`.
+Aceptado funcionalmente por el usuario el 06/11/2026.

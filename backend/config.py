@@ -159,8 +159,17 @@ class Config:
     MAIL_PORT = int(os.getenv("MAIL_PORT", 587))
     MAIL_USE_TLS = os.getenv("MAIL_USE_TLS", "True") == "True"
     MAIL_USERNAME = os.getenv("MAIL_USERNAME")
-    MAIL_PASSWORD = os.getenv("MAIL_PASSWORD")
+    MAIL_PASSWORD = _env_or_file("MAIL_PASSWORD")
     MAIL_DEFAULT_SENDER = os.getenv("MAIL_DEFAULT_SENDER")
+    SMTP_TLS_MODE = os.getenv("SMTP_TLS_MODE", "starttls").strip().lower()
+    SMTP_TIMEOUT_SECONDS = _parse_int_env_range("SMTP_TIMEOUT_SECONDS", default=20, min_value=1, max_value=60)
+    EMAIL_WORKER_POLL_SECONDS = _parse_int_env_range("EMAIL_WORKER_POLL_SECONDS", default=5, min_value=1, max_value=60)
+    EMAIL_OUTBOX_ENCRYPTION_KEY = _env_or_file("EMAIL_OUTBOX_ENCRYPTION_KEY")
+    PASSWORD_RESET_HMAC_KEY = _env_or_file("PASSWORD_RESET_HMAC_KEY")
+    PASSWORD_RESET_PUBLIC_URL = os.getenv("PASSWORD_RESET_PUBLIC_URL", "")
+    PASSWORD_RESET_REQUEST_IP_LIMIT = os.getenv("PASSWORD_RESET_REQUEST_IP_LIMIT", "5 per 15 minutes")
+    PASSWORD_RESET_REQUEST_EMAIL_LIMIT = os.getenv("PASSWORD_RESET_REQUEST_EMAIL_LIMIT", "3 per hour")
+    PASSWORD_RESET_CONFIRM_LIMIT = os.getenv("PASSWORD_RESET_CONFIRM_LIMIT", "10 per 15 minutes")
 
     SQLALCHEMY_DATABASE_URI = os.getenv(
         "DATABASE_URL",
@@ -183,7 +192,7 @@ class Config:
     REFRESH_TOKEN_EXPIRATION_MINUTES = _parse_int_env_range(
         "REFRESH_TOKEN_EXPIRATION_MINUTES",
         default=10080,
-        min_value=60,
+        min_value=2 if APP_ENV in {"local", "development", "docker", "testing"} else 60,
         max_value=43200,
     )
     SESSION_WARNING_SECONDS = _parse_int_env_range(
