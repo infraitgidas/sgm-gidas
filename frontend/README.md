@@ -142,6 +142,22 @@ Variables principales:
 - `VITE_API_BASE_URL`: URL base versionada de la API. Usar `http://localhost:5000/api/v1` para backend local o `/api/v1` cuando se accede por nginx.
 - `VITE_API_URL`: variable legacy aceptada por compatibilidad. Si no termina en `/api/v1`, el cliente HTTP agrega el prefijo versionado.
 - `VITE_SERVER_FILTER_PERSONAL`: activa el filtrado del servidor para personal.
+- `VITE_APP_VERSION`: version visible en la UI (por defecto `dev`).
+- `VITE_COMMIT_SHA`: commit del build visible en la UI; se recorta a 12 caracteres.
+- `VITE_BUILD_DATE`: fecha ISO del build, usada como `title` de la leyenda de version.
+
+La version y el commit se muestran en el footer de la aplicacion y al pie del
+login como `SGM-GIDAS <version> · commit <sha>`. En desarrollo, sin build args,
+se muestra `SGM-GIDAS dev`. En produccion se inyectan al construir:
+
+```bash
+VITE_COMMIT_SHA=$(git rev-parse --short HEAD) \
+VITE_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+docker compose --env-file .env.production build frontend frontend_sgm
+```
+
+`VITE_APP_VERSION` toma `APP_VERSION` del entorno de Compose
+(`${APP_VERSION:-v1.1.0-beta.2}`).
 
 Scripts por ambiente:
 

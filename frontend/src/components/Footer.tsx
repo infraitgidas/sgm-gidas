@@ -1,3 +1,5 @@
+import { buildInfo, buildInfoLabel } from "@/lib/buildInfo";
+
 export default function Footer() {
   return (
     <footer className="w-full mt-10 flex justify-center">
@@ -25,6 +27,13 @@ export default function Footer() {
                 <span>Seminario-Integrador 2026</span>
                 <span className="text-slate-600">|</span>
                 <span>UTN-FRLP</span>
+              </p>
+
+              <p
+                className="text-xs text-slate-500"
+                title={buildInfo.buildDate ? `Build: ${buildInfo.buildDate}` : undefined}
+              >
+                {buildInfoLabel()}
               </p>
             </div>
 

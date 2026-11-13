@@ -178,6 +178,9 @@ services:
         VITE_API_URL: ${VITE_API_URL:-/api}
         VITE_SERVER_FILTER_PERSONAL: ${VITE_SERVER_FILTER_PERSONAL:-true}
         VITE_BASE_PATH: ${VITE_BASE_PATH:-/}
+        VITE_APP_VERSION: ${APP_VERSION:-v1.1.0-beta.2}
+        VITE_COMMIT_SHA: ${VITE_COMMIT_SHA:-unknown}
+        VITE_BUILD_DATE: ${VITE_BUILD_DATE:-unknown}
     container_name: ${COMPOSE_SERVICE_PREFIX:-gidas}_frontend
     restart: unless-stopped
     init: true
@@ -218,6 +221,9 @@ services:
         VITE_API_URL: /sgm-gidas/api
         VITE_SERVER_FILTER_PERSONAL: ${VITE_SERVER_FILTER_PERSONAL:-true}
         VITE_BASE_PATH: /sgm-gidas/
+        VITE_APP_VERSION: ${APP_VERSION:-v1.1.0-beta.2}
+        VITE_COMMIT_SHA: ${VITE_COMMIT_SHA:-unknown}
+        VITE_BUILD_DATE: ${VITE_BUILD_DATE:-unknown}
     container_name: ${COMPOSE_SERVICE_PREFIX:-gidas}_frontend_sgm
     restart: unless-stopped
     init: true

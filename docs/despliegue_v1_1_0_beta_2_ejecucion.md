@@ -306,3 +306,31 @@ cerrado.
   20 skipped por requerir PostgreSQL dedicado).
 - Pendiente: prueba de punta a punta con un usuario real y casilla controlada;
   URL estable si el túnel cambia.
+
+---
+
+## 11. Versión y commit visibles en el frontend
+
+Se agregó una leyenda `SGM-GIDAS <version> · commit <sha>` en el footer de la
+aplicación y al pie del login. La información se inyecta en tiempo de build:
+
+- `VITE_APP_VERSION`: `${APP_VERSION:-v1.1.0-beta.2}` desde Compose.
+- `VITE_COMMIT_SHA`: `$(git rev-parse --short HEAD)` al construir.
+- `VITE_BUILD_DATE`: fecha ISO UTC, usada como `title` de la leyenda.
+
+Build de producción de ambos frontends:
+
+```bash
+VITE_COMMIT_SHA=$(git rev-parse --short HEAD) \
+VITE_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+docker compose --env-file .env.production build frontend frontend_sgm
+```
+
+Archivos: `frontend/src/lib/buildInfo.ts`,
+`frontend/src/components/Footer.tsx`,
+`frontend/src/modules/auth/pages/Login.tsx`, `frontend/Dockerfile`,
+`frontend/Dockerfile.portal` y `docker-compose.yml`.
+
+Verificación local: `npm run typecheck` OK, `npm run test` 269 tests OK,
+`npm run build:production` OK; el bundle incluye
+`SGM-GIDAS v1.1.0-beta.2 · commit <sha>`.

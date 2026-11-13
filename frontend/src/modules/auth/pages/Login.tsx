@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AlertCircle, Eye, EyeOff, LoaderCircle, LogIn } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { buildInfoLabel } from "@/lib/buildInfo";
 import { useSystemSetup } from "@/modules/auth/hooks/useSystemSetup";
 import RouteBreadcrumbs from "@/modules/shared/components/RouteBreadcrumbs";
 import { forgetRememberedUser, readRememberedUser, rememberUser } from "@/modules/auth/utils/rememberedUser";
@@ -214,6 +215,8 @@ export default function LoginPage() {
               </Link>
             </p>
           )}
+
+          <p className="mt-6 text-center text-xs text-slate-400">{buildInfoLabel()}</p>
         </div>
       </div>
     </div>
