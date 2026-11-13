@@ -220,10 +220,16 @@ base activa con escritores conectados.
 
 ## 8. Pendientes
 
-- [ ] **Habilitar TLS** para que `https://sgm.gidas.local/restablecer-password`
-      sea alcanzable. Hoy el enlace de recuperación se genera pero no se sirve.
-      Alternativa evaluada: Cloudflare Tunnel directo a `127.0.0.1:8080`
-      (mencionado por el preflight de la release).
+- [x] **Enlace de recuperación operativo por el túnel HTTPS** (2026-11-13).
+      `PASSWORD_RESET_PUBLIC_URL` apunta a
+      `https://inns-officials-singles-green.trycloudflare.com/sgm-gidas/restablecer-password`,
+      el origen está en `FRONTEND_URLS`, la ruta del Portal responde `200` y el
+      request `202`. Limitación: el túnel es efímero.
+- [ ] **TLS estable para el SGM.** `gidas.frlp.utn.edu.ar` es el Drupal
+      institucional (no el SGM); el host nginx de `sgm.gidas.local:80` proxya a
+      `:8080` pero no tiene `:443` ni certificado, y `sudo` pide contraseña.
+      Opciones: túnel nombrado con dominio estable o certificado interno con CA
+      distribuida a los clientes.
 - [ ] Probar la recuperación de contraseña de punta a punta con un usuario real
       y una casilla controlada.
 - [ ] Validación visual y funcional del usuario: login, memorias (reapertura y
@@ -281,3 +287,18 @@ actualizar `FRONTEND_URLS` (y, si se usa el enlace de recuperación por el túne
 **Confirmación del usuario (2026-11-13).** El Portal funciona correctamente en
 LAN (`http://192.168.1.111:8080/sgm-gidas/`) y desde el Portal GIDAS. Incidente
 cerrado.
+
+---
+
+## 10. Recuperación de contraseña operativa (túnel HTTPS)
+
+- `PASSWORD_RESET_PUBLIC_URL=https://inns-officials-singles-green.trycloudflare.com/sgm-gidas/restablecer-password`
+- `FRONTEND_URLS` incluye `https://inns-officials-singles-green.trycloudflare.com`.
+- `backend` y `email-worker` recreados; ambos sanos.
+- Verificación: `POST /sgm-gidas/api/v1/auth/password-reset/request` con correo
+  inexistente → `202`; `GET /sgm-gidas/restablecer-password` → `200`; sin
+  errores en logs.
+- El enlace se arma como `.../restablecer-password#token=...` y lo sirve el
+  Portal.
+- Pendiente: prueba de punta a punta con un usuario real y casilla controlada;
+  URL estable si el túnel cambia.

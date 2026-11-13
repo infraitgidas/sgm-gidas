@@ -460,7 +460,7 @@ restaurar sobre la base activa con escritores conectados.
 | `migrate` | Exit 0 |
 | Smoke | Verde |
 | Prueba funcional | Pendiente de aceptación del usuario |
-| Recuperación de contraseña | Configurada y SMTP OK (235); enlace pendiente de TLS |
+| Recuperación de contraseña | Operativa por el túnel HTTPS (SMTP 235, ruta 200, request 202); URL estable pendiente |
 | Rollback ejecutado | No |
 | Incidentes | Sesión del Portal: cookie path + origen de túnel; corregido (ver ejecución §9) |
 
