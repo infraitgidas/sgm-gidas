@@ -277,3 +277,7 @@ devolvía `403` antes de leer la cookie.
 **Nota operativa.** El túnel es efímero: si cambia el hostname hay que
 actualizar `FRONTEND_URLS` (y, si se usa el enlace de recuperación por el túnel,
 `PASSWORD_RESET_PUBLIC_URL`) y reiniciar `backend`.
+
+**Confirmación del usuario (2026-11-13).** El Portal funciona correctamente en
+LAN (`http://192.168.1.111:8080/sgm-gidas/`) y desde el Portal GIDAS. Incidente
+cerrado.
