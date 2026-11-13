@@ -462,7 +462,7 @@ restaurar sobre la base activa con escritores conectados.
 | Prueba funcional | Pendiente de aceptación del usuario |
 | Recuperación de contraseña | Configurada y SMTP OK (235); enlace pendiente de TLS |
 | Rollback ejecutado | No |
-| Incidentes | Ninguno |
+| Incidentes | Sesión del Portal: cookie path + origen de túnel; corregido (ver ejecución §9) |
 
 ---
 

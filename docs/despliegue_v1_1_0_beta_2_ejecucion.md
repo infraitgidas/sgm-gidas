@@ -237,3 +237,43 @@ base activa con escritores conectados.
 - [ ] Proponer al dev la excepción de datos para `d3f5a7c9e1b2` (migración que
       hoy solo acepta el dataset ficticio) y la política de recuperación por
       HTTP en staging.
+
+---
+
+## 9. Incidente post-despliegue: sesión del Portal
+
+**Síntoma.** El Portal `/sgm-gidas/` mostraba "Lo sentimos, no pudimos recuperar
+su sesión" con un botón `Reintentar` que volvía al mismo estado.
+
+**Causa 1 — path de la cookie.** La cookie `gidas_refresh` se emite con
+`Path=/api/v1/auth`, pero el Portal llama a `/sgm-gidas/api/v1/auth/refresh`.
+El navegador no envía una cookie cuyo `Path` no prefija la URL: el refresh
+llegaba sin cookie y el backend respondía `401`.
+
+**Causa 2 — origen no confiable.** La validación se hizo por el túnel de
+Cloudflare `https://inns-officials-singles-green.trycloudflare.com/sgm-gidas/`.
+Ese origen no estaba en `FRONTEND_URLS`, por lo que `_is_trusted_cookie_request`
+devolvía `403` antes de leer la cookie.
+
+**Fix aplicado.**
+- `nginx/default.conf`, bloque `location /sgm-gidas/api/`:
+  `proxy_cookie_path /api/v1/auth /sgm-gidas/api/v1/auth;` para que la cookie
+  quede acotada a la API del Portal y el navegador la envíe en cada refresh.
+- `FRONTEND_URLS` de la VM: se agregó el origen del túnel. Backup del entorno:
+  `backend/.env.production.bak-tunnel-<fecha>`.
+- Se mantuvo el API base del Portal en `/sgm-gidas/api/v1`: el túnel solo expone
+  ese subpath; la raíz `/api/` pertenece a otra aplicación.
+- Se descartó el primer intento de mover el API base del Portal a `/api/v1`
+  (commit `8067d58`), porque rompía el acceso por túnel. El fix final es
+  `4c83047`.
+
+**Evidencia.**
+- `POST /sgm-gidas/api/v1/auth/logout` vía túnel y LAN devuelve
+  `Set-Cookie: ... Path=/sgm-gidas/api/v1/auth`.
+- Login con usuario inexistente vía túnel: `401` (antes `403`).
+- Refresh sin cookie vía túnel: `401` (esperado).
+- Assets del Portal vuelven a referenciar `/sgm-gidas/api/v1`.
+
+**Nota operativa.** El túnel es efímero: si cambia el hostname hay que
+actualizar `FRONTEND_URLS` (y, si se usa el enlace de recuperación por el túnel,
+`PASSWORD_RESET_PUBLIC_URL`) y reiniciar `backend`.
