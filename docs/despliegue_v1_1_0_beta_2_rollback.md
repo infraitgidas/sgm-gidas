@@ -6,6 +6,12 @@ Procedimiento de recuperación para la ventana de actualización de la VM
 
 El análisis y el plan están en `docs/despliegue_v1_1_0_beta_2_analisis.md`.
 
+> **Ejecutado el 2026-11-13.** El registro completo está en
+> `docs/despliegue_v1_1_0_beta_2_ejecucion.md`. Las 8 migraciones quedaron
+> aplicadas (`e8c2a4f6b0d1`), por lo que **R0 ya no aplica**: ante cualquier
+> problema de datos corresponde R1 y, si el dump falla, R2. El punto de
+> restauración sigue disponible en `/home/infra/gidas-backups/`.
+
 **Por qué el downgrade no es una opción:** la release trae 8 migraciones nuevas.
 `d3f5a7c9e1b2` declara explícitamente que la normalización de nombres es
 irreversible y su `downgrade()` lanza error. Otras migraciones agregan columnas

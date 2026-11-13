@@ -440,26 +440,29 @@ restaurar sobre la base activa con escritores conectados.
 
 ---
 
-## 9. Registro de la ventana (a completar)
+## 9. Registro de la ventana
+
+**Ejecutada el 2026-11-13.** El detalle completo con evidencia está en
+`docs/despliegue_v1_1_0_beta_2_ejecucion.md`.
 
 | Campo | Valor |
 |---|---|
-| Fecha / ventana | |
+| Fecha / ventana | 2026-11-13 16:50 – 16:56 (UTC−3) |
 | Commit anterior | `f800778` |
 | Alembic anterior | `a7c9e2f4b6d8` |
-| Tag desplegado | `v1.1.0-beta.2-infra.1` |
+| Tag desplegado | `v1.1.0-beta.2-infra.1` (`013ba97`) |
 | Alembic nuevo | `e8c2a4f6b0d1` |
-| Dump pre-upgrade | |
-| Snapshot de volumen | |
-| Copia externa | |
+| Dump pre-upgrade | `pre-upgrade-v1.1.0-beta.2-20261113-165006.dump` (481 K, 1104 TOC) |
+| Snapshot de volumen | `vol-pre-upgrade-v1.1.0-beta.2-20261113-165006.tar.gz` (9,1 M, 1754 archivos) |
+| Copia externa | `~/gidas-backups-externos/` |
 | Imágenes preservadas | `:pre-v1.1.0-beta.2` |
-| Drill de restore | |
-| `migrate` | |
-| Smoke | |
-| Prueba funcional | |
-| Recuperación de contraseña | Pendiente de TLS |
-| Rollback ejecutado | No / R0 / R1 / R2 / R3 |
-| Incidentes | |
+| Drill de restore | Sí — 88 tablas |
+| `migrate` | Exit 0 |
+| Smoke | Verde |
+| Prueba funcional | Pendiente de aceptación del usuario |
+| Recuperación de contraseña | Configurada y SMTP OK (235); enlace pendiente de TLS |
+| Rollback ejecutado | No |
+| Incidentes | Ninguno |
 
 ---
 
