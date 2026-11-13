@@ -75,9 +75,9 @@ class PasswordResetService:
         safe_link = html.escape(link, quote=True)
         payload = {
             "to": user.mail,
-            "subject": "GIDAS: restablecer contraseña",
-            "text": f"Se solicitó restablecer su contraseña en GIDAS.\n\n{link}\n\nEl enlace es de un solo uso y vence 30 minutos después del envío. Si no lo solicitó, ignore este correo.",
-            "html": f'<p>Se solicitó restablecer su contraseña en GIDAS.</p><p><a href="{safe_link}">Restablecer contraseña</a></p><p>El enlace es de un solo uso y vence 30 minutos después del envío. Si no lo solicitó, ignore este correo.</p>',
+            "subject": "SGM-GIDAS: restablecer contraseña",
+            "text": f"Se solicitó restablecer su contraseña en SGM-GIDAS.\n\n{link}\n\nEl enlace es de un solo uso y vence 30 minutos después del envío. Si no lo solicitó, ignore este correo.",
+            "html": f'<p>Se solicitó restablecer su contraseña en SGM-GIDAS.</p><p><a href="{safe_link}">Restablecer contraseña</a></p><p>El enlace es de un solo uso y vence 30 minutos después del envío. Si no lo solicitó, ignore este correo.</p>',
         }
         message = EmailOutbox(id=uuid.uuid4(), message_type="password_reset", status="pending",
                               payload_encrypted=encrypt_payload(payload), next_attempt_at=now)

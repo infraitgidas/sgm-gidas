@@ -46,7 +46,7 @@ export default function RestablecerPassword() {
       <div className="mb-6 text-center">
         <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-full bg-amber-50"><Lock aria-hidden="true" className="h-8 w-8 text-amber-600" /></div>
         <h1 className="text-2xl font-semibold text-slate-900">Modificar contraseña</h1>
-        <p className="mt-2 text-sm text-slate-600">Elija una nueva contraseña para su cuenta.</p>
+        <p className="mt-2 text-sm text-slate-600">Elija una nueva contraseña para su cuenta de SGM-GIDAS.</p>
       </div>
       {!token ? <div role="alert" className="space-y-4 text-sm text-slate-700">
         <p>{error || "El enlace no es válido o ya no está disponible. Solicite uno nuevo para continuar."}</p>

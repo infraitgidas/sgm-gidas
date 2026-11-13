@@ -32,7 +32,7 @@ export default function RecuperarPassword() {
       <div className="mb-6 text-center">
         <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-full bg-amber-50"><Mail aria-hidden="true" className="h-8 w-8 text-amber-600" /></div>
         <h1 className="text-2xl font-semibold text-slate-900">Recuperar contraseña</h1>
-        <p className="mt-2 text-sm text-slate-600">Ingrese el correo asociado a su cuenta para recibir un enlace de restablecimiento.</p>
+        <p className="mt-2 text-sm text-slate-600">Ingrese el correo asociado a su cuenta de SGM-GIDAS para recibir un enlace de restablecimiento.</p>
       </div>
       {sent ? <div role="status" aria-live="polite" className="space-y-3 text-sm text-slate-700">
         <CheckCircle aria-hidden="true" className="mx-auto h-10 w-10 text-emerald-600" /><p>{RESET_REQUEST_MESSAGE}</p>
