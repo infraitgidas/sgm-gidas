@@ -300,5 +300,9 @@ cerrado.
   errores en logs.
 - El enlace se arma como `.../restablecer-password#token=...` y lo sirve el
   Portal.
+- Asunto, cuerpo y remitente ahora dicen `SGM-GIDAS` (antes `GIDAS`):
+  `MAIL_DEFAULT_SENDER=SGM-GIDAS <infrait@frlp.utn.edu.ar>`.
+- Test de regresión `test_email_identifies_sgm_gidas`: OK (suite de 37 tests,
+  20 skipped por requerir PostgreSQL dedicado).
 - Pendiente: prueba de punta a punta con un usuario real y casilla controlada;
   URL estable si el túnel cambia.
