@@ -8,8 +8,8 @@ RUN npm ci
 FROM dependencies AS build
 
 ARG VITE_APP_ENV=production
-ARG VITE_API_BASE_URL=/api/v1
-ARG VITE_API_URL=/api
+ARG VITE_API_BASE_URL=/sgm-gidas/api/v1
+ARG VITE_API_URL=/sgm-gidas/api
 ARG VITE_SERVER_FILTER_PERSONAL=true
 ARG VITE_BASE_PATH=/sgm-gidas/
 
